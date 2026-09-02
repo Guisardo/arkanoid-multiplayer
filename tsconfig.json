@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "sim/*": ["src/sim/*"],
+      "net/*": ["src/net/*"],
+      "signaling/*": ["src/signaling/*"],
+      "render/*": ["src/render/*"],
+      "input/*": ["src/input/*"],
+      "ui/*": ["src/ui/*"],
+      "content/*": ["src/content/*"],
+      "audio/*": ["src/audio/*"],
+      "persistence/*": ["src/persistence/*"],
+      "app/*": ["src/app/*"]
+    }
+  },
+  "include": ["src", "tests", "e2e", "playwright.config.ts", "vite.config.ts", "vitest.config.ts"]
+}

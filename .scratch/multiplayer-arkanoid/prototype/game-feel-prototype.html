@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game-feel prototype — Multiplayer Arkanoid</title>
+<style>
+  :root {
+    --accent: #e0533d;
+    --bg: #14161a;
+    --panel: #1d2026;
+    --panel2: #23262e;
+    --line: #2a2e36;
+    --text: #d8dce4;
+    --dim: #8a919e;
+    --good: #3de06c;
+    --bad: #e0533d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 18px 20px 10px; max-width: 1320px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: 0.3px; }
+  header h1 .tag {
+    font-size: 11px; font-weight: 700; color: #fff; background: var(--accent);
+    padding: 2px 7px; border-radius: 3px; vertical-align: 2px; margin-left: 8px;
+  }
+  header .question { color: var(--dim); margin: 6px 0 2px; max-width: 900px; }
+  header .controls-hint { color: var(--dim); font-size: 12px; margin: 4px 0 0; }
+  header .controls-hint b { color: var(--text); font-weight: 600; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 14px;
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 20px 20px;
+    align-items: start;
+  }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .stage { position: relative; }
+  canvas {
+    width: 100%;
+    display: block;
+    background: #0d0e11;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    touch-action: none;
+  }
+  #banner {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: var(--bad); color: #fff; font-weight: 700; font-size: 13px;
+    padding: 6px 14px; border-radius: 4px; display: none; white-space: nowrap;
+    box-shadow: 0 2px 12px rgba(224,83,61,0.5);
+  }
+  #toasts {
+    position: absolute; bottom: 12px; left: 12px; display: flex;
+    flex-direction: column; gap: 4px; pointer-events: none;
+  }
+  .toast {
+    background: rgba(29,32,38,0.92); border: 1px solid var(--line);
+    padding: 4px 10px; border-radius: 4px; font-size: 12px;
+    animation: toastfade 2.8s forwards;
+  }
+  @keyframes toastfade { 0% {opacity:0} 8% {opacity:1} 80% {opacity:1} 100% {opacity:0} }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 12px; margin-bottom: 12px;
+  }
+  .panel h2 {
+    margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--dim);
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  .btn {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.small { padding: 3px 8px; font-size: 11px; }
+  .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+  .slider-row label { flex: 0 0 130px; color: var(--dim); }
+  .slider-row output { flex: 0 0 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .slider-row input[type=range] { flex: 1; accent-color: var(--accent); }
+
+  .pcard {
+    border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px;
+    margin-bottom: 6px; font-size: 12px; background: var(--panel2);
+  }
+  .pcard .pname { font-weight: 700; }
+  .pcard .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .pcard .stats { display: flex; gap: 12px; flex-wrap: wrap; color: var(--dim); margin-top: 3px; }
+  .pcard .stats b { color: var(--text); font-weight: 600; }
+  .pcard .meterwrap { height: 5px; background: #0d0e11; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .pcard .meterbar { height: 100%; background: var(--accent); width: 0%; }
+  .pcard.downed { opacity: 0.55; }
+  .pcard .flag { color: var(--bad); font-weight: 700; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; }
+  .stat-grid .k { color: var(--dim); }
+  .stat-grid .v { font-variant-numeric: tabular-nums; text-align: right; }
+  .v.over { color: var(--bad); font-weight: 700; }
+  .v.ok { color: var(--good); }
+
+  #scenarios { max-width: 1320px; margin: 0 auto; padding: 0 20px 40px; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .tab-desc { color: var(--dim); font-size: 13px; margin-bottom: 10px; max-width: 900px; }
+  .tab-desc b { color: var(--text); }
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; }
+  .note { font-size: 11px; color: var(--dim); margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Game-feel prototype <span class="tag">PROTOTYPE — THROWAWAY</span></h1>
+  <p class="question">
+    <b>Question:</b> do the mode designs (Race / Attack / Duel / shared-field coop / parallel assist)
+    and the netcode decisions (tick-D input delay, local prediction with error-offset reconcile,
+    remote interpolation, input redundancy + stall decay, overload catch-up cap + slow-motion)
+    feel right in practice? Play it. Watch the state panel after every action.
+    Tuning values marked <i>validate-after-prototype</i> are live-adjustable in the sidebar.
+  </p>
+  <p class="controls-hint">
+    <b>P1 (you):</b> mouse move or A/D · <b>Launch:</b> Space or click ·
+    <b>Cycle target:</b> Tab · <b>Attacks (Attack mode):</b> 1 rain · 2 shrink · 3 speed · 4 mangle ·
+    <b>Assists (Assist mode):</b> Q gift · W clear · E life · Other players are bots (remote guests).
+  </p>
+</header>
+
+<div class="layout">
+  <div class="stage">
+    <canvas id="game"></canvas>
+    <div id="banner">SIM THROTTLING — SLOW MOTION (catch-up cap held at 5 ticks/frame)</div>
+    <div id="toasts"></div>
+  </div>
+
+  <aside>
+    <section class="panel" id="statePanel"><h2>Match state</h2><div id="stateBody">—</div></section>
+
+    <section class="panel">
+      <h2>Setup</h2>
+      <div class="row" id="modeRow"></div>
+      <div class="row" id="countRow"></div>
+      <div class="slider-row"><label>Input delay D (ticks)</label><input type="range" id="uD" min="0" max="5" step="1" value="4"><output id="oD">4</output></div>
+      <div class="slider-row"><label>Guest input loss (%)</label><input type="range" id="uLoss" min="0" max="30" step="1" value="5"><output id="oLoss">5</output></div>
+      <div class="slider-row"><label>Guest jitter (ticks)</label><input type="range" id="uJit" min="0" max="5" step="1" value="1"><output id="oJit">1</output></div>
+      <div class="slider-row"><label>Snapshot rate</label><input type="range" id="uSnap" min="1" max="2" step="1" value="2"><output id="oSnap">30 Hz</output></div>
+      <div class="row"><button class="btn" id="btnReset">Reset match</button></div>
+    </section>
+
+    <section class="panel" id="actionPanel"><h2>Actions</h2><div id="actionBody"></div></section>
+
+    <section class="panel">
+      <h2>Tuning (validate-after-prototype values)</h2>
+      <div class="slider-row"><label>Chain tier 1 (breaks)</label><input type="range" id="tChain" min="2" max="15" step="1" value="4"><output id="otChain">4</output></div>
+      <div class="slider-row"><label>Cost: brick rain</label><input type="range" id="tRain" min="10" max="60" step="5" value="30"><output id="otRain">30</output></div>
+      <div class="slider-row"><label>Cost: paddle shrink</label><input type="range" id="tShrink" min="10" max="60" step="5" value="25"><output id="otShrink">25</output></div>
+      <div class="slider-row"><label>Cost: ball speed</label><input type="range" id="tSpeed" min="10" max="60" step="5" value="20"><output id="otSpeed">20</output></div>
+      <div class="slider-row"><label>Cost: control mangle</label><input type="range" id="tMangle" min="10" max="60" step="5" value="40"><output id="otMangle">40</output></div>
+      <div class="slider-row"><label>Dur: shrink (s)</label><input type="range" id="dShrink" min="2" max="20" step="1" value="10"><output id="odShrink">10</output></div>
+      <div class="slider-row"><label>Dur: speed-up (s)</label><input type="range" id="dSpeed" min="2" max="20" step="1" value="8"><output id="odSpeed">8</output></div>
+      <div class="slider-row"><label>Dur: mangle (s)</label><input type="range" id="dMangle" min="2" max="20" step="1" value="6"><output id="odMangle">6</output></div>
+      <div class="slider-row"><label>Meter fill / brick</label><input type="range" id="tFillB" min="1" max="5" step="1" value="2"><output id="otFillB">2</output></div>
+      <div class="slider-row"><label>Meter fill / capsule</label><input type="range" id="tFillC" min="4" max="20" step="1" value="10"><output id="otFillC">10</output></div>
+    </section>
+
+    <section class="panel">
+      <h2>Performance</h2>
+      <div class="slider-row"><label>Synthetic CPU load (ms/tick)</label><input type="range" id="pLoad" min="0" max="20" step="0.5" value="0"><output id="opLoad">0</output></div>
+      <div class="row">
+        <button class="btn small" id="pGuests">3-guest synthetic load: OFF</button>
+        <button class="btn small dprbtn" data-dpr="2">dpr 2</button>
+        <button class="btn small dprbtn" data-dpr="1.5">dpr 1.5</button>
+        <button class="btn small dprbtn" data-dpr="1">dpr 1</button>
+      </div>
+      <div class="stat-grid" id="perfGrid"></div>
+      <p class="note">Budgets (entry-Android reference): sim tick ≤ 2 ms, render ≤ 5 ms, draw calls &lt; 20.
+        "Ops" counts canvas-2D draw operations — an upper-bound analog: PixiJS batches brick sprites
+        into ~1 WebGL call, so real draw calls land well under ops. Open this file on the reference
+        device to check the render budget for real.</p>
+    </section>
+  </aside>
+</div>
+
+<section id="scenarios" class="panel">
+  <h2>Guided walkthroughs</h2>
+  <div class="tabs" id="tabBar"></div>
+  <div class="tab-desc" id="tabDesc"></div>
+  <div class="steps" id="tabSteps"></div>
+</section>
+
+<script>
+"use strict";
+/* =====================================================================
+ * SIM MODULE — the liftable part. No DOM in here. The page calls in;
+ * nothing flows out. Fixed-timestep (60 Hz) Arkanoid sim with the five
+ * multiplayer variants decided in the wayfinder map.
+ * ===================================================================== */
+
+const SIM = (() => {
+  const COLS = 13, ROWS = 6, BW = 16, BH = 8, BRICK_TOP = 20;
+  const FIELD_W = COLS * BW, FIELD_H = 256;
+  const PAD_Y = FIELD_H - 14, PAD_H = 6, PAD_W = 32, VMAX = 150;
+  const BALL_R = 3, BASE_SPEED = 110, CAP_SPEED = 45;
+  const CAPS_ROSTER = ['E', 'M', 'S', 'E', 'M', 'S', 'P'];
+  const TICKS_PER_SEC = 60;
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  function makeBricks(level) {
+    const g = new Uint8Array(COLS * ROWS);
+    const pat = ((level - 1) % 3 + 3) % 3;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        let on = 1;
+        if (pat === 1) on = (r + c) % 2 === 0 ? 1 : 0;
+        if (pat === 2) on = Math.abs(c - 6) <= r + 2 ? 1 : 0;
+        g[r * COLS + c] = on;
+      }
+    }
+    return g;
+  }
+
+  function padW(pl) {
+    return PAD_W * (pl.fx.expand > 0 ? 1.5 : 1) * (pl.fx.shrink > 0 ? 0.6 : 1);
+  }
+
+  function effSpeed(G, f) {
+    let s = BASE_SPEED;
+    if (f.fx.slow > 0) s *= 0.7;
+    if (f.fx.speed > 0) s *= 1.3;
+    if (G.mode === 'shared' && G.players.length > 2) s *= 1 + 0.06 * (G.players.length - 2);
+    return s;
+  }
+
+  function makeField(owner, level) {
+    const bricks = makeBricks(level);
+    let count = 0;
+    for (let i = 0; i < bricks.length; i++) count += bricks[i];
+    return {
+      owner, bricks, count, destroyed: [], ver: 1, round: level,
+      paddles: [], balls: [], capsules: [],
+      fx: { slow: 0, speed: 0 }, frozen: false,
+      breakCount: 0, capIdx: 0,
+    };
+  }
+
+  function attachBall(G, f, p) {
+    const pd = f.paddles.find(x => x.p === p) || f.paddles[0];
+    f.balls.push({ x: pd ? pd.x : FIELD_W / 2, y: PAD_Y - BALL_R - 1, vx: 0, vy: 0, att: p, owner: p });
+  }
+
+  function createState(cfg) {
+    const G = {
+      mode: cfg.mode, tick: 0, phase: 'play', winner: null, result: null,
+      players: cfg.players.map((p, i) => ({
+        i, name: p.name, color: p.color, bot: p.bot,
+        lives: cfg.mode === 'duel' ? 0 : cfg.lives,
+        score: 0, meter: 0, chain: 0,
+        target: cfg.players.length > 1 ? (i + 1) % cfg.players.length : -1,
+        fx: { expand: 0, shrink: 0, mangle: 0 },
+        downed: false, done: false, lastDir: (i % 2 === 0 ? 1 : -1),
+      })),
+      fields: [], shared: null, cfg, tuning: cfg.tuning, events: [],
+    };
+    if (cfg.mode === 'duel' || cfg.mode === 'shared') {
+      const f = makeField(0, cfg.level);
+      const n = G.players.length;
+      f.paddles = G.players.map(p => ({ p: p.i, x: FIELD_W * (p.i + 1) / (n + 1) }));
+      G.fields = [f];
+      if (cfg.mode === 'shared') G.shared = { pool: cfg.lives };
+      attachBall(G, f, 0);
+    } else {
+      G.fields = G.players.map(p => {
+        const f = makeField(p.i, cfg.level);
+        f.paddles = [{ p: p.i, x: FIELD_W / 2 }];
+        return f;
+      });
+      G.fields.forEach(f => attachBall(G, f, f.owner));
+    }
+    return G;
+  }
+
+  function toastEv(G, msg) { G.events.push(msg); }
+
+  function endGame(G, res) {
+    if (G.phase === 'over') return;
+    G.phase = 'over';
+    G.result = res;
+    G.winner = res.winner != null ? res.winner : null;
+    toastEv(G, res.lose ? 'Team loses — all out' : res.draw ? 'Draw' : (res.winner != null ? G.players[res.winner].name + ' wins' : 'Team wins'));
+  }
+
+  function resetField(G, f) {
+    const pl = G.players[f.owner];
+    f.bricks = makeBricks(f.round);
+    f.count = 0;
+    for (let i = 0; i < f.bricks.length; i++) f.count += f.bricks[i];
+    f.destroyed = []; f.ver++; f.breakCount = 0; f.capIdx = 0;
+    f.balls = []; f.capsules = []; f.fx.slow = 0; f.fx.speed = 0;
+    pl.lives = G.cfg.lives; pl.chain = 0;
+    pl.fx.expand = 0; pl.fx.shrink = 0; pl.fx.mangle = 0;
+    attachBall(G, f, f.owner);
+  }
+
+  function cycleTarget(G, p) {
+    const others = G.players.filter(x => x.i !== p.i);
+    if (others.length === 0) return;
+    const idx = others.findIndex(x => x.i === p.target);
+    p.target = others[(idx + 1) % others.length].i;
+    toastEv(G, p.name + ' targets ' + G.players[p.target].name);
+  }
+
+  function fieldOfPlayer(G, p) {
+    if (G.mode === 'duel' || G.mode === 'shared') return G.fields[0];
+    return G.fields[p];
+  }
+
+  function launchBalls(G, p) {
+    const f = fieldOfPlayer(G, p.i);
+    for (const b of f.balls) {
+      if (b.att === p.i) {
+        const sp = effSpeed(G, f);
+        const ang = 72 * Math.PI / 180;
+        const dir = p.lastDir !== 0 ? p.lastDir : 1;
+        b.vx = Math.sin(ang) * sp * dir;
+        b.vy = -Math.cos(ang) * sp;
+        b.att = -1;
+        b.owner = p.i;
+      }
+    }
+  }
+
+  function resurrectBricks(G, f, n) {
+    let placed = 0;
+    while (placed < n && f.destroyed.length > 0) {
+      const k = Math.floor(Math.random() * f.destroyed.length);
+      const i = f.destroyed.splice(k, 1)[0];
+      f.bricks[i] = 1; f.count++; placed++;
+    }
+    if (placed > 0) f.ver++;
+    return placed;
+  }
+
+  function removeLowestBricks(G, f, n) {
+    let removed = 0;
+    for (let row = ROWS - 1; row >= 0 && removed < n; row--) {
+      for (let col = 0; col < COLS && removed < n; col++) {
+        const i = row * COLS + col;
+        if (f.bricks[i]) {
+          f.bricks[i] = 0; f.count--; f.destroyed.push(i); removed++;
+        }
+      }
+    }
+    if (removed > 0) f.ver++;
+    if (f.count === 0) onClear(G, f);
+    return removed;
+  }
+
+  function applyEffectOnTarget(G, tgt, type) {
+    const t = G.tuning;
+    const f = fieldOfPlayer(G, tgt.i);
+    if (type === 'shrink') { tgt.fx.shrink = t.dur.shrink; toastEv(G, tgt.name + "'s paddle shrunk"); }
+    if (type === 'speed') { f.fx.speed = t.dur.speed; toastEv(G, tgt.name + "'s ball sped up"); }
+    if (type === 'mangle') { tgt.fx.mangle = t.dur.mangle; toastEv(G, tgt.name + "'s controls mangled"); }
+  }
+
+  function fireAction(G, p, action) {
+    const t = G.tuning;
+    if (G.mode === 'attack') {
+      const costs = { rain: t.costs.rain, shrink: t.costs.shrink, speed: t.costs.speed, mangle: t.costs.mangle };
+      const cost = costs[action];
+      if (cost == null) return;
+      if (p.meter < cost) { toastEv(G, p.name + ': not enough meter (' + cost + ')'); return; }
+      const tgt = G.players[p.target];
+      if (!tgt || tgt.i === p.i) { toastEv(G, p.name + ': pick a target first (Tab)'); return; }
+      p.meter -= cost;
+      if (action === 'rain') {
+        const f = fieldOfPlayer(G, tgt.i);
+        const placed = resurrectBricks(G, f, 6);
+        if (placed === 0) { p.meter += cost; toastEv(G, 'Rain fizzled — ' + tgt.name + ' has no destroyed bricks (refunded)'); }
+        else toastEv(G, 'Brick rain → ' + tgt.name + ': ' + placed + ' bricks');
+      } else applyEffectOnTarget(G, tgt, action);
+    } else if (G.mode === 'assist') {
+      const costs = { gift: 20, clear: 30, life: 40 };
+      const cost = costs[action];
+      if (cost == null) return;
+      if (p.meter < cost) { toastEv(G, p.name + ': not enough meter (' + cost + ')'); return; }
+      const tgt = G.players[p.target];
+      if (!tgt || tgt.i === p.i) { toastEv(G, p.name + ': pick a teammate first (Tab)'); return; }
+      if (action === 'life' && !tgt.downed) { toastEv(G, tgt.name + ' is not downed'); return; }
+      p.meter -= cost;
+      if (action === 'gift') {
+        const f = fieldOfPlayer(G, tgt.i);
+        const type = ['E', 'M', 'S'][Math.floor(Math.random() * 3)];
+        f.capsules.push({ x: 20 + Math.random() * (FIELD_W - 40), y: BRICK_TOP, type });
+        toastEv(G, 'Capsule gift (' + type + ') → ' + tgt.name);
+      } else if (action === 'clear') {
+        const f = fieldOfPlayer(G, tgt.i);
+        const removed = removeLowestBricks(G, f, 8);
+        toastEv(G, 'Brick clear → ' + tgt.name + ': ' + removed + ' bricks removed');
+      } else if (action === 'life') {
+        const f = fieldOfPlayer(G, tgt.i);
+        tgt.downed = false; tgt.lives = 1; f.frozen = false;
+        f.balls = []; attachBall(G, f, tgt.i);
+        toastEv(G, 'Life gift → ' + tgt.name + ' revived');
+      }
+    }
+  }
+
+  function checkChain(G, p) {
+    const tiers = G.tuning.chain;
+    for (let k = 0; k < tiers.length; k++) {
+      if (p.chain === tiers[k]) {
+        const tgt = G.players[p.target];
+        if (!tgt || tgt.i === p.i) { toastEv(G, p.name + ' chained ' + p.chain + ' — no target, chain wasted'); return; }
+        const f = fieldOfPlayer(G, tgt.i);
+        const placed = resurrectBricks(G, f, tiers[k]);
+        toastEv(G, 'CHAIN ' + p.chain + '! Auto brick rain → ' + tgt.name + ': ' + placed + ' bricks');
+        return;
+      }
+    }
+  }
+
+  function spawnCapsule(G, f, i) {
+    const type = CAPS_ROSTER[f.capIdx++ % CAPS_ROSTER.length];
+    // Falls from the just-broken brick's center.
+    const col = i % COLS, row = Math.floor(i / COLS);
+    f.capsules.push({ x: col * BW + BW / 2, y: BRICK_TOP + row * BH + BH / 2, type });
+  }
+
+  function applyCapsule(G, f, pd, cap) {
+    const pl = G.players[pd.p];
+    if (cap.type === 'E') { pl.fx.expand = 900; toastEv(G, pl.name + ' caught Expand'); }
+    if (cap.type === 'M') {
+      const free = f.balls.filter(b => b.att < 0);
+      if (free.length > 0 && f.balls.length < 4) {
+        const b = free[0];
+        for (const rot of [0.45, -0.45]) {
+          if (f.balls.length >= 4) break;
+          const cos = Math.cos(rot), sin = Math.sin(rot);
+          f.balls.push({ x: b.x, y: b.y, vx: b.vx * cos - b.vy * sin, vy: b.vx * sin + b.vy * cos, att: -1, owner: b.owner });
+        }
+        toastEv(G, pl.name + ' caught Multiball');
+      }
+    }
+    if (cap.type === 'S') { f.fx.slow = 600; toastEv(G, pl.name + ' caught Slow'); }
+    if (cap.type === 'P') {
+      if (G.mode === 'shared' || G.mode === 'assist') { pl.lives++; toastEv(G, pl.name + ' caught Extra life'); }
+      else { pl.score += 200; toastEv(G, pl.name + ' caught bonus (+200)'); }
+    }
+    if (G.mode === 'attack' || G.mode === 'assist') pl.meter = Math.min(100, pl.meter + G.tuning.fillCaps);
+  }
+
+  function onDrop(G, f, b) {
+    if (G.mode === 'race' || G.mode === 'attack') {
+      if (f.balls.length > 0) return;
+      const pl = G.players[f.owner];
+      pl.lives--;
+      if (pl.lives <= 0) { resetField(G, f); toastEv(G, pl.name + ' lost all lives — field reset'); }
+      else attachBall(G, f, f.owner);
+    } else if (G.mode === 'duel') {
+      const dropper = b.owner >= 0 ? b.owner : 0;
+      const opp = G.players[1 - dropper];
+      opp.score += 500;
+      toastEv(G, G.players[dropper].name + ' dropped — ' + opp.name + ' +500');
+      // Only the LAST ball restarts on the paddle; extra balls from
+      // multiball are simply lost (with the drop bonus paid).
+      if (f.balls.length === 0) attachBall(G, f, dropper);
+    } else if (G.mode === 'shared') {
+      if (f.balls.length > 0) return;
+      G.shared.pool--;
+      if (G.shared.pool <= 0) { endGame(G, { lose: true }); return; }
+      const p = Math.floor(Math.random() * G.players.length);
+      attachBall(G, f, p);
+      toastEv(G, 'Ball lost — shared pool ' + G.shared.pool);
+    } else if (G.mode === 'assist') {
+      if (f.balls.length > 0) return;
+      const pl = G.players[f.owner];
+      pl.lives--;
+      if (pl.lives <= 0) {
+        pl.downed = true; f.frozen = true; f.balls = []; f.capsules = [];
+        toastEv(G, pl.name + ' DOWNED — needs a life gift');
+        if (G.players.every(x => x.downed)) endGame(G, { lose: true });
+      } else attachBall(G, f, f.owner);
+    }
+  }
+
+  function onClear(G, f) {
+    if (G.mode === 'race' || G.mode === 'attack') {
+      endGame(G, { winner: f.owner });
+    } else if (G.mode === 'duel') {
+      const [a, b] = G.players;
+      if (a.score === b.score) endGame(G, { draw: true });
+      else endGame(G, { winner: a.score > b.score ? a.i : b.i });
+    } else if (G.mode === 'shared') {
+      endGame(G, { team: true });
+    } else if (G.mode === 'assist') {
+      const pl = G.players[f.owner];
+      if (!pl.done) {
+        pl.done = true; f.frozen = true;
+        toastEv(G, pl.name + ' cleared — spectating, gift rights kept');
+        if (G.players.every(x => x.done)) endGame(G, { team: true });
+      }
+    }
+  }
+
+  function brickCollide(G, f, b, px, py) {
+    const col = Math.floor(b.x / BW), row = Math.floor((b.y - BRICK_TOP) / BH);
+    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return;
+    const i = row * COLS + col;
+    if (!f.bricks[i]) return;
+    f.bricks[i] = 0; f.count--; f.destroyed.push(i); f.ver++;
+    const top = BRICK_TOP + row * BH, bot = top + BH;
+    if (py < top || py >= bot) b.vy = -b.vy; else b.vx = -b.vx;
+    if (b.owner >= 0) {
+      const owner = G.players[b.owner];
+      owner.score += 50;
+      if (G.mode === 'attack' || G.mode === 'assist') {
+        if (!(G.mode === 'assist' && owner.downed)) owner.meter = Math.min(100, owner.meter + G.tuning.fillBrick);
+      }
+      if (G.mode === 'attack') { owner.chain++; checkChain(G, owner); }
+    }
+    f.breakCount++;
+    if (f.breakCount % 3 === 0) spawnCapsule(G, f, i);
+    if (f.count === 0) onClear(G, f);
+  }
+
+  function resolvePaddleOverlap(G, f) {
+    if (f.paddles.length !== 2) return;
+    const [a, b] = f.paddles;
+    const wa = padW(G.players[a.p]) / 2, wb = padW(G.players[b.p]) / 2;
+    const minD = wa + wb;
+    const dx = b.x - a.x;
+    if (Math.abs(dx) >= minD) return;
+    // Separate by the penetration amount, but each paddle only moves as
+    // far as the wall allows — the leftover shifts to the other side so
+    // they end flush (no gap) whenever the field can fit them.
+    const need = minD - Math.abs(dx);
+    const s = dx === 0 ? 1 : Math.sign(dx); // b sits toward +s of a
+    const aLo = wa, aHi = FIELD_W - wa, bLo = wb, bHi = FIELD_W - wb;
+    const capA = s > 0 ? a.x - aLo : aHi - a.x;
+    const capB = s > 0 ? bHi - b.x : b.x - bLo;
+    let moveA = Math.min(need / 2, capA);
+    let moveB = Math.min(need - moveA, capB);
+    moveA += Math.min(need - moveA - moveB, capA - moveA);
+    a.x -= s * moveA;
+    b.x += s * moveB;
+  }
+
+  function stepBalls(G, f) {
+    const sp = effSpeed(G, f);
+    for (const b of f.balls) {
+      if (b.att >= 0) {
+        const pd = f.paddles.find(x => x.p === b.att) || f.paddles[0];
+        b.x = pd ? pd.x : b.x; b.y = PAD_Y - BALL_R - 1;
+        continue;
+      }
+      const px = b.x, py = b.y;
+      const m = Math.hypot(b.vx, b.vy) || 1;
+      b.vx = b.vx / m * sp; b.vy = b.vy / m * sp;
+      b.x += b.vx / TICKS_PER_SEC; b.y += b.vy / TICKS_PER_SEC;
+      if (b.x < BALL_R) { b.x = BALL_R; b.vx = Math.abs(b.vx); }
+      if (b.x > FIELD_W - BALL_R) { b.x = FIELD_W - BALL_R; b.vx = -Math.abs(b.vx); }
+      if (b.y < BALL_R) { b.y = BALL_R; b.vy = Math.abs(b.vy); }
+      brickCollide(G, f, b, px, py);
+      if (b.vy > 0) {
+        for (const pd of f.paddles) {
+          const pl = G.players[pd.p];
+          if (pl.downed) continue;
+          const w = padW(pl);
+          const left = pd.x - w / 2, right = pd.x + w / 2;
+          const top = PAD_Y, bot = PAD_Y + PAD_H;
+          const inX = b.x + BALL_R > left && b.x - BALL_R < right;
+          const inY = b.y + BALL_R >= top && b.y - BALL_R <= bot;
+          if (inX && inY) {
+            // Box collision, classic offset-deflect: contact point along
+            // the paddle sets the exit angle (edge contact clamps to a
+            // sharp ~60° up-and-away). The ball always exits upward, so
+            // it can never pass through the paddle's edges or get
+            // trapped riding one as the paddle slides into it.
+            const off = clamp((b.x - pd.x) / (w / 2), -1, 1);
+            const ang = off * 1.05;
+            b.vx = Math.sin(ang) * sp; b.vy = -Math.cos(ang) * sp;
+            b.y = top - BALL_R;
+            b.owner = pd.p;
+            pl.chain = 0;
+            break;
+          }
+        }
+      }
+    }
+    for (let i = f.balls.length - 1; i >= 0; i--) {
+      const b = f.balls[i];
+      if (b.att < 0 && b.y > FIELD_H + BALL_R * 2) {
+        f.balls.splice(i, 1);
+        onDrop(G, f, b);
+        if (G.phase === 'over') return;
+      }
+    }
+  }
+
+  function stepCapsules(G, f) {
+    for (let i = f.capsules.length - 1; i >= 0; i--) {
+      const cap = f.capsules[i];
+      cap.y += CAP_SPEED / TICKS_PER_SEC;
+      // Box overlap: capsule box (12×6) vs paddle box — edges catch,
+      // same rule as the ball.
+      const capL = cap.x - 6, capR = cap.x + 6, capT = cap.y - 3, capB = cap.y + 3;
+      if (capB >= PAD_Y && capT <= PAD_Y + PAD_H) {
+        for (const pd of f.paddles) {
+          const pl = G.players[pd.p];
+          if (pl.downed) continue;
+          const w = padW(pl);
+          if (capR > pd.x - w / 2 && capL < pd.x + w / 2) {
+            f.capsules.splice(i, 1);
+            applyCapsule(G, f, pd, cap);
+            break;
+          }
+        }
+      }
+      if (cap.y > FIELD_H) f.capsules.splice(i, 1);
+    }
+  }
+
+  function tick(G, frames) {
+    if (G.phase !== 'play') return;
+    G.tick++;
+    for (const p of G.players) {
+      for (const k of ['expand', 'shrink', 'mangle']) if (p.fx[k] > 0) p.fx[k]--;
+    }
+    for (const f of G.fields) {
+      for (const k of ['slow', 'speed']) if (f.fx[k] > 0) f.fx[k]--;
+    }
+    for (const p of G.players) {
+      const fr = frames[p.i];
+      if (!fr) continue;
+      if (p.downed && G.mode !== 'assist') continue;
+      if (fr.l && !p.downed) launchBalls(G, p);
+      if (fr.c) cycleTarget(G, p);
+      if (fr.f) fireAction(G, p, fr.f);
+    }
+    for (const f of G.fields) {
+      if (f.frozen) continue;
+      for (const pd of f.paddles) {
+        const pl = G.players[pd.p];
+        if (pl.downed) continue;
+        let a = frames[pd.p] ? frames[pd.p].a : 0;
+        if (pl.fx.mangle > 0) a = -a;
+        const w = padW(pl);
+        let nx = pd.x + a * VMAX / TICKS_PER_SEC;
+        if (G.mode === 'shared') {
+          const n = G.players.length, sl = FIELD_W / n;
+          nx = clamp(nx, sl * pd.p + w / 2, sl * (pd.p + 1) - w / 2);
+        } else {
+          nx = clamp(nx, w / 2, FIELD_W - w / 2);
+        }
+        if (nx !== pd.x) pl.lastDir = Math.sign(nx - pd.x);
+        pd.x = nx;
+      }
+      if (G.mode === 'duel') resolvePaddleOverlap(G, f);
+      stepBalls(G, f);
+      if (G.phase === 'over') return;
+      stepCapsules(G, f);
+    }
+  }
+
+  // Debug/scenario helpers (also exposed as DBG on the console).
+  function addMeter(G, p, amt) { G.players[p].meter = Math.min(100, G.players[p].meter + amt); }
+  function downPlayer(G, p) {
+    const pl = G.players[p];
+    pl.downed = true; pl.lives = 0;
+    const f = fieldOfPlayer(G, p);
+    f.frozen = true; f.balls = []; f.capsules = [];
+  }
+
+  return {
+    COLS, ROWS, BW, BH, BRICK_TOP, FIELD_W, FIELD_H, PAD_Y, PAD_H, PAD_W, VMAX, BALL_R,
+    createState, tick, addMeter, downPlayer, fireAction, cycleTarget, fieldOfPlayer,
+    resurrectBricks, removeLowestBricks, endGame, padW,
+  };
+})();
+/* =====================================================================
+ * NET LAYER — fakes the wire on one device. Uniform tick-D delay queue
+ * (host-local players included), guest input loss/jitter with a 10-tick
+ * redundancy window + (player,tick) dedupe, stall hold ≤ 10 ticks then
+ * axis decay to 0, kinematic snapshot buffer with interpolation, host
+ * catch-up cap 5 + slow-motion overload policy. No DOM in here either.
+ * ===================================================================== */
+
+const NET = (() => {
+  const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  function make(nPlayers, opts) {
+    return {
+      D: opts.D, loss: opts.loss / 100, jitter: opts.jitter, snapEvery: opts.snapEvery,
+      q: Array.from({ length: nPlayers }, () => ({})),
+      seen: Array.from({ length: nPlayers }, () => new Set()),
+      hist: Array.from({ length: nPlayers }, () => ({})),
+      last: Array.from({ length: nPlayers }, () => ({ a: 0, l: false, c: false, f: null })),
+      miss: new Array(nPlayers).fill(0),
+      snaps: [],
+    };
+  }
+
+  function pushLocal(net, p, frame, t) {
+    net.q[p][t + net.D] = frame;
+  }
+
+  // Guest bundles every unacked frame from the last ~10 ticks into each
+  // packet; host dedupes by (player, tick). A lost frame gets retried
+  // by later bundles — that is the redundancy window.
+  function pushRemote(net, p, t) {
+    const hist = net.hist[p], seen = net.seen[p];
+    for (let s = Math.max(0, t - 9); s <= t; s++) {
+      const fr = hist[s];
+      if (!fr || seen.has(s)) continue;
+      if (Math.random() < net.loss) continue;
+      seen.add(s);
+      const arrive = s + net.D + Math.floor(Math.random() * (net.jitter + 1));
+      if (!net.q[p][arrive]) net.q[p][arrive] = fr;
+    }
+  }
+
+  function consume(net, t) {
+    return net.last.map((L, p) => {
+      const f = net.q[p][t];
+      if (f) { net.last[p] = f; net.miss[p] = 0; return f; }
+      net.miss[p]++;
+      if (net.miss[p] <= 10) return net.last[p];       // hold last axis
+      const dec = { a: net.last[p].a * 0.7, l: false, c: false, f: null }; // decay to 0
+      net.last[p] = dec;
+      return dec;
+    });
+  }
+
+  function snapshot(net, G) {
+    const s = { t: G.tick, pd: new Array(G.players.length).fill(0), bl: [] };
+    for (const f of G.fields) {
+      for (const pd of f.paddles) s.pd[pd.p] = pd.x;
+      s.bl.push(f.balls.map(b => ({ x: b.x, y: b.y })));
+    }
+    net.snaps.push(s);
+    if (net.snaps.length > 90) net.snaps.shift();
+  }
+
+  // Interpolate kinematics at render tick rt. Snapped state (bricks,
+  // scores, meters) is read from live sim state by the shell.
+  function interp(net, rt) {
+    const sn = net.snaps;
+    if (sn.length === 0) return null;
+    if (rt >= sn[sn.length - 1].t) return sn[sn.length - 1];
+    let s0 = sn[0], s1 = sn[0];
+    for (let i = sn.length - 1; i >= 0; i--) {
+      if (sn[i].t <= rt) { s0 = sn[i]; s1 = sn[Math.min(i + 1, sn.length - 1)]; break; }
+      s0 = sn[i];
+    }
+    if (s1.t === s0.t) return s0;
+    const a = clampN((rt - s0.t) / (s1.t - s0.t), 0, 1);
+    return {
+      t: rt,
+      pd: s0.pd.map((v, i) => v + (s1.pd[i] - v) * a),
+      bl: s0.bl.map((arr, fi) => arr.map((b, bi) => {
+        const n1 = s1.bl[fi] && s1.bl[fi][bi];
+        return n1 ? { x: b.x + (n1.x - b.x) * a, y: b.y + (n1.y - b.y) * a } : b;
+      })),
+    };
+  }
+
+  return { make, pushLocal, pushRemote, consume, snapshot, interp };
+})();
+/* =====================================================================
+ * PAGE SHELL — throwaway. Owns DOM, input, bots, the loop, rendering.
+ * The modules above stay pure; this part never gets lifted.
+ * ===================================================================== */
+
+const $ = id => document.getElementById(id);
+const canvas = $('game'), ctx = canvas.getContext('2d');
+
+const MODES = [
+  { id: 'race',   label: 'Race',           min: 2, max: 4 },
+  { id: 'attack', label: 'Attack',         min: 2, max: 4 },
+  { id: 'duel',   label: 'Duel',           min: 2, max: 2 },
+  { id: 'shared', label: 'Coop: shared',  min: 2, max: 4 },
+  { id: 'assist', label: 'Coop: assist',   min: 2, max: 4 },
+];
+const COLORS = ['#e0533d', '#3d9be0', '#3de06c', '#e0c23d'];
+const NAMES = ['P1 (you)', 'Bot A', 'Bot B', 'Bot C'];
+
+const app = {
+  mode: 'race', count: 2, level: 1, lives: 5,
+  D: 4, loss: 5, jitter: 1, snapEvery: 2,
+  predict: true, guestView: false,
+  tuning: {
+    chain: [4, 7, 10],
+    costs: { rain: 30, shrink: 25, speed: 20, mangle: 40 },
+    dur: { shrink: 600, speed: 480, mangle: 360 },
+    fillBrick: 2, fillCaps: 10,
+  },
+  synthLoad: 0, guestLoad: false, dpr: Math.min(2, window.devicePixelRatio || 1),
+  G: null, net: null,
+  // P1 prediction state
+  predX: SIM.FIELD_W / 2, predErr: 0,
+  // input state
+  keys: {}, mouseX: null, useMouse: false,
+  // perf
+  simMs: 0, renderMs: 0, fps: 60, drawOps: 0, frameCount: 0,
+  overloadFrames: 0, slowmo: false,
+};
+
+function makeConfig() {
+  const mode = MODES.find(m => m.id === app.mode);
+  const n = Math.max(mode.min, Math.min(mode.max, app.count));
+  return {
+    mode: app.mode, level: app.level, lives: app.lives,
+    players: Array.from({ length: n }, (_, i) => ({
+      name: NAMES[i], color: COLORS[i], bot: i > 0,
+    })),
+    tuning: app.tuning,
+  };
+}
+
+function resetMatch() {
+  app.G = SIM.createState(makeConfig());
+  app.net = NET.make(app.G.players.length, {
+    D: app.D, loss: app.loss, jitter: app.jitter, snapEvery: app.snapEvery,
+  });
+  const p1field = SIM.fieldOfPlayer(app.G, 0);
+  const pd = p1field.paddles.find(x => x.p === 0);
+  app.predX = pd ? pd.x : SIM.FIELD_W / 2;
+  app.predErr = 0;
+  app.overloadFrames = 0; app.slowmo = false;
+  $('banner').style.display = 'none';
+}
+
+/* ---------- input ---------- */
+
+function p1Axis() {
+  if (app.useMouse && app.mouseX != null) {
+    const L = layoutFields().find(l => l.f.paddles.some(pd => pd.p === 0));
+    if (!L) return 0;
+    const pd = L.f.paddles.find(x => x.p === 0);
+    const fx = L.x + pd.x * L.s;
+    return Math.max(-1, Math.min(1, (app.mouseX - fx) / (40 * L.s)));
+  }
+  let a = 0;
+  if (app.keys['a'] || app.keys['arrowleft']) a -= 1;
+  if (app.keys['d'] || app.keys['arrowright']) a += 1;
+  return a;
+}
+
+function p1Frame() {
+  return { a: p1Axis(), l: app.keys[' '] || false, c: app.keys['tab'] || false, f: app.fire || null };
+}
+
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'tab') { e.preventDefault(); app.keys['tab'] = true; setTimeout(() => app.keys['tab'] = false, 80); return; }
+  if (k === ' ') { e.preventDefault(); app.keys[' '] = true; setTimeout(() => app.keys[' '] = false, 80); return; }
+  app.keys[k] = true;
+  if (k === 'p') { app.predict = !app.predict; toast('Prediction ' + (app.predict ? 'ON' : 'OFF')); }
+  if (k === 'g') { app.guestView = !app.guestView; toast('Guest view (interpolated) ' + (app.guestView ? 'ON — see what a remote device sees' : 'OFF — host view')); }
+  if (k === '1') app.fire = 'rain';
+  if (k === '2') app.fire = 'shrink';
+  if (k === '3') app.fire = 'speed';
+  if (k === '4') app.fire = 'mangle';
+  if (k === 'q') app.fire = 'gift';
+  if (k === 'w') app.fire = 'clear';
+  if (k === 'e') app.fire = 'life';
+});
+window.addEventListener('keyup', e => { app.keys[e.key.toLowerCase()] = false; });
+
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  app.mouseX = (e.clientX - r.left) * (canvas.width / r.width) / app.dpr;
+  app.useMouse = true;
+});
+canvas.addEventListener('mousedown', () => { app.keys[' '] = true; setTimeout(() => app.keys[' '] = false, 80); });
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  app.mouseX = (t.clientX - r.left) * (canvas.width / r.width) / app.dpr;
+  app.useMouse = true;
+  app.keys[' '] = true; setTimeout(() => app.keys[' '] = false, 80);
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  app.mouseX = (t.clientX - r.left) * (canvas.width / r.width) / app.dpr;
+}, { passive: false });
+
+/* ---------- bots ---------- */
+
+function botFrame(G, p, t) {
+  const f = SIM.fieldOfPlayer(G, p.i);
+  const pd = f.paddles.find(x => x.p === p.i);
+  let a = 0, l = false, c = false, fire = null;
+  const attached = f.balls.find(b => b.att === p.i);
+  if (attached) {
+    a = Math.sign(SIM.FIELD_W / 2 - pd.x) * 0.5;
+    l = (t % 97) < 3;
+  } else {
+    let target = null, best = 1e9;
+    for (const b of f.balls) {
+      if (b.att >= 0) continue;
+      if (b.vy > 0 || b.y > SIM.FIELD_H * 0.4) {
+        const d = Math.abs(b.x - pd.x);
+        if (d < best) { best = d; target = b; }
+      }
+    }
+    if (target) a = Math.max(-1, Math.min(1, (target.x - pd.x) / 30));
+  }
+  if (G.mode === 'attack' && p.meter >= 20 && Math.random() < 0.008) {
+    const acts = ['rain', 'shrink', 'speed', 'mangle'].filter(k2 => p.meter >= app.tuning.costs[k2]);
+    if (acts.length) {
+      fire = acts[Math.floor(Math.random() * acts.length)];
+      if (Math.random() < 0.3) c = true; // sometimes cycle target first
+    }
+  }
+  if (G.mode === 'assist') {
+    const downed = G.players.find(x => x.downed && x.i !== p.i);
+    if (downed && p.meter >= 40 && Math.random() < 0.01) {
+      const cur = G.players[p.target];
+      if (!cur || !cur.downed) c = true;
+      fire = 'life';
+    } else if (p.meter >= 30 && Math.random() < 0.006) {
+      fire = Math.random() < 0.5 ? 'gift' : 'clear';
+    }
+  }
+  return { a, l, c, f: fire };
+}
+
+/* ---------- main loop ---------- */
+
+const TICK_MS = 1000 / 60;
+let acc = 0, lastNow = performance.now();
+let simMsAvg = 0, renderMsAvg = 0, fpsAvg = 60, lastFpsT = performance.now(), fpsN = 0;
+
+function busy(ms) {
+  if (ms <= 0) return;
+  const end = performance.now() + ms;
+  while (performance.now() < end) { /* spin */ }
+}
+
+function doTick(t) {
+  const G = app.G, net = app.net;
+  // P1 (host-local): same delay queue, no network hop.
+  NET.pushLocal(net, 0, p1Frame(), t);
+  // Bots (remote guests): loss + jitter + 10-tick redundancy bundling.
+  for (const p of G.players) {
+    if (!p.bot) continue;
+    net.hist[p.i][t] = botFrame(G, p, t);
+    NET.pushRemote(net, p.i, t);
+  }
+  const frames = NET.consume(net, t);
+  const t0 = performance.now();
+  SIM.tick(G, frames);
+  if (app.guestLoad) {
+    // 3-guest synthetic duty: input-queue churn + snapshot serialization.
+    for (let g = 0; g < 3; g++) {
+      const fake = { t: G.tick, pd: frames.map(f => f.a), ev: [] };
+      JSON.stringify(fake);
+    }
+  }
+  busy(app.synthLoad);
+  simMsAvg = simMsAvg * 0.9 + (performance.now() - t0) * 0.1;
+  if (G.tick % net.snapEvery === 0) NET.snapshot(net, G);
+  // Prediction reconcile (error-offset): compare authoritative sim
+  // paddle x against prediction. On divergence, restart prediction
+  // from the authoritative position and fold the difference into a
+  // display offset that decays over ~0.5 s — the player sees a tiny
+  // correction, never a teleport.
+  const f0 = SIM.fieldOfPlayer(G, 0);
+  const pd0 = f0.paddles.find(x => x.p === 0);
+  if (pd0) {
+    const err = pd0.x - app.predX;
+    if (Math.abs(err) > 0.5) {
+      app.predX = pd0.x;
+      app.predErr += err;
+    }
+  }
+  // fire is one-shot
+  app.fire = null;
+}
+
+// Same clamp bounds the sim applies to player 0's paddle — prediction
+// must respect them or it drifts from the authoritative position.
+// In duel the other paddle is a wall too: without this, prediction
+// runs ahead into the bot while the sim blocks at flush, reconcile
+// reads the block as error, and the display settles short of the
+// bot — a gap that stays open while the direction is held.
+function p1ClampBounds() {
+  const G = app.G;
+  const w = SIM.padW(G.players[0]) / 2;
+  let lo = w, hi = SIM.FIELD_W - w;
+  if (G.mode === 'shared') {
+    const n = G.players.length, sl = SIM.FIELD_W / n;
+    lo = sl * 0 + w; hi = sl * 1 - w;
+  } else if (G.mode === 'duel') {
+    const other = G.fields[0].paddles.find(pd => pd.p !== 0);
+    if (other) {
+      const minD = w + SIM.padW(G.players[other.p]) / 2;
+      if (app.predX < other.x) hi = Math.min(hi, other.x - minD);
+      else lo = Math.max(lo, other.x + minD);
+    }
+  }
+  return [lo, hi];
+}
+
+function stepPrediction(dtMs) {
+  // Advance predicted paddle from raw input; record history for reconcile.
+  const a = p1Axis();
+  const [lo, hi] = p1ClampBounds();
+  const nx = Math.max(lo, Math.min(hi, app.predX + a * SIM.VMAX * dtMs / 1000));
+  app.predX = nx;
+  app.predErr *= Math.pow(0.0025, dtMs / 1000); // decay offset over ~0.5 s
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(100, now - lastNow);
+  lastNow = now;
+  const scale = app.slowmo ? 0.5 : 1;
+  acc += dt * scale;
+  let steps = 0;
+  while (acc >= TICK_MS && steps < 5) {
+    doTick(app.G.tick);
+    acc -= TICK_MS;
+    steps++;
+  }
+  if (acc >= TICK_MS) {
+    // Catch-up cap held — sustained overload → slow motion.
+    app.overloadFrames++;
+    if (app.overloadFrames > 30 && !app.slowmo) {
+      app.slowmo = true;
+      $('banner').style.display = 'block';
+    }
+    acc = Math.min(acc, TICK_MS * 5);
+  } else {
+    if (app.overloadFrames > 0) app.overloadFrames--;
+    if (app.slowmo && app.overloadFrames === 0) {
+      app.slowmo = false;
+      $('banner').style.display = 'none';
+    }
+  }
+  if (app.predict) stepPrediction(dt * scale);
+  const r0 = performance.now();
+  render();
+  renderMsAvg = renderMsAvg * 0.9 + (performance.now() - r0) * 0.1;
+  fpsN++;
+  if (now - lastFpsT > 500) {
+    fpsAvg = fpsN * 1000 / (now - lastFpsT);
+    fpsN = 0; lastFpsT = now;
+  }
+  drainEvents();
+  if ((app.frameCount++ & 7) === 0) renderPanels();
+}
+/* ---------- rendering ---------- */
+
+function fieldScale() {
+  const nFields = app.G.fields.length;
+  const cols = Math.min(nFields, 2);
+  const rows = Math.ceil(nFields / cols);
+  const cw = canvas.width / app.dpr, ch = canvas.height / app.dpr;
+  const availW = cw / cols, availH = (ch - 18) / rows;
+  return Math.min(availW / SIM.FIELD_W, availH / SIM.FIELD_H);
+}
+
+function layoutFields() {
+  const nFields = app.G.fields.length;
+  const cols = Math.min(nFields, 2);
+  const rows = Math.ceil(nFields / cols);
+  const cw = canvas.width / app.dpr, ch = canvas.height / app.dpr;
+  const scale = fieldScale();
+  const totalW = cols * SIM.FIELD_W * scale;
+  const totalH = rows * SIM.FIELD_H * scale;
+  const ox = (cw - totalW) / 2, oy = 18 + (ch - 18 - totalH) / 2;
+  return app.G.fields.map((f, i) => {
+    const cx = i % cols, cy = Math.floor(i / cols);
+    return {
+      f,
+      x: ox + cx * SIM.FIELD_W * scale + (SIM.FIELD_W * scale - SIM.FIELD_W * scale) / 2,
+      y: oy + cy * SIM.FIELD_H * scale,
+      s: scale,
+    };
+  });
+}
+
+function drawField(L, view) {
+  const { f, x, y, s } = L;
+  const G = app.G;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = '#101218';
+  ctx.fillRect(0, 0, SIM.FIELD_W, SIM.FIELD_H);
+  // bricks
+  for (let r = 0; r < SIM.ROWS; r++) {
+    for (let c = 0; c < SIM.COLS; c++) {
+      if (!f.bricks[r * SIM.COLS + c]) continue;
+      ctx.fillStyle = (r + c) % 2 ? '#4a5568' : '#5a6478';
+      ctx.fillRect(c * SIM.BW + 1, SIM.BRICK_TOP + r * SIM.BH + 1, SIM.BW - 2, SIM.BH - 2);
+      app.drawOps++;
+    }
+  }
+  // capsules
+  for (const cap of f.capsules) {
+    ctx.fillStyle = cap.type === 'E' ? '#3de06c' : cap.type === 'M' ? '#e0c23d' : cap.type === 'S' ? '#3d9be0' : '#e07bd0';
+    ctx.fillRect(cap.x - 6, cap.y - 3, 12, 6);
+    app.drawOps++;
+  }
+  // balls — interpolated for remote fields, predicted for P1.
+  // Colored by ownership: last paddle toucher (attached = catcher), so
+  // in Duel each player can see whose ball is falling — that player
+  // must catch it or pay the drop bonus to the opponent.
+  const snap = NET.interp(app.net, renderTick());
+  for (let bi = 0; bi < f.balls.length; bi++) {
+    const b = f.balls[bi];
+    let bx = b.x, by = b.y;
+    if (app.predict && b.att === 0) {
+      // Attached to P1: ride the predicted paddle, not the delayed
+      // snapshot — else the ball trails the paddle when strafing
+      // (visible in duel/shared where bots share the field).
+      const [lo, hi] = p1ClampBounds();
+      bx = Math.max(lo, Math.min(hi, app.predX + app.predErr));
+    } else if (app.guestView && snap) {
+      const fi = G.fields.indexOf(f);
+      const ib = snap.bl[fi] && snap.bl[fi][bi];
+      if (ib) { bx = ib.x; by = ib.y; }
+    }
+    const ownerPl = G.players[b.att >= 0 ? b.att : b.owner];
+    ctx.fillStyle = ownerPl ? ownerPl.color : '#fff';
+    ctx.beginPath();
+    ctx.arc(bx, by, SIM.BALL_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    app.drawOps++;
+  }
+  // paddles
+  for (const pd of f.paddles) {
+    const pl = G.players[pd.p];
+    const w = SIM.PAD_W * (pl.fx.expand > 0 ? 1.5 : 1) * (pl.fx.shrink > 0 ? 0.6 : 1);
+    let px = pd.x;
+    if (app.predict && pd.p === 0) {
+      const [lo, hi] = p1ClampBounds();
+      px = Math.max(lo, Math.min(hi, app.predX + app.predErr));
+    } else if (app.guestView && snap) px = snap.pd[pd.p];
+    ctx.fillStyle = pl.color;
+    ctx.fillRect(px - w / 2, SIM.PAD_Y, w, SIM.PAD_H);
+    app.drawOps++;
+    if (pl.fx.mangle > 0) {
+      ctx.strokeStyle = '#e07bd0';
+      ctx.strokeRect(px - w / 2 - 2, SIM.PAD_Y - 2, w + 4, SIM.PAD_H + 4);
+    }
+  }
+  // field border + owner label
+  ctx.strokeStyle = '#2a2e36';
+  ctx.strokeRect(0.5, 0.5, SIM.FIELD_W - 1, SIM.FIELD_H - 1);
+  if (f.frozen) {
+    ctx.fillStyle = 'rgba(13,14,17,0.6)';
+    ctx.fillRect(0, 0, SIM.FIELD_W, SIM.FIELD_H);
+    ctx.fillStyle = '#8a919e';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(f.frozenReason || 'FROZEN', SIM.FIELD_W / 2, SIM.FIELD_H / 2);
+  }
+  ctx.restore();
+  // label above field (unscaled font)
+  const owner = G.players[f.owner];
+  ctx.fillStyle = owner ? owner.color : '#8a919e';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText(owner ? owner.name : 'field', x + 2, y - 4);
+}
+
+let _renderTick = 0;
+function renderTick() {
+  // Interpolation delay: latest snapshot − ~2.5 snapshot intervals.
+  const sn = app.net.snaps;
+  if (sn.length === 0) return app.G.tick;
+  const latest = sn[sn.length - 1].t;
+  return latest - app.net.snapEvery * 2.5;
+}
+
+function render() {
+  app.drawOps = 0;
+  const cw = canvas.width / app.dpr, ch = canvas.height / app.dpr;
+  ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
+  ctx.fillStyle = '#0d0e11';
+  ctx.fillRect(0, 0, cw, ch);
+  if (!app.G) return;
+  for (const L of layoutFields()) drawField(L);
+  if (app.G.phase === 'over') {
+    ctx.fillStyle = 'rgba(13,14,17,0.75)';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px system-ui';
+    ctx.textAlign = 'center';
+    const r = app.G.result || {};
+    let msg = 'Team wins';
+    if (r.lose) msg = 'Team loses — all out';
+    else if (r.draw) msg = 'Draw';
+    else if (r.winner != null) msg = app.G.players[r.winner].name + ' wins';
+    ctx.fillText(msg, cw / 2, ch / 2 - 8);
+    ctx.font = '13px system-ui';
+    ctx.fillStyle = '#8a919e';
+    ctx.fillText('Reset match (sidebar) to play again', cw / 2, ch / 2 + 16);
+  }
+}
+
+/* ---------- panels ---------- */
+
+function toast(msg) {
+  const d = document.createElement('div');
+  d.className = 'toast';
+  d.textContent = msg;
+  $('toasts').appendChild(d);
+  setTimeout(() => d.remove(), 2900);
+}
+
+function drainEvents() {
+  if (!app.G) return;
+  while (app.G.events.length) toast(app.G.events.shift());
+}
+
+function renderPanels() {
+  const G = app.G;
+  if (!G) return;
+  // state panel
+  let html = '';
+  for (const p of G.players) {
+    const tgt = G.players[p.target];
+    const showMeter = G.mode === 'attack' || G.mode === 'assist';
+    html += '<div class="pcard' + (p.downed ? ' downed' : '') + '">'
+      + '<span class="dot" style="background:' + p.color + '"></span>'
+      + '<span class="pname">' + p.name + '</span>'
+      + (p.downed ? ' <span class="flag">DOWNED</span>' : '')
+      + (p.done ? ' <span class="flag" style="color:var(--good)">CLEARED</span>' : '')
+      + '<div class="stats">'
+      + '<span>lives <b>' + (G.mode === 'duel' ? '—' : p.lives) + '</b></span>'
+      + '<span>score <b>' + p.score + '</b></span>'
+      + (G.mode === 'attack' ? '<span>chain <b>' + p.chain + '</b></span>' : '')
+      + (showMeter ? '<span>meter <b>' + Math.round(p.meter) + '</b></span>' : '')
+      + (tgt && tgt.i !== p.i ? '<span>target <b>' + tgt.name + '</b></span>' : '')
+      + '</div>'
+      + (showMeter ? '<div class="meterwrap"><div class="meterbar" style="width:' + Math.round(p.meter) + '%"></div></div>' : '')
+      + '</div>';
+  }
+  if (G.mode === 'shared') html += '<div class="pcard"><span class="pname">Shared life pool: ' + G.shared.pool + '</span></div>';
+  $('stateBody').innerHTML = html;
+  // actions panel
+  let acts = '';
+  if (G.mode === 'attack') {
+    acts = '<div class="row">'
+      + '<button class="btn small" data-act="rain">1 · Rain (' + app.tuning.costs.rain + ')</button>'
+      + '<button class="btn small" data-act="shrink">2 · Shrink (' + app.tuning.costs.shrink + ')</button>'
+      + '<button class="btn small" data-act="speed">3 · Speed (' + app.tuning.costs.speed + ')</button>'
+      + '<button class="btn small" data-act="mangle">4 · Mangle (' + app.tuning.costs.mangle + ')</button>'
+      + '</div><div class="row"><button class="btn small" data-act="cycle">Tab · Cycle target</button></div>';
+  } else if (G.mode === 'assist') {
+    acts = '<div class="row">'
+      + '<button class="btn small" data-act="gift">Q · Gift capsule (20)</button>'
+      + '<button class="btn small" data-act="clear">W · Brick clear (30)</button>'
+      + '<button class="btn small" data-act="life">E · Life gift (40)</button>'
+      + '</div><div class="row"><button class="btn small" data-act="cycle">Tab · Cycle teammate</button></div>';
+  } else {
+    acts = '<p class="note">No meter actions in this mode — pure play.</p>';
+  }
+  acts += '<p class="note">Prediction: <b>' + (app.predict ? 'ON' : 'OFF') + '</b> (P toggles) · err-offset '
+    + app.predErr.toFixed(1) + ' px · Guest view: <b>' + (app.guestView ? 'ON' : 'OFF') + '</b> (G toggles)</p>';
+  $('actionBody').innerHTML = acts;
+  // perf panel
+  const simOk = simMsAvg <= 2, renOk = renderMsAvg <= 5, opsOk = app.drawOps < 20;
+  $('perfGrid').innerHTML =
+    '<span class="k">sim tick</span><span class="v ' + (simOk ? 'ok' : 'over') + '">' + simMsAvg.toFixed(2) + ' ms</span>'
+    + '<span class="k">render</span><span class="v ' + (renOk ? 'ok' : 'over') + '">' + renderMsAvg.toFixed(2) + ' ms</span>'
+    + '<span class="k">fps</span><span class="v ' + (fpsAvg > 50 ? 'ok' : 'over') + '">' + Math.round(fpsAvg) + '</span>'
+    + '<span class="k">draw ops</span><span class="v ' + (opsOk ? 'ok' : 'over') + '">' + app.drawOps + '</span>'
+    + '<span class="k">sim tick #</span><span class="v">' + G.tick + '</span>'
+    + '<span class="k">snapshots</span><span class="v">' + app.net.snaps.length + '</span>';
+}
+
+/* ---------- setup UI wiring ---------- */
+
+function buildSetup() {
+  const modeRow = $('modeRow'), countRow = $('countRow');
+  modeRow.innerHTML = '';
+  for (const m of MODES) {
+    const b = document.createElement('button');
+    b.className = 'btn small' + (app.mode === m.id ? ' active' : '');
+    b.textContent = m.label;
+    b.onclick = () => {
+      app.mode = m.id;
+      const mm = MODES.find(x => x.id === m.id);
+      if (app.count < mm.min) app.count = mm.min;
+      if (app.count > mm.max) app.count = mm.max;
+      buildSetup();
+      resetMatch();
+    };
+    modeRow.appendChild(b);
+  }
+  countRow.innerHTML = '';
+  const cur = MODES.find(m => m.id === app.mode);
+  for (let n = cur.min; n <= cur.max; n++) {
+    const b = document.createElement('button');
+    b.className = 'btn small' + (app.count === n ? ' active' : '');
+    b.textContent = n + 'P';
+    b.onclick = () => { app.count = n; buildSetup(); resetMatch(); };
+    countRow.appendChild(b);
+  }
+}
+
+function wireSliders() {
+  const bind = (id, out, fn, fmt) => {
+    const el = $(id), o = $(out);
+    el.oninput = () => { fn(parseFloat(el.value)); o.textContent = fmt ? fmt(el.value) : el.value; };
+  };
+  bind('uD', 'oD', v => { app.D = v; app.net.D = v; });
+  bind('uLoss', 'oLoss', v => { app.loss = v; app.net.loss = v / 100; });
+  bind('uJit', 'oJit', v => { app.jitter = v; app.net.jitter = v; });
+  bind('uSnap', 'oSnap', v => { app.snapEvery = v === 1 ? 1 : 2; app.net.snapEvery = app.snapEvery; }, v => v === '1' ? '60 Hz' : '30 Hz');
+  bind('tChain', 'otChain', v => { app.tuning.chain = [v, v + 3, v + 6]; });
+  bind('tRain', 'otRain', v => { app.tuning.costs.rain = v; });
+  bind('tShrink', 'otShrink', v => { app.tuning.costs.shrink = v; });
+  bind('tSpeed', 'otSpeed', v => { app.tuning.costs.speed = v; });
+  bind('tMangle', 'otMangle', v => { app.tuning.costs.mangle = v; });
+  bind('dShrink', 'odShrink', v => { app.tuning.dur.shrink = v * 60; });
+  bind('dSpeed', 'odSpeed', v => { app.tuning.dur.speed = v * 60; });
+  bind('dMangle', 'odMangle', v => { app.tuning.dur.mangle = v * 60; });
+  bind('tFillB', 'otFillB', v => { app.tuning.fillBrick = v; });
+  bind('tFillC', 'otFillC', v => { app.tuning.fillCaps = v; });
+  bind('pLoad', 'opLoad', v => { app.synthLoad = v; });
+  $('pGuests').onclick = () => {
+    app.guestLoad = !app.guestLoad;
+    $('pGuests').textContent = '3-guest synthetic load: ' + (app.guestLoad ? 'ON' : 'OFF');
+    $('pGuests').classList.toggle('active', app.guestLoad);
+  };
+  for (const b of document.querySelectorAll('.dprbtn')) {
+    b.onclick = () => {
+      app.dpr = parseFloat(b.dataset.dpr);
+      for (const x of document.querySelectorAll('.dprbtn')) x.classList.toggle('active', x === b);
+      sizeCanvas();
+    };
+  }
+  $('btnReset').onclick = resetMatch;
+  $('actionBody').addEventListener('click', e => {
+    const act = e.target && e.target.dataset && e.target.dataset.act;
+    if (!act) return;
+    if (act === 'cycle') { SIM.cycleTarget(app.G, app.G.players[0]); drainEvents(); }
+    else { SIM.fireAction(app.G, app.G.players[0], act); drainEvents(); }
+  });
+}
+
+function sizeCanvas() {
+  const stage = canvas.parentElement;
+  const w = stage.clientWidth || 900;
+  const h = Math.round(w * 0.45);
+  canvas.width = Math.round(w * app.dpr);
+  canvas.height = Math.round(h * app.dpr);
+  canvas.style.height = h + 'px';
+}
+
+/* ---------- guided walkthroughs ---------- */
+
+const SCENARIOS = [
+  {
+    name: 'Attack chain',
+    desc: 'Chain = consecutive brick breaks without paddle touch. At tier 1 (default 4) an <b>auto brick rain</b> fires at your target. Watch the meter and chain counters.',
+    setup: () => { setMode('attack', 2); SIM.addMeter(app.G, 0, 60); },
+    steps: [
+      { label: 'Launch ball (Space)', run: () => { app.keys[' '] = true; setTimeout(() => app.keys[' '] = false, 80); } },
+      { label: 'Give P1 meter +60', run: () => SIM.addMeter(app.G, 0, 60) },
+      { label: 'Fire rain at Bot A (1)', run: () => { app.fire = 'rain'; } },
+      { label: 'Fire shrink (2)', run: () => { app.fire = 'shrink'; } },
+    ],
+  },
+  {
+    name: 'Duel steal',
+    desc: 'Duel: one shared field, two paddles, no lives. Ball ownership = last paddle toucher; brick points go to the owner. Drop the ball → opponent +500.',
+    setup: () => setMode('duel', 2),
+    steps: [
+      { label: 'Launch ball (Space)', run: () => { app.keys[' '] = true; setTimeout(() => app.keys[' '] = false, 80); } },
+      { label: 'Watch ownership flip as paddles touch', run: () => {} },
+    ],
+  },
+  {
+    name: 'Assist revive',
+    desc: 'Parallel assist: Bot A gets downed (field frozen, spectates). You spend meter on a <b>life gift</b> to revive — the only revival path.',
+    setup: () => { setMode('assist', 2); SIM.downPlayer(app.G, 1); SIM.addMeter(app.G, 0, 80); },
+    steps: [
+      { label: 'Target Bot A (Tab)', run: () => { app.keys['tab'] = true; setTimeout(() => app.keys['tab'] = false, 80); } },
+      { label: 'Life gift (E)', run: () => { app.fire = 'life'; } },
+      { label: 'Gift capsule (Q)', run: () => { app.fire = 'gift'; } },
+    ],
+  },
+  {
+    name: 'Delay feel',
+    desc: 'Input delay D: every player\'s frame waits D ticks before the sim consumes it (uniform fairness). Slide D 0→5 and move the paddle. Prediction (P) hides it for P1 — toggle it to feel the raw delay.',
+    setup: () => setMode('race', 2),
+    steps: [
+      { label: 'Set D=0 (slider)', run: () => { $('uD').value = 0; $('uD').dispatchEvent(new Event('input')); } },
+      { label: 'Set D=5 (slider)', run: () => { $('uD').value = 5; $('uD').dispatchEvent(new Event('input')); } },
+      { label: 'Toggle prediction OFF (P)', run: () => { app.predict = false; toast('Prediction OFF'); } },
+      { label: 'Toggle prediction ON (P)', run: () => { app.predict = true; toast('Prediction ON'); } },
+    ],
+  },
+  {
+    name: 'Overload & slow-mo',
+    desc: 'Host overload policy: catch-up capped at 5 sim ticks per render frame; sustained overload → slow motion + banner. Crank synthetic CPU load to force it.',
+    setup: () => setMode('race', 2),
+    steps: [
+      { label: 'Set CPU load 18 ms/tick', run: () => { $('pLoad').value = 18; $('pLoad').dispatchEvent(new Event('input')); } },
+      { label: 'Watch banner + slow motion', run: () => {} },
+      { label: 'Back to 0', run: () => { $('pLoad').value = 0; $('pLoad').dispatchEvent(new Event('input')); } },
+    ],
+  },
+  {
+    name: 'Perf budget',
+    desc: 'Two fields on screen (2P race). Check perf panel: sim ≤ 2 ms, render ≤ 5 ms, draw ops < 20. Toggle 3-guest synthetic load and dpr ladder.',
+    setup: () => setMode('race', 4),
+    steps: [
+      { label: 'Toggle 3-guest load ON', run: () => { if (!app.guestLoad) $('pGuests').click(); } },
+      { label: 'Toggle 3-guest load OFF', run: () => { if (app.guestLoad) $('pGuests').click(); } },
+      { label: 'dpr 1 (ladder floor)', run: () => { document.querySelector('.dprbtn[data-dpr="1"]').click(); } },
+    ],
+  },
+];
+
+function setMode(mode, count) {
+  app.mode = mode; app.count = count;
+  buildSetup();
+  resetMatch();
+}
+
+let curTab = 0;
+function buildScenarios() {
+  const bar = $('tabBar');
+  bar.innerHTML = '';
+  SCENARIOS.forEach((sc, i) => {
+    const b = document.createElement('button');
+    b.className = 'btn small' + (i === curTab ? ' active' : '');
+    b.textContent = sc.name;
+    b.onclick = () => { curTab = i; sc.setup(); buildScenarios(); };
+    bar.appendChild(b);
+  });
+  const sc = SCENARIOS[curTab];
+  $('tabDesc').innerHTML = sc.desc;
+  const steps = $('tabSteps');
+  steps.innerHTML = '';
+  sc.steps.forEach((st, i) => {
+    const b = document.createElement('button');
+    b.className = 'btn';
+    b.textContent = (i + 1) + '. ' + st.label;
+    b.onclick = () => { st.run(); toast('Step ' + (i + 1) + ' done'); };
+    steps.appendChild(b);
+  });
+}
+
+/* ---------- boot ---------- */
+
+window.addEventListener('resize', sizeCanvas);
+sizeCanvas();
+buildSetup();
+wireSliders();
+document.querySelector('.dprbtn[data-dpr="' + app.dpr + '"]')?.click?.();
+resetMatch();
+buildScenarios();
+requestAnimationFrame(frame);
+
+// Console debug handle — scenarios and poking from devtools.
+window.DBG = { app, SIM, NET, setMode, resetMatch, toast };
+</script>
+</body>
+</html>

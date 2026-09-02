@@ -1,0 +1,3 @@
+# No host migration — host drop ends the session
+
+The session is host-authoritative over free P2P (WebRTC star, no server), so the host device holds all game state. We decided that a host disconnect ends the session for every guest rather than migrating the host role. Migration would require full state serialization, guest re-election, and a fresh STUN/TURN handshake — significant complexity and failure surface for a rare event, on infrastructure where no fallback server exists to coordinate the handoff. The cost is accepted: the host is a single point of failure, and guests see a "Host left — session ended" screen.
