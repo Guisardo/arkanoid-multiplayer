@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint .",
     "e2e": "playwright test"
@@ -17,6 +18,7 @@
     "pixi.js": "^8.20.1"
   },
   "devDependencies": {
+    "@codecov/vite-plugin": "^2.0.1",
     "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.48.0",
     "@types/node": "^22.0.0",

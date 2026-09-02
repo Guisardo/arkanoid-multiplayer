@@ -1,5 +1,7 @@
 # Arkanoid Multiplayer
 
+[![CodeFactor](https://www.codefactor.io/repository/github/guisardo/arkanoid-multiplayer/badge)](https://www.codefactor.io/repository/github/guisardo/arkanoid-multiplayer)
+
 A multiplayer Arkanoid for PC/Mac/Android web browsers: split-screen and remote play
 combinable in one session, up to 4 players, competitive (Race/Attack/Duel) and coop
 (Shared field/Parallel assist) modes, Solo + Versus bots, full classic content
