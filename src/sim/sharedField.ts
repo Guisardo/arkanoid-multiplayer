@@ -535,6 +535,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
           score,
           meter: 0,
           target: -1,
+          chain: 0,
           state: "playing" as const,
           effects: {},
         })),

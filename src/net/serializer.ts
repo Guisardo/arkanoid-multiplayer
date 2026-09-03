@@ -6,8 +6,8 @@
 //   u32 tick | u8 phase | u16 round | u8 playerCount | u8 ballCount |
 //   u8 capsuleCount | u8 eventCount (≤8) | u8 ackCount | u16 brickCount
 //   per player: u8 player, u8 skinIndex, u8 state, u8 target, u8 lives,
-//               u32 score, u8 meter, f32 x, f32 y, f32 w, f32 h, u8 edge,
-//               u16 nameLen
+//               u32 score, u8 meter, u8 chain, f32 x, f32 y, f32 w, f32 h,
+//               u8 edge, u16 nameLen
 //   names: ASCII bytes per player
 //   per ball: f32 x, f32 y, f32 vx, f32 vy, i8 attachedTo, i8 owner
 //   per capsule: f32 x, f32 y, u8 type
@@ -31,7 +31,7 @@ import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
 const PHASES: readonly SimPhase[] = ["serve", "play", "roundClear", "gameOver"];
 const EVENT_TYPES: readonly SimEventType[] = [
   "ballLaunch", "ballLoss", "brickBreak", "brickSilverHit", "capsuleCatch",
-  "roundClear", "gameOver", "attack", "assist", "pause", "resume",
+  "roundClear", "gameOver", "attack", "assist", "pause", "resume", "paddleBounce",
 ];
 const EDGES: readonly PaddleEdge[] = ["bottom", "left", "right", "top"];
 const STATES: readonly PlayerSlotState[] = ["playing", "downed", "removed"];
@@ -138,10 +138,10 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   const bricks = snap.bricks.slice(0, BRICK_COLS * BRICK_ROWS);
 
   const nameBytes = players.reduce((n, p) => n + p.name.length, 0);
-  // Fixed player fields: u8×5 + u32 score + u8 meter + f32×4 + u8 edge + u16 nameLen = 29
+  // Fixed player fields: u8×5 + u32 score + u8 meter + u8 chain + f32×4 + u8 edge + u16 nameLen = 30
   const size =
     14 +
-    players.length * 29 +
+    players.length * 30 +
     nameBytes +
     balls.length * 20 +
     capsules.length * 9 +
@@ -169,6 +169,7 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
     w.u8(p.lives & 0xff);
     w.u32(p.score);
     w.u8(p.meter & 0xff);
+    w.u8(p.chain & 0xff);
     w.f32(p.paddle.x);
     w.f32(p.paddle.y);
     w.f32(p.paddle.w);
@@ -235,6 +236,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
     const lives = r.u8();
     const score = r.u32();
     const meter = r.u8();
+    const chain = r.u8();
     const px = r.f32();
     const py = r.f32();
     const pw = r.f32();
@@ -253,6 +255,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
       lives,
       score,
       meter,
+      chain,
       paddle: { x: px, y: py, w: pw, h: ph, edge },
       name: "",
       effects: {},
