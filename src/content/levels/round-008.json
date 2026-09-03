@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "round": 8,
+  "grid": [
+    ".............",
+    "..S.S.S.S.S..",
+    "..S.S.S.S.S..",
+    "..F.F.F.F.F..",
+    "..F.F.F.F.F..",
+    "..E.E.E.E.E..",
+    "..E.E.E.E.E..",
+    "..D.D.D.D.D..",
+    "..D.D.D.D.D..",
+    "..C.C.C.C.C..",
+    "..C.C.C.C.C..",
+    "..B.B.B.B.B..",
+    "..B.B.B.B.B..",
+    ".............",
+    ".............",
+    ".............",
+    ".............",
+    "............."
+  ],
+  "baseBallSpeed": 124,
+  "silverHitOverride": null,
+  "capsuleScript": [
+    {
+      "brickBreakCount": 8,
+      "capsule": "E"
+    },
+    {
+      "brickBreakCount": 16,
+      "capsule": "S"
+    },
+    {
+      "brickBreakCount": 24,
+      "capsule": "M"
+    },
+    {
+      "brickBreakCount": 32,
+      "capsule": "P"
+    },
+    {
+      "brickBreakCount": 40,
+      "capsule": "L"
+    },
+    {
+      "brickBreakCount": 48,
+      "capsule": "C"
+    },
+    {
+      "brickBreakCount": 56,
+      "capsule": "?"
+    }
+  ],
+  "scoreOverrides": {}
+}

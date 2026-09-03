@@ -80,7 +80,7 @@ export interface RoundSim {
  */
 export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSim {
   // ---- Static state ----
-  const bricks = parseGrid(level.grid);
+  const bricks = parseGrid(level.grid, level.silverHitOverride, level.round);
   const baseSpeed = level.baseBallSpeed;
 
   // ---- Dynamic state ----
@@ -482,7 +482,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   return sim;
 }
 
-function parseGrid(grid: string[]): number[] {
+function parseGrid(grid: string[], silverOverride: number | null, round: number): number[] {
   const out = new Array<number>(BRICK_COLS * BRICK_ROWS).fill(BRICK_EMPTY);
   for (let r = 0; r < grid.length && r < BRICK_ROWS; r++) {
     const row = grid[r] ?? "";
@@ -490,8 +490,11 @@ function parseGrid(grid: string[]): number[] {
       const ch = row[c];
       if (!ch || ch === ".") continue;
       if (ch === "G") out[r * BRICK_COLS + c] = BRICK_GOLD;
-      else if (ch === "S") out[r * BRICK_COLS + c] = 8 + 1; // silver 1-hit default (per-round override later)
-      else out[r * BRICK_COLS + c] = coloredCell(tierForChar(ch));
+      else if (ch === "S") {
+        // Silver hits: min(1 + floor(round/8), 4), per-level override (spec §4).
+        const hits = silverHits(silverOverride, round);
+        out[r * BRICK_COLS + c] = 8 + hits;
+      } else out[r * BRICK_COLS + c] = coloredCell(tierForChar(ch));
     }
   }
   return out;
@@ -500,4 +503,9 @@ function parseGrid(grid: string[]): number[] {
 function tierForChar(ch: string): number {
   const code = ch.toLowerCase().charCodeAt(0);
   return 1 + ((code - 97) % 6);
+}
+
+function silverHits(override: number | null | undefined, round: number): number {
+  if (typeof override === "number") return Math.max(1, Math.min(4, override));
+  return Math.min(1 + Math.floor(round / 8), 4);
 }

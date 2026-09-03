@@ -1,19 +1,19 @@
 {
   "version": 1,
-  "round": 1,
+  "round": 6,
   "grid": [
     ".............",
-    "..CCCCCCCCC..",
-    "..BBBBBBBBB..",
-    "..FFFFFFFFFF.",
-    "..AAAAAAAAA..",
-    "..EEEEEEEEE..",
-    "..DDDDDDDDD..",
+    "..SS.....SS..",
+    "..SS.....SS..",
+    "..FF.....FF..",
+    "..EE.....EE..",
+    "..DD.....DD..",
+    "..CC.....CC..",
+    "..BB.....BB..",
+    "..AA.....AA..",
     ".............",
     ".............",
-    ".............",
-    ".............",
-    ".............",
+    ".....GGG.....",
     ".............",
     ".............",
     ".............",
@@ -21,31 +21,31 @@
     ".............",
     "............."
   ],
-  "baseBallSpeed": 110,
+  "baseBallSpeed": 120,
   "silverHitOverride": null,
   "capsuleScript": [
     {
-      "brickBreakCount": 9,
+      "brickBreakCount": 5,
       "capsule": "E"
     },
     {
-      "brickBreakCount": 18,
+      "brickBreakCount": 10,
       "capsule": "S"
     },
     {
-      "brickBreakCount": 27,
+      "brickBreakCount": 15,
       "capsule": "M"
     },
     {
-      "brickBreakCount": 36,
-      "capsule": "L"
-    },
-    {
-      "brickBreakCount": 45,
+      "brickBreakCount": 20,
       "capsule": "P"
     },
     {
-      "brickBreakCount": 54,
+      "brickBreakCount": 25,
+      "capsule": "L"
+    },
+    {
+      "brickBreakCount": 30,
       "capsule": "C"
     }
   ],
