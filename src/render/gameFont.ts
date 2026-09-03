@@ -13,6 +13,7 @@ let installed = false;
 
 export function installGameFont(): void {
   if (installed) return;
+  if (typeof document === "undefined") return; // headless (node tests) — no canvas
   installed = true;
   BitmapFont.install({
     name: "game",
