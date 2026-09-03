@@ -82,6 +82,8 @@ export async function startSoloSession(
       player: 0,
       locale,
       maxRound: 33,
+      skinId: settings.appearance.skinId,
+      themeId: settings.appearance.themeId,
     });
 
   const firstView = makeView();

@@ -2,14 +2,14 @@
 import type { Locale } from "ui/strings";
 import { SettingsScreen } from "ui/settingsScreen";
 import type { Storage } from "persistence/storage";
-import type { AudioSettings, DisplaySettings } from "ui/settings";
+import type { AppearanceSettings, AudioSettings, DisplaySettings } from "ui/settings";
 
 export function showSettings(
   host: HTMLElement,
   locale: Locale,
   storage: Storage,
   callbacks: {
-    onChange?: (audio: AudioSettings, display: DisplaySettings) => void;
+    onChange?: (audio: AudioSettings, display: DisplaySettings, appearance: AppearanceSettings) => void;
     onClose?: () => void;
   } = {},
 ): SettingsScreen {

@@ -4,5 +4,7 @@ export const BRICK_ROWS = 18;
 export const BRICK_W = 16;
 export const BRICK_H = 8;
 export const BRICK_TOP_OFFSET = 20;
+export const CAPSULE_W = 12;
+export const CAPSULE_H = 6;
 export const FIELD_W = 208;
 export const FIELD_H = 256;
