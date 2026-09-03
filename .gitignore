@@ -8,4 +8,5 @@ test-results/
 workers-dist/
 *.local
 .env
+.dev.vars
 .DS_Store
