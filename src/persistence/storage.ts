@@ -1,6 +1,5 @@
 // Typed localStorage wrapper (spec §16). Corrupt/unparseable stored values
 // fall back to defaults — never throw. Injectable backend for tests.
-import type { AudioSettings, DisplaySettings } from "ui/settings";
 
 export const STORAGE_KEYS = {
   name: "settings.name",
@@ -63,12 +62,12 @@ export class Storage {
   constructor(backend?: StorageBackend) {
     this.backend =
       backend ??
-      ({
-        getItem: (k) => globalThis.localStorage?.getItem(k) ?? null,
+      {
+        getItem: (k) => globalThis.localStorage.getItem(k),
         setItem: (k, v) => {
-          globalThis.localStorage?.setItem(k, v);
+          globalThis.localStorage.setItem(k, v);
         },
-      } satisfies StorageBackend);
+      };
   }
 
   readString(key: string, fallback: string | null = null): string | null {
@@ -110,7 +109,7 @@ export class Storage {
     }
   }
 
-  writeJSON<T>(key: string, value: T): void {
+  writeJSON(key: string, value: unknown): void {
     try {
       this.writeString(key, JSON.stringify(value));
     } catch {
@@ -131,11 +130,11 @@ export class Storage {
       audio: {
         music: clamp01(audio.music),
         sfx: clamp01(audio.sfx),
-        mute: audio.mute === true,
+        mute: audio.mute,
       },
       display: {
         dprMode: validDpr(display.dprMode) ? display.dprMode : "auto",
-        reducedEffects: display.reducedEffects === true,
+        reducedEffects: display.reducedEffects,
       },
       language: this.readString(STORAGE_KEYS.language, null),
       soloHighScore: this.readNumber(STORAGE_KEYS.soloHighScore, 0),
@@ -180,6 +179,3 @@ function clamp01(n: number): number {
 function validDpr(m: unknown): m is StoredDisplay["dprMode"] {
   return m === "auto" || m === "2" || m === "1.5" || m === "1";
 }
-
-/** Settings types re-exported for the settings module. */
-export type { AudioSettings, DisplaySettings };

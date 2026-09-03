@@ -111,7 +111,7 @@ export async function startSoloSession(
 
   /** Poll gamepads once per rendered frame. */
   function pollGamepads(): void {
-    if (!enablePointer || typeof navigator === "undefined" || !navigator.getGamepads) return;
+    if (!enablePointer) return;
     const pads = navigator.getGamepads();
     const pad = pads.find((p) => p !== null);
     if (!pad) {

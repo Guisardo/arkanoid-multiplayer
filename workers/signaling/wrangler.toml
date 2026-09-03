@@ -1,0 +1,14 @@
+name = "arkanoid-signaling"
+main = "src/worker.ts"
+compatibility_date = "2026-01-01"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://arkanoid-multiplayer.pages.dev"
+
+[[durable_objects.bindings]]
+name = "ROOM_DO"
+class_name = "RoomDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDO"]
