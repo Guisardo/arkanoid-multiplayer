@@ -4,7 +4,7 @@
 // App-level composition — the sim stays a pure round engine.
 import type { RoundSim } from "sim/roundSim";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel, availableRounds } from "content/levels";
+import { getLevel } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import type { Storage } from "persistence/storage";
 
@@ -74,8 +74,7 @@ export function createSoloEpisode(opts: SoloEpisodeOptions): SoloEpisode {
       const snap = sim.snapshot();
       if (snap.phase === "roundClear") {
         record();
-        const maxAuthored = Math.max(...availableRounds());
-        if (round >= Math.min(SOLO_MAX_ROUND, maxAuthored)) {
+        if (round >= SOLO_MAX_ROUND) {
           phase = "episodeComplete";
           return;
         }
