@@ -17,6 +17,7 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
+      "shared/*": ["src/shared/*"],
       "sim/*": ["src/sim/*"],
       "net/*": ["src/net/*"],
       "signaling/*": ["src/signaling/*"],
