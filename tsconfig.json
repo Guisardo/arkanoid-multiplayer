@@ -30,5 +30,6 @@
       "app/*": ["src/app/*"]
     }
   },
-  "include": ["src", "tests", "e2e", "playwright.config.ts", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "e2e", "playwright.config.ts", "vite.config.ts", "vitest.config.ts"],
+  "exclude": ["workers"]
 }

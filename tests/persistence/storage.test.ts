@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+import { Storage, STORAGE_KEYS, DEFAULTS, type StorageBackend } from "persistence/storage";
+import { loadSettings, saveSettings, effectiveDpr } from "ui/settings";
+
+function fakeBackend(): StorageBackend & { map: Map<string, string> } {
+  const map = new Map<string, string>();
+  return {
+    map,
+    getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => {
+      map.set(k, v);
+    },
+  };
+}
+
+describe("Storage (spec §16 key table)", () => {
+  it("returns defaults when empty", () => {
+    const s = new Storage(fakeBackend());
+    const all = s.loadAll();
+    expect(all).toEqual(DEFAULTS);
+    expect(all.name).toBe("Player 1");
+    expect(all.audio).toEqual({ music: 0.8, sfx: 0.8, mute: false });
+    expect(all.display).toEqual({ dprMode: "auto", reducedEffects: false });
+    expect(all.soloHighScore).toBe(0);
+  });
+
+  it("typed round-trip across the full key table", () => {
+    const b = fakeBackend();
+    const s = new Storage(b);
+    s.writeString(STORAGE_KEYS.name, "Lucas");
+    s.writeString(STORAGE_KEYS.skin, "uuid-1234");
+    s.writeString(STORAGE_KEYS.theme, "theme-5678");
+    s.writeString(STORAGE_KEYS.bindingsKeyboard, "{}");
+    s.writeString(STORAGE_KEYS.bindingsGamepad, "{}");
+    s.writeJSON(STORAGE_KEYS.audio, { music: 0.5, sfx: 0.3, mute: true });
+    s.writeJSON(STORAGE_KEYS.display, { dprMode: "1.5", reducedEffects: true });
+    s.writeString(STORAGE_KEYS.language, "es-419");
+    s.writeNumber(STORAGE_KEYS.soloHighScore, 12345);
+    s.writeNumber(STORAGE_KEYS.soloHighestRound, 12);
+    const all = s.loadAll();
+    expect(all.name).toBe("Lucas");
+    expect(all.skin).toBe("uuid-1234");
+    expect(all.theme).toBe("theme-5678");
+    expect(all.audio).toEqual({ music: 0.5, sfx: 0.3, mute: true });
+    expect(all.display).toEqual({ dprMode: "1.5", reducedEffects: true });
+    expect(all.language).toBe("es-419");
+    expect(all.soloHighScore).toBe(12345);
+    expect(all.soloHighestRound).toBe(12);
+  });
+
+  it("corrupt/unparseable values fall back to defaults, never throw", () => {
+    const b = fakeBackend();
+    b.map.set(STORAGE_KEYS.audio, "{corrupt json!!");
+    b.map.set(STORAGE_KEYS.display, "not json at all");
+    b.map.set(STORAGE_KEYS.soloHighScore, "garbage");
+    b.map.set(STORAGE_KEYS.name, "");
+    const s = new Storage(b);
+    const all = s.loadAll();
+    expect(all.audio).toEqual(DEFAULTS.audio);
+    expect(all.display).toEqual(DEFAULTS.display);
+    expect(all.soloHighScore).toBe(0);
+    expect(all.name).toBe("");
+  });
+
+  it("savePartial merges over current state", () => {
+    const s = new Storage(fakeBackend());
+    s.savePartial({ audio: { music: 0.1, sfx: 0.9, mute: false } });
+    s.savePartial({ audio: { music: 0.1, sfx: 0.9, mute: true } });
+    const all = s.loadAll();
+    expect(all.audio).toEqual({ music: 0.1, sfx: 0.9, mute: true });
+  });
+
+  it("recordSolo keeps the max records", () => {
+    const s = new Storage(fakeBackend());
+    s.recordSolo(100, 3);
+    s.recordSolo(50, 9);
+    const all = s.loadAll();
+    expect(all.soloHighScore).toBe(100);
+    expect(all.soloHighestRound).toBe(9);
+  });
+});
+
+describe("settings logic", () => {
+  it("loadSettings/saveSettings round-trip with partial merge", () => {
+    const s = new Storage(fakeBackend());
+    saveSettings(s, { audio: { music: 0.2 } });
+    saveSettings(s, { display: { dprMode: "1" } });
+    const cur = loadSettings(s);
+    expect(cur.audio.music).toBe(0.2);
+    expect(cur.audio.sfx).toBe(0.8);
+    expect(cur.display.dprMode).toBe("1");
+    expect(cur.display.reducedEffects).toBe(false);
+  });
+
+  it("effectiveDpr: auto caps at 2; numeric modes cap at 2", () => {
+    expect(effectiveDpr("auto", 3)).toBe(2);
+    expect(effectiveDpr("auto", 1.25)).toBe(1.25);
+    expect(effectiveDpr("2", 3)).toBe(2);
+    expect(effectiveDpr("1.5", 3)).toBe(1.5);
+    expect(effectiveDpr("1", 3)).toBe(1);
+  });
+});
