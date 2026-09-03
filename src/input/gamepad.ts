@@ -1,5 +1,4 @@
 import type { InputFrame, InputFrameActions } from "shared/protocol";
-import { EMPTY_ACTIONS } from "shared/protocol";
 
 // Gamepad adapter (spec §11): left stick (0.2 radial deadzone) and d-pad both
 // always live — stick beyond deadzone wins, never summed. A/Cross launch,
