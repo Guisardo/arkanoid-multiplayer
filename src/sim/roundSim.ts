@@ -58,7 +58,7 @@ interface CapsuleState {
 export interface RoundSimOptions {
   lives: number;
   score: number;
-  playerName?: string;
+  playerName?: string | undefined;
 }
 
 export interface RoundSim {
