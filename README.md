@@ -46,7 +46,7 @@ Built and maintained with AI tooling:
 ## Attribution
 
 Content DNA (capsule roster, episode structure, level-as-JSON) informed by
-[ball-and-wall](https://github.com/substack/ball-and-wall) (MIT) — MIT notice carried
+[ball-and-wall](https://github.com/budnix/ball-and-wall) (MIT) — MIT notice carried
 here as required by its license. All committed art/audio assets are CC0 (see
 `src/content/ASSETS.md`).
 
