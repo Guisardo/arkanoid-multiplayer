@@ -3,13 +3,14 @@
 // bricks + background from the host-chosen field theme. Owner-colored ball
 // glow = render-time tint layer over the white-base ball skin (readability
 // gate — never the sole ownership signal).
-import { BitmapText, Container, Graphics } from "pixi.js";
+import { BitmapText, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
 import { cellSilverHits, type Snapshot } from "shared/protocol";
-import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
+import { BRICK_COLS, BRICK_ROWS, FIELD_H, FIELD_W } from "shared/gridConstants";
 import { ownerColor } from "shared/playerColors";
 import { capDpr, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { diffBricks } from "./sceneSync";
+import { spriteTexture } from "./spriteSheet";
 import { format, t, type Locale } from "ui/strings";
 import { DEFAULT_SKIN, getSkin, type PlayerSkin } from "content/skins";
 import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
@@ -38,6 +39,9 @@ export class FieldView {
   private readonly ballGfx = new Graphics();
   private readonly capsuleGfx = new Graphics();
   private readonly brickGfx = new Graphics();
+  private readonly paddleSprite: Sprite | null;
+  private readonly ballSprite: Sprite | null;
+  private readonly bgSprite: TilingSprite | null;
   private readonly layout: FieldLayout;
   private readonly player: number;
   private readonly locale: Locale;
@@ -79,7 +83,23 @@ export class FieldView {
     const bg = new Graphics();
     paintFieldBackground(bg, this.theme.background);
     this.fieldContainer.addChild(bg);
+
+    // Real CC0 sprites (Tiny Break-em paddles/balls, Pixel Space background)
+    // layer over the procedural geometry. Null in node tests / load failure —
+    // geometry fallback stays the source of truth for readability.
+    const bgTex = this.theme.background.sprite !== null ? spriteTexture(this.theme.background.sprite) : null;
+    this.bgSprite = bgTex !== null ? new TilingSprite({ texture: bgTex, width: FIELD_W, height: FIELD_H }) : null;
+    if (this.bgSprite !== null) {
+      this.bgSprite.tint = 0x808080; // darkening pass (spec §13) over the tile
+      this.fieldContainer.addChild(this.bgSprite);
+    }
+    const paddleTex = this.skin.paddle.sprite !== null ? spriteTexture(this.skin.paddle.sprite) : null;
+    this.paddleSprite = paddleTex !== null ? new Sprite(paddleTex) : null;
+    const ballTex = this.skin.ball.sprite !== null ? spriteTexture(this.skin.ball.sprite) : null;
+    this.ballSprite = ballTex !== null ? new Sprite(ballTex) : null;
     this.fieldContainer.addChild(this.brickGfx, this.capsuleGfx, this.paddleGfx, this.ballGfx);
+    if (this.paddleSprite !== null) this.fieldContainer.addChild(this.paddleSprite);
+    if (this.ballSprite !== null) this.fieldContainer.addChild(this.ballSprite);
 
     this.container.addChild(this.nameText, this.hudText, this.fieldContainer);
   }
@@ -96,22 +116,45 @@ export class FieldView {
     }
     this.prevBricks = [...snap.bricks];
 
-    // Paddle (skin geometry)
+    // Paddle (skin geometry; sprite overlays when loaded)
     const p = player.paddle;
     this.paddleGfx.clear();
     paintPaddle(this.paddleGfx, this.skin.paddle, p.x, p.y, p.w, p.h);
+    if (this.paddleSprite !== null) {
+      this.paddleSprite.visible = true;
+      this.paddleSprite.position.set(p.x - p.w / 2, p.y - p.h / 2);
+      this.paddleSprite.width = p.w;
+      this.paddleSprite.height = p.h;
+      this.paddleGfx.visible = false;
+    } else {
+      this.paddleGfx.visible = true;
+    }
 
-    // Balls: owner-colored outline glow UNDER the white-base ball skin
-    // (readability gate — glow ring stays visible around whatever skin the
-    // ball wears; never the sole ownership signal). Owner color also tints
-    // the white-base ball body at render time (never authored PNGs).
+    // Balls: owner-colored outline glow UNDER the ball skin (readability
+    // gate — glow ring stays visible around whatever skin the ball wears;
+    // never the sole ownership signal). Glow always renders on ballGfx;
+    // the body is either the sprite (when loaded) or procedural geometry.
     this.ballGfx.clear();
+    this.ballGfx.visible = true;
+    if (this.ballSprite !== null) this.ballSprite.visible = false;
     for (const b of snap.balls) {
       const owner = b.owner === null ? null : ownerColor(b.owner);
       if (owner !== null) {
         paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
       }
-      paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
+      if (this.ballSprite === null) {
+        paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
+      }
+    }
+    // Single-ball fields: sprite body over the glow ring (ring stays visible).
+    if (this.ballSprite !== null && snap.balls.length === 1) {
+      const b0 = snap.balls[0];
+      if (b0 !== undefined) {
+        this.ballSprite.visible = true;
+        this.ballSprite.position.set(b0.x - this.skin.ball.radius, b0.y - this.skin.ball.radius);
+        this.ballSprite.width = this.skin.ball.radius * 2;
+        this.ballSprite.height = this.skin.ball.radius * 2;
+      }
     }
 
     // Falling capsules: lettered pills

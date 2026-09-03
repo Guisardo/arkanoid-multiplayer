@@ -29,6 +29,8 @@ export interface PaddleSkin {
   stripeColor: number;
   /** Shape variant: "rounded" | "beveled" | "notched". */
   shape: "rounded" | "beveled" | "notched";
+  /** Real sprite path when a CC0 asset ships; null = procedural geometry. */
+  sprite: string | null;
   provenance: AssetProvenance;
 }
 
@@ -40,6 +42,8 @@ export interface BallSkin {
   pattern: "plain" | "panel" | "core";
   /** Radius in logical units (3 = classic). */
   radius: number;
+  /** Real sprite path when a CC0 asset ships; null = procedural geometry. */
+  sprite: string | null;
   provenance: AssetProvenance;
 }
 
@@ -74,6 +78,8 @@ export interface FieldBackground {
   starDensity: number;
   /** Darkening overlay alpha applied over the background (spec §13). */
   darkenAlpha: number;
+  /** Real tileable background sprite path when a CC0 asset ships; null = procedural. */
+  sprite: string | null;
 }
 
 /** Field theme (host-chosen, visual-only): brick set + background + UI chrome tint. */
