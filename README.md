@@ -35,6 +35,14 @@ consumers. Seams enforced by ESLint import-boundary rules (see `eslint.config.js
 - `audio/` — SFX + music engine
 - `persistence/` — localStorage wrapper
 
+## Tools used
+
+Built and maintained with AI tooling:
+
+- [Matt Pocock's skills](https://github.com/mattpocock/skills) — agentic engineering
+  workflows (specs, tickets, TDD, code review) driving development.
+- GLM 5.3 (Z.ai) — LLM powering the coding agent.
+
 ## Attribution
 
 Content DNA (capsule roster, episode structure, level-as-JSON) informed by
