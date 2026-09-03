@@ -1,0 +1,22 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+    patch:
+      default:
+        target: 60%
+      # Browser-only glue (WebRTC, WebSocket, DOM, Pixi wiring) cannot run in
+      # node Vitest — e2e covers it under SwiftShader. Lower patch floor.
+      signaling:
+        target: 30%
+        paths:
+          - "src/signaling/"
+      ui:
+        target: 40%
+        paths:
+          - "src/ui/"
+          - "src/render/"
+          - "src/app/"
+comment:
+  layout: "reach, diff, flags, files"
