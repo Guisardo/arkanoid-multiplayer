@@ -15,13 +15,22 @@ export interface AppShell {
   dispose(): void;
 }
 
-export async function createAppShell(canvasHost: HTMLElement): Promise<AppShell> {
+export interface AppShellOptions {
+  /** Resolution override (dpr mode from Settings; default 1). */
+  resolution?: number;
+}
+
+export async function createAppShell(
+  canvasHost: HTMLElement,
+  opts: AppShellOptions = {},
+): Promise<AppShell> {
   const app = new Application();
   await app.init({
     ...RENDERER_CONFIG,
     width: canvasHost.clientWidth,
     height: canvasHost.clientHeight,
     resizeTo: canvasHost,
+    resolution: opts.resolution ?? RENDERER_CONFIG.resolution,
   });
   canvasHost.appendChild(app.canvas);
 
