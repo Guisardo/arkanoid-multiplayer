@@ -91,6 +91,8 @@ export function createAttackSession(opts: AttackSessionOptions): AttackSession {
   const immune = new Array<boolean>(playerCount).fill(false);
   /** Last-processed event tick per player, to read only new events. */
   const lastEventTick = new Array<number>(playerCount).fill(-1);
+  /** Whether a player had any active effect last step (expiry re-apply). */
+  const prevActive = new Array<boolean>(playerCount).fill(false);
   /** Last-seen levels cleared per player (level-clear trigger signal). */
   const prevLevelsCleared = new Array<number>(playerCount).fill(0);
   let lastRound = race.state().round;
@@ -277,12 +279,14 @@ export function createAttackSession(opts: AttackSessionOptions): AttackSession {
       }
 
       // (8) Re-apply field factors after any fires this step (timers ticked
-      // at step start — section (0)).
+      // at step start — section (0)). Runs on expiry transitions too: the
+      // sim keeps the last factor until told otherwise.
       for (let p = 0; p < playerCount; p++) {
         const fx = effects[p] ?? NO_ATTACK_EFFECTS;
-        if (fx.shrinkMs > 0 || fx.speedMs > 0 || fx.mangleMs > 0) {
-          applyEffectToField(p);
-        }
+        const prev = prevActive[p] ?? false;
+        const active = fx.shrinkMs > 0 || fx.speedMs > 0 || fx.mangleMs > 0;
+        if (active || prev) applyEffectToField(p);
+        prevActive[p] = active;
       }
     },
     snapshots() {

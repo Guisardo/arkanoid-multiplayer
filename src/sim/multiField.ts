@@ -150,11 +150,13 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
     step(inputs) {
       if (phase === "matchOver") return;
       // Each player's sim steps with their own frame (identical level).
+      // roundSim is single-player: remap the session player index to 0 so
+      // the sim actually consumes the frame (it filters on player === 0).
       const byPlayer = new Map<number, InputFrame>();
-      for (const f of inputs) byPlayer.set(f.player, f);
+      for (const f of inputs) byPlayer.set(f.player, { ...f, player: 0 });
       for (let i = 0; i < sims.length; i++) {
         const sim = sims[i];
-        if (sim) sim.step([byPlayer.get(i) ?? idleFrame(i, tick)]);
+        if (sim) sim.step([byPlayer.get(i) ?? idleFrame(0, tick)]);
       }
       tick++;
 

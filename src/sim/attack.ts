@@ -138,10 +138,16 @@ export function tickAttackEffects(
   active: ActiveAttackEffects,
   dtMs: number,
 ): ActiveAttackEffects {
+  const decay = (ms: number): number => {
+    const next = ms - dtMs;
+    // Sub-microsecond residue from repeated float subtraction reads as
+    // "still active" — snap it to expired.
+    return next <= 0.001 ? 0 : next;
+  };
   return {
-    shrinkMs: Math.max(0, active.shrinkMs - dtMs),
-    speedMs: Math.max(0, active.speedMs - dtMs),
-    mangleMs: Math.max(0, active.mangleMs - dtMs),
+    shrinkMs: decay(active.shrinkMs),
+    speedMs: decay(active.speedMs),
+    mangleMs: decay(active.mangleMs),
   };
 }
 
