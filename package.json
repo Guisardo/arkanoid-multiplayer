@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "e2e": "playwright test",
-    "wrangler:dev": "wrangler dev --config workers/signaling/wrangler.toml"
+    "wrangler:dev": "wrangler dev --config workers/signaling/wrangler.toml",
+    "wrangler:dev:turn": "wrangler dev --config workers/turn/wrangler.toml"
   },
   "dependencies": {
     "pixi.js": "^8.20.1"

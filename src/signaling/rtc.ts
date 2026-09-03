@@ -1,5 +1,6 @@
 import { SignalingClient } from "signaling/client";
 import { decodeSignal, encodeSignal } from "signaling/copyPaste";
+import { stunOnlyServers } from "signaling/iceConfig";
 
 export interface IceConfig {
   iceServers?: RTCIceServer[];
@@ -11,14 +12,9 @@ export interface RtcConnection {
   controlChannel: RTCDataChannel;
 }
 
-const STUN_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:openrelay.metered.ca:80" },
-];
-
 export function createPeerConnection(iceConfig: IceConfig = {}): RTCPeerConnection {
   return new RTCPeerConnection({
-    iceServers: iceConfig.iceServers ?? STUN_SERVERS,
+    iceServers: iceConfig.iceServers ?? stunOnlyServers(),
   });
 }
 

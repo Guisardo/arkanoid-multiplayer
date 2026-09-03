@@ -1,0 +1,11 @@
+name = "arkanoid-turn"
+main = "src/worker.ts"
+compatibility_date = "2026-01-01"
+
+[vars]
+# METERED_DOMAIN: your <appname>.metered.live domain (Dashboard -> Developers).
+# METERED_SECRET_KEY: NEVER put the real value here — set it as a secret:
+#   npx wrangler secret put METERED_SECRET_KEY --config workers/turn/wrangler.toml
+# Secrets must not be committed; [vars] here are public per-deploy.
+METERED_DOMAIN = "yourapp.metered.live"
+ALLOWED_ORIGINS = "http://localhost:5173,https://arkanoid-multiplayer.pages.dev"
