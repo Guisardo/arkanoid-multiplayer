@@ -1,8 +1,8 @@
-import { createAppShell } from "render/appShell";
+import { startSoloSession } from "app/soloSession";
 
 const host = document.getElementById("app");
 if (!host) throw new Error("missing #app host");
 
-void createAppShell(host).then((shell) => {
-  globalThis.__arkanoid = shell;
+void startSoloSession(host).then((session) => {
+  globalThis.__arkanoid = session;
 });

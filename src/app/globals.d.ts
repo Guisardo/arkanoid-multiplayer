@@ -1,5 +1,5 @@
-import type { AppShell } from "render/appShell";
+import type { SoloSession } from "app/soloSession";
 
 declare global {
-  var __arkanoid: AppShell | undefined;
+  var __arkanoid: SoloSession | undefined;
 }

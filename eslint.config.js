@@ -46,6 +46,8 @@ export default tseslint.config(
           { target: "./src/persistence", from: ["./src/sim", "./src/render", "./src/ui", "./src/net", "./src/app"] },
           // content is a leaf
           { target: "./src/content", from: ["./src/sim", "./src/render", "./src/ui", "./src/net", "./src/app", "./src/input"] },
+          // shared is the protocol leaf — imports nothing from modules
+          { target: "./src/shared", from: ["./src/sim", "./src/render", "./src/ui", "./src/net", "./src/app", "./src/input", "./src/content", "./src/audio", "./src/signaling", "./src/persistence"] },
         ],
       }],
       "@typescript-eslint/no-floating-promises": "error",
@@ -69,6 +71,9 @@ export default tseslint.config(
     rules: {
       // tests may import anything — seam tests deliberately violate boundaries to prove the lint catches them
       "import/no-restricted-paths": "off",
+      // test fixtures/arrays are asserted non-empty by construction
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-unnecessary-condition": "off",
     },
   },
   {

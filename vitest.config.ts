@@ -4,6 +4,7 @@ import path from "node:path";
 export default defineConfig({
   resolve: {
     alias: {
+      shared: path.resolve(__dirname, "src/shared"),
       sim: path.resolve(__dirname, "src/sim"),
       net: path.resolve(__dirname, "src/net"),
       signaling: path.resolve(__dirname, "src/signaling"),
@@ -19,5 +20,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "clover", "json"],
+      include: ["src/**/*.ts"],
+      reportsDirectory: "coverage",
+    },
   },
 });
