@@ -1,16 +1,25 @@
 // Settings screen (spec §14): DOM overlay with four sections — Controls,
-// Audio, Display, Appearance. Audio + Display live; Controls/Appearance are
-// stubs until tickets 41/29. All strings from locale tables.
-import type { Locale } from "ui/strings";
-import { t } from "ui/strings";
+// Audio, Display, Appearance. Audio + Display + Appearance live; Controls is
+// a stub until ticket 41. All strings from locale tables.
+import { t, type Locale } from "ui/strings";
 import type { Storage } from "persistence/storage";
-import { loadSettings, saveSettings, type AudioSettings, type DisplaySettings } from "ui/settings";
+import {
+  loadSettings,
+  saveSettings,
+  type AppearanceSettings,
+  type AudioSettings,
+  type DisplaySettings,
+} from "ui/settings";
+import { SKINS } from "content/skins";
+import { THEMES } from "content/themes";
 
 export interface SettingsScreenOptions {
   host: HTMLElement;
   locale: Locale;
   storage: Storage;
-  onChange?: ((audio: AudioSettings, display: DisplaySettings) => void) | undefined;
+  onChange?:
+    | ((audio: AudioSettings, display: DisplaySettings, appearance: AppearanceSettings) => void)
+    | undefined;
   onClose?: (() => void) | undefined;
 }
 
@@ -55,6 +64,7 @@ export class SettingsScreen {
       panel.appendChild(h);
       if (section === "settings.audio") panel.appendChild(this.buildAudio(cur.audio));
       else if (section === "settings.display") panel.appendChild(this.buildDisplay(cur.display));
+      else if (section === "settings.appearance") panel.appendChild(this.buildAppearance(cur.appearance));
       else {
         const stub = document.createElement("div");
         stub.textContent = "—";
@@ -141,8 +151,48 @@ export class SettingsScreen {
     return wrap;
   }
 
+  private buildAppearance(cur: AppearanceSettings): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+
+    const skinRow = document.createElement("label");
+    skinRow.textContent = t(this.opts.locale, "settings.skin");
+    const skinSelect = document.createElement("select");
+    for (const skin of SKINS) {
+      const opt = document.createElement("option");
+      opt.value = skin.id;
+      opt.textContent = skin.name;
+      skinSelect.appendChild(opt);
+    }
+    skinSelect.value = cur.skinId;
+    skinSelect.addEventListener("change", () => {
+      saveSettings(this.opts.storage, { appearance: { skinId: skinSelect.value } });
+      this.emitChange();
+    });
+    skinRow.appendChild(skinSelect);
+    wrap.appendChild(skinRow);
+
+    const themeRow = document.createElement("label");
+    themeRow.textContent = t(this.opts.locale, "settings.theme");
+    const themeSelect = document.createElement("select");
+    for (const theme of THEMES) {
+      const opt = document.createElement("option");
+      opt.value = theme.id;
+      opt.textContent = theme.name;
+      themeSelect.appendChild(opt);
+    }
+    themeSelect.value = cur.themeId;
+    themeSelect.addEventListener("change", () => {
+      saveSettings(this.opts.storage, { appearance: { themeId: themeSelect.value } });
+      this.emitChange();
+    });
+    themeRow.appendChild(themeSelect);
+    wrap.appendChild(themeRow);
+    return wrap;
+  }
+
   private emitChange(): void {
     const cur = loadSettings(this.opts.storage);
-    this.opts.onChange?.(cur.audio, cur.display);
+    this.opts.onChange?.(cur.audio, cur.display, cur.appearance);
   }
 }

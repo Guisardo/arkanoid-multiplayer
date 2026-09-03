@@ -1,5 +1,7 @@
 // Settings state + apply logic (spec §14). Pure, headless-testable.
 import type { Storage } from "persistence/storage";
+import { DEFAULT_SKIN_ID, getSkin } from "content/skins";
+import { DEFAULT_THEME_ID, getTheme } from "content/themes";
 
 export interface AudioSettings {
   music: number;
@@ -12,22 +14,44 @@ export interface DisplaySettings {
   reducedEffects: boolean;
 }
 
-export function loadSettings(storage: Storage): { audio: AudioSettings; display: DisplaySettings } {
+export interface AppearanceSettings {
+  /** Default player skin UUID (Settings Appearance; lobby overrides per-player). */
+  skinId: string;
+  /** Preferred field theme UUID (host-chosen in lobby; this is the default). */
+  themeId: string;
+}
+
+export function loadSettings(storage: Storage): {
+  audio: AudioSettings;
+  display: DisplaySettings;
+  appearance: AppearanceSettings;
+} {
   const all = storage.loadAll();
   return {
     audio: { ...all.audio },
     display: { ...all.display },
+    appearance: {
+      // Unknown/garbage stored ids fall back to registry defaults.
+      skinId: getSkin(all.skin)?.id ?? DEFAULT_SKIN_ID,
+      themeId: getTheme(all.theme)?.id ?? DEFAULT_THEME_ID,
+    },
   };
 }
 
 export function saveSettings(
   storage: Storage,
-  partial: { audio?: Partial<AudioSettings>; display?: Partial<DisplaySettings> },
+  partial: {
+    audio?: Partial<AudioSettings>;
+    display?: Partial<DisplaySettings>;
+    appearance?: Partial<AppearanceSettings>;
+  },
 ): void {
   const cur = loadSettings(storage);
   storage.savePartial({
     audio: { ...cur.audio, ...partial.audio },
     display: { ...cur.display, ...partial.display },
+    skin: partial.appearance?.skinId ?? cur.appearance.skinId,
+    theme: partial.appearance?.themeId ?? cur.appearance.themeId,
   });
 }
 

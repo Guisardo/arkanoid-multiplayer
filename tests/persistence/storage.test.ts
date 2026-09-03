@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Storage, STORAGE_KEYS, DEFAULTS, type StorageBackend } from "persistence/storage";
 import { loadSettings, saveSettings, effectiveDpr } from "ui/settings";
+import { SKINS, DEFAULT_SKIN_ID } from "content/skins";
+import { THEMES, DEFAULT_THEME_ID } from "content/themes";
 
 function fakeBackend(): StorageBackend & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -90,6 +92,31 @@ describe("settings logic", () => {
     expect(cur.audio.sfx).toBe(0.8);
     expect(cur.display.dprMode).toBe("1");
     expect(cur.display.reducedEffects).toBe(false);
+  });
+
+  it("appearance: defaults to registry defaults; persists skin + theme UUIDs (spec §16)", () => {
+    const s = new Storage(fakeBackend());
+    const cur = loadSettings(s);
+    expect(cur.appearance.skinId).toBe(DEFAULT_SKIN_ID);
+    expect(cur.appearance.themeId).toBe(DEFAULT_THEME_ID);
+    saveSettings(s, { appearance: { skinId: "6f2a1c34-9b8e-4d5a-8f21-0c4d7e9a1b20" } });
+    saveSettings(s, { appearance: { themeId: "7b2c8d4e-1a63-4f9b-8e2d-6c4a9f3b7e15" } });
+    const after = loadSettings(s);
+    expect(after.appearance.skinId).toBe("6f2a1c34-9b8e-4d5a-8f21-0c4d7e9a1b20");
+    expect(after.appearance.themeId).toBe("7b2c8d4e-1a63-4f9b-8e2d-6c4a9f3b7e15");
+    // partial merge: skin survives a theme-only save
+    saveSettings(s, { appearance: { themeId: "1e4a9c7b-3f52-4d68-9c81-a5b3e7f2d904" } });
+    const merged = loadSettings(s);
+    expect(merged.appearance.skinId).toBe("6f2a1c34-9b8e-4d5a-8f21-0c4d7e9a1b20");
+    expect(merged.appearance.themeId).toBe("1e4a9c7b-3f52-4d68-9c81-a5b3e7f2d904");
+  });
+
+  it("appearance: stored under settings.skin / settings.theme keys (§16 key table)", () => {
+    const b = fakeBackend();
+    const s = new Storage(b);
+    saveSettings(s, { appearance: { skinId: SKINS[1]!.id, themeId: THEMES[1]!.id } });
+    expect(b.map.get(STORAGE_KEYS.skin)).toBe(SKINS[1]!.id);
+    expect(b.map.get(STORAGE_KEYS.theme)).toBe(THEMES[1]!.id);
   });
 
   it("effectiveDpr: auto caps at 2; numeric modes cap at 2", () => {

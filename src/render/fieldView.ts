@@ -1,25 +1,22 @@
 // Field view: one play field + HUD strip, consuming Snapshots only (spec §2).
+// Skins/themes (spec §13): paddle/ball from the player's skin registry entry,
+// bricks + background from the host-chosen field theme. Owner-colored ball
+// glow = render-time tint layer over the white-base ball skin (readability
+// gate — never the sole ownership signal).
 import { BitmapText, Container, Graphics } from "pixi.js";
-import type { Snapshot } from "shared/protocol";
+import { cellSilverHits, type Snapshot } from "shared/protocol";
 import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
+import { ownerColor } from "shared/playerColors";
 import { capDpr, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { diffBricks } from "./sceneSync";
-import type { Locale } from "ui/strings";
-import { format, t } from "ui/strings";
-
-const BRICK_COLORS: Record<number, number> = {
-  1: 0xd82800,
-  2: 0xfc9838,
-  3: 0xfcbcd0,
-  4: 0x58f898,
-  5: 0x00fcfc,
-  6: 0x00b8fc,
-};
-const SILVER_COLOR = 0xbcbcbc;
-const GOLD_COLOR = 0xdca850;
-const PADDLE_COLOR = 0xe8b04a;
-const BALL_COLOR = 0xf8f8f8;
+import { format, t, type Locale } from "ui/strings";
+import { DEFAULT_SKIN, getSkin, type PlayerSkin } from "content/skins";
+import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
+import { pillFor } from "content/capsulePills";
+import { paintFieldBackground } from "./themeBackground";
+import { crackSegments } from "./brickCracks";
+import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule } from "./skinPainter";
 
 export interface FieldViewOptions {
   layout: FieldLayout;
@@ -27,6 +24,10 @@ export interface FieldViewOptions {
   locale: Locale;
   /** Field max round for R12/33 display. */
   maxRound: number;
+  /** Player skin UUID (Settings Appearance default until lobby override). */
+  skinId?: string | undefined;
+  /** Field theme UUID (host-chosen; default theme when absent/unknown). */
+  themeId?: string | undefined;
 }
 
 export class FieldView {
@@ -41,6 +42,8 @@ export class FieldView {
   private readonly player: number;
   private readonly locale: Locale;
   private readonly maxRound: number;
+  private readonly skin: PlayerSkin;
+  private readonly theme: FieldTheme;
   private prevBricks: number[] | null = null;
   private lives = -1;
   private score = -1;
@@ -53,6 +56,8 @@ export class FieldView {
     this.player = opts.player;
     this.locale = opts.locale;
     this.maxRound = opts.maxRound;
+    this.skin = getSkinSafe(opts.skinId);
+    this.theme = getTheme(opts.themeId ?? null) ?? DEFAULT_THEME;
 
     const s = this.layout.scale;
     // HUD strip above the field
@@ -72,7 +77,7 @@ export class FieldView {
     this.fieldContainer.scale.set(s);
 
     const bg = new Graphics();
-    bg.rect(0, 0, 208, 256).fill(0x101018);
+    paintFieldBackground(bg, this.theme.background);
     this.fieldContainer.addChild(bg);
     this.fieldContainer.addChild(this.brickGfx, this.capsuleGfx, this.paddleGfx, this.ballGfx);
 
@@ -91,19 +96,28 @@ export class FieldView {
     }
     this.prevBricks = [...snap.bricks];
 
-    // Paddle
+    // Paddle (skin geometry)
     const p = player.paddle;
     this.paddleGfx.clear();
-    this.paddleGfx.rect(p.x - p.w / 2, p.y - p.h / 2, p.w, p.h).fill(PADDLE_COLOR);
+    paintPaddle(this.paddleGfx, this.skin.paddle, p.x, p.y, p.w, p.h);
 
-    // Balls + falling capsules
+    // Balls: owner-colored outline glow UNDER the white-base ball skin
+    // (readability gate — glow ring stays visible around whatever skin the
+    // ball wears; never the sole ownership signal). Owner color also tints
+    // the white-base ball body at render time (never authored PNGs).
     this.ballGfx.clear();
     for (const b of snap.balls) {
-      this.ballGfx.circle(b.x, b.y, 3).fill(BALL_COLOR);
+      const owner = b.owner === null ? null : ownerColor(b.owner);
+      if (owner !== null) {
+        paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
+      }
+      paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
     }
+
+    // Falling capsules: lettered pills
     this.capsuleGfx.clear();
     for (const c of snap.capsules) {
-      this.capsuleGfx.rect(c.x - 6, c.y - 3, 12, 6).fill(0xdc4838);
+      paintCapsule(this.capsuleGfx, pillFor(c.type), c.x, c.y);
     }
 
     // HUD strip: name + color chip, lives icons, score, R12/33
@@ -119,21 +133,37 @@ export class FieldView {
 
   private redrawBricks(bricks: readonly number[]): void {
     this.brickGfx.clear();
+    const set = this.theme.brickSet;
     for (let i = 0; i < bricks.length && i < BRICK_COLS * BRICK_ROWS; i++) {
       const cell = bricks[i] ?? 0;
       if (cell === 0) continue;
       const col = i % BRICK_COLS;
       const row = Math.floor(i / BRICK_COLS);
-      const color = this.brickColor(cell);
-      this.brickGfx
-        .rect(col * 16 + 0.5, 20 + row * 8 + 0.5, 15, 7)
-        .fill(color);
+      const x = col * 16 + 0.5;
+      const y = 20 + row * 8 + 0.5;
+      this.brickGfx.rect(x, y, 15, 7).fill(this.brickColor(cell));
+      // Silver hit-state crack overlay (procedural tint+crack, spec §13)
+      if (cellSilverHits(cell) !== null) {
+        for (const seg of crackSegments(cell, set.crackStyle)) {
+          this.brickGfx
+            .moveTo(x + seg.x1, y + seg.y1)
+            .lineTo(x + seg.x2, y + seg.y2)
+            .stroke({ width: 0.5, color: 0x101018 });
+        }
+      }
     }
   }
 
   private brickColor(cell: number): number {
-    if (cell === 13) return GOLD_COLOR;
-    if (cell > 8 && cell < 13) return SILVER_COLOR;
-    return BRICK_COLORS[cell] ?? 0xffffff;
+    const set = this.theme.brickSet;
+    if (cell === 13) return set.goldColor;
+    if (cell > 8 && cell < 13) return set.silverColor;
+    return set.tierColors[cell] ?? 0xffffff;
   }
+}
+
+/** Resolve a skin UUID with fallback to the default skin (unknown/null ids). */
+function getSkinSafe(id: string | undefined): PlayerSkin {
+  if (id === undefined) return DEFAULT_SKIN;
+  return getSkin(id) ?? DEFAULT_SKIN;
 }

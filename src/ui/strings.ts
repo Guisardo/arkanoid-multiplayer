@@ -33,6 +33,8 @@ const enUS = {
   "settings.reducedEffects": "Reduced effects",
   "settings.language": "Language",
   "settings.name": "Name",
+  "settings.skin": "Skin",
+  "settings.theme": "Theme",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -60,6 +62,8 @@ const es419: Record<StringKey, string> = {
   "settings.reducedEffects": "Efectos reducidos",
   "settings.language": "Idioma",
   "settings.name": "Nombre",
+  "settings.skin": "Skin",
+  "settings.theme": "Tema",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {
