@@ -28,7 +28,7 @@ function testLevel(): LevelData {
   };
 }
 
-function input(player: number, tick: number, axisX: number, launch = false): InputFrame {
+function input(player: number, tick: number, axisX = 0, launch = false): InputFrame {
   return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
 }
 
@@ -133,5 +133,144 @@ describe("RoundSim (tracer round)", () => {
     const sim = createRoundSim(testLevel(), { lives: 3, score: 0 });
     sim.step([input(0, sim.currentTick, 1)]);
     expect(sim.snapshot().players[0]!.paddle.y).toBeCloseTo(PADDLE_Y, 5);
+  });
+});
+
+describe("silver hits formula (spec §4)", () => {
+  function silverLevel(round: number, override: number | null = null): LevelData {
+    const grid: string[] = [];
+    for (let r = 0; r < BRICK_ROWS; r++) {
+      grid.push(r === 2 ? "S............" : ".............");
+    }
+    return {
+      version: 1,
+      round,
+      grid,
+      baseBallSpeed: 110,
+      silverHitOverride: override,
+      capsuleScript: [
+        { brickBreakCount: 1, capsule: "E" },
+        { brickBreakCount: 2, capsule: "P" },
+        { brickBreakCount: 3, capsule: "L" },
+        { brickBreakCount: 4, capsule: "S" },
+        { brickBreakCount: 5, capsule: "M" },
+        { brickBreakCount: 6, capsule: "C" },
+      ],
+      scoreOverrides: {},
+    };
+  }
+
+  /** Hit the silver brick from below until it breaks; returns hits needed. */
+  function hitsToBreak(round: number, override: number | null = null): number {
+    const sim = createRoundSim(silverLevel(round, override), { lives: 99, score: 0 });
+    let hits = 0;
+    let guard = 0;
+    while (hits < 10 && guard < 200) {
+      const cellBefore = sim.snapshot().bricks[2 * 13] ?? 0;
+      sim.debugSetBall(8, 20 + 3 * 8 + 6, 0, -200);
+      for (let s = 0; s < 20; s++) {
+        sim.step([input(0, sim.currentTick)]);
+        guard++;
+        const cell = sim.snapshot().bricks[2 * 13] ?? 0;
+        if (cell !== cellBefore) {
+          hits++;
+          break;
+        }
+      }
+    }
+    return hits;
+  }
+
+  it("round 1 → 1 hit; round 8 → 2; round 16 → 3; round 24+ → 4 (capped)", () => {
+    expect(hitsToBreak(1)).toBe(1);
+    expect(hitsToBreak(8)).toBe(2);
+    expect(hitsToBreak(16)).toBe(3);
+    expect(hitsToBreak(24)).toBe(4);
+    expect(hitsToBreak(33)).toBe(4);
+  });
+
+  it("per-level override replaces the formula", () => {
+    expect(hitsToBreak(1, 3)).toBe(3);
+    expect(hitsToBreak(24, 1)).toBe(1);
+  });
+
+  it("gold is indestructible — ball bounces, brick stays", () => {
+    const grid: string[] = [];
+    for (let r = 0; r < BRICK_ROWS; r++) {
+      grid.push(r === 2 ? "G............" : ".............");
+    }
+    const level: LevelData = {
+      version: 1,
+      round: 1,
+      grid,
+      baseBallSpeed: 110,
+      silverHitOverride: null,
+      capsuleScript: [
+        { brickBreakCount: 1, capsule: "E" },
+        { brickBreakCount: 2, capsule: "P" },
+        { brickBreakCount: 3, capsule: "L" },
+        { brickBreakCount: 4, capsule: "S" },
+        { brickBreakCount: 5, capsule: "M" },
+        { brickBreakCount: 6, capsule: "C" },
+      ],
+      scoreOverrides: {},
+    };
+    const sim = createRoundSim(level, { lives: 99, score: 0 });
+    for (let i = 0; i < 30; i++) {
+      sim.debugSetBall(8, 50, 0, -200);
+      sim.step([input(0, sim.currentTick)]);
+    }
+    expect(sim.snapshot().bricks[2 * 13]).toBe(13);
+  });
+});
+
+describe("speed tier bumps (spec §4)", () => {
+  function tierLevel(brickCount: number): LevelData {
+    // 20 bricks for the >15 case; exactly 15 / 8 for the tier cases.
+    const grid: string[] = [];
+    for (let r = 0; r < BRICK_ROWS; r++) grid.push(".............");
+    let placed = 0;
+    for (let r = 0; r < BRICK_ROWS && placed < brickCount; r++) {
+      for (let c = 0; c < BRICK_COLS && placed < brickCount; c++) {
+        grid[r] = (grid[r] ?? "").slice(0, c) + "A" + (grid[r] ?? "").slice(c + 1);
+        placed++;
+      }
+    }
+    return {
+      version: 1,
+      round: 1,
+      grid,
+      baseBallSpeed: 110,
+      silverHitOverride: null,
+      capsuleScript: [
+        { brickBreakCount: 1, capsule: "E" },
+        { brickBreakCount: 2, capsule: "P" },
+        { brickBreakCount: 3, capsule: "L" },
+        { brickBreakCount: 4, capsule: "S" },
+        { brickBreakCount: 5, capsule: "M" },
+        { brickBreakCount: 6, capsule: "C" },
+      ],
+      scoreOverrides: {},
+    };
+  }
+
+  /** Paddle-bounce speed for the current brick count. */
+  function bounceSpeed(brickCount: number): number {
+    const sim = createRoundSim(tierLevel(brickCount), { lives: 99, score: 0 });
+    sim.debugSetBall(104, PADDLE_Y - 10, 0, 110);
+    for (let i = 0; i < 10; i++) sim.step([input(0, sim.currentTick, 0)]);
+    const balls = sim.snapshot().balls;
+    const b = balls[0]!;
+    return Math.hypot(b.vx, b.vy);
+  }
+
+  it(">15 bricks → base speed", () => {
+    expect(bounceSpeed(20)).toBeCloseTo(110, 0);
+  });
+  it("≤15 bricks → ×1.08", () => {
+    expect(bounceSpeed(15)).toBeCloseTo(110 * 1.08, 0);
+  });
+  it("≤8 bricks → ×1.08×1.08", () => {
+    expect(bounceSpeed(8)).toBeCloseTo(110 * 1.08 * 1.08, 0);
   });
 });
