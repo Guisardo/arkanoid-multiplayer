@@ -29,12 +29,14 @@ import {
   coloredCell,
   isDestructibleCell,
   isGoldCell,
+  type CapsuleTypeId,
   type InputFrame,
   type PaddleEdge,
   type SimEvent,
   type Snapshot,
 } from "shared/protocol";
 import type { LevelData } from "content/levelFormat";
+import { CapsuleScriptRunner, CAPSULE_EFFECTS, EFFECTS_CLEAR_ON_BALL_LOSS } from "./capsules";
 
 const EVENT_RING_SIZE = 8;
 
@@ -65,6 +67,10 @@ export interface RoundSim {
   snapshot(): Snapshot;
   /** Test hook: place the ball. */
   debugSetBall(x: number, y: number, vx: number, vy: number): void;
+  /** Test hook: force-drop a capsule. */
+  debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void;
+  /** Test hook: force all but one ball below the field (no life penalty). */
+  debugLoseBallsExcept(keepIndex: number): void;
 }
 
 /**
@@ -85,6 +91,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   const balls: BallState[] = [];
   const capsules: CapsuleState[] = [];
   const events: SimEvent[] = [];
+  const scriptRunner = new CapsuleScriptRunner(level.capsuleScript);
+  let brickBreaks = 0;
 
   const paddle: Box & { edge: PaddleEdge } = {
     x: FIELD_W / 2,
@@ -93,6 +101,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     h: PADDLE_H,
     edge: "bottom",
   };
+  /** Active effect timers in ms remaining (classic: cleared on ball loss). */
+  const effects = new Map<CapsuleTypeId, number>();
 
   const consumedLaunch = new Set<number>();
 
@@ -223,6 +233,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
 
   function hitBrick(index: number, _cell: number, player: number): void {
     const cellV = bricks[index] ?? BRICK_EMPTY;
+    const col = index % BRICK_COLS;
+    const row = Math.floor(index / BRICK_COLS);
+    const at = { x: col * BRICK_W + BRICK_W / 2, y: BRICK_TOP_OFFSET + row * BRICK_H + BRICK_H / 2 };
     if (cellV > 8 && cellV < 13) {
       // silver: decrement hits remaining
       const hits = cellV - 8;
@@ -239,10 +252,93 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       pushEvent("brickBreak", player, index);
       score += 50 + (cellV - 1) * 10; // colored tier scoring (placeholder table)
     }
+    // Deterministic capsule script trigger (spec §4): zero RNG.
+    brickBreaks++;
+    const drop = scriptRunner.onBrickBreak(brickBreaks);
+    if (drop !== null) {
+      capsules.push({ x: at.x, y: at.y, type: drop });
+    }
     if (destructibleCount() === 0) {
       phase = "roundClear";
       pushEvent("roundClear", player, -1);
     }
+  }
+
+  /** Apply a caught capsule's effect (classic-accurate, spec §4). */
+  function applyCapsule(type: CapsuleTypeId, player: number): void {
+    pushEvent("capsuleCatch", player, -1);
+    score += CAPSULE_EFFECTS.capsuleCatchBonus;
+    switch (type) {
+      case "E":
+        paddle.w = PADDLE_W * CAPSULE_EFFECTS.expandFactor;
+        effects.set("E", Number.MAX_SAFE_INTEGER); // until ball loss
+        break;
+      case "R":
+        paddle.w = PADDLE_W * CAPSULE_EFFECTS.reduceFactor;
+        effects.set("R", Number.MAX_SAFE_INTEGER);
+        break;
+      case "P":
+        lives++;
+        break;
+      case "S": {
+        // Slow: reset ball speeds to base (tier bumps re-apply on next paddle hit)
+        for (const b of balls) {
+          const speed = Math.hypot(b.vx, b.vy);
+          if (speed > 0) {
+            const target = baseSpeed;
+            b.vx = (b.vx / speed) * target;
+            b.vy = (b.vy / speed) * target;
+          }
+        }
+        effects.set("S", 10_000);
+        break;
+      }
+      case "M": {
+        // Multiball: split each in-flight ball to 3 total (classic splits the
+        // one ball into 3); only the last ball re-attaches on drop (ball-loss
+        // path), others are simply lost.
+        const inFlight = balls.filter((b) => b.attachedTo === null);
+        for (const b of inFlight) {
+          const speed = Math.hypot(b.vx, b.vy) || baseSpeed;
+          const baseAngle = Math.atan2(b.vy, b.vx);
+          for (const spread of [Math.PI / 6, -Math.PI / 6]) {
+            const a = baseAngle + spread;
+            balls.push({
+              x: b.x, y: b.y,
+              vx: Math.cos(a) * speed,
+              vy: Math.sin(a) * speed,
+              attachedTo: null,
+              owner: b.owner,
+            });
+          }
+        }
+        break;
+      }
+      case "B": {
+        // Break: fly through the exit = round clear, standard clear points,
+        // counts as clear in every respect (spec §4).
+        phase = "roundClear";
+        pushEvent("roundClear", player, -1);
+        break;
+      }
+      case "C":
+      case "L":
+      case "D":
+      case "?":
+        // Catch/Laser/Disrupt timers: effect machinery lands with modes that
+        // need them (laser rendering, catch hold); durations tracked now.
+        effects.set(type, CAPSULE_EFFECTS.catchMaxMs);
+        break;
+    }
+  }
+
+  /** Classic rule: effects clear on ball loss. */
+  function clearEffectsOnBallLoss(): void {
+    for (const type of EFFECTS_CLEAR_ON_BALL_LOSS) {
+      if (effects.has(type)) effects.delete(type);
+    }
+    paddle.w = PADDLE_W;
+    paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
   }
 
   function stepCapsules(player: number): void {
@@ -261,7 +357,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         )
       ) {
         capsules.splice(i, 1);
-        pushEvent("capsuleCatch", player, -1);
+        applyCapsule(c.type, player);
       }
     }
   }
@@ -281,6 +377,22 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         b.vx = vx;
         b.vy = vy;
         b.attachedTo = null;
+      }
+    },
+
+    debugDropCapsule(x, y, type) {
+      capsules.push({ x, y, type });
+    },
+
+    debugLoseBallsExcept(keepIndex) {
+      // Multiball rule test hook: drop every ball except keepIndex with no
+      // life penalty (only the LAST ball loss costs a life + re-attaches).
+      for (let i = balls.length - 1; i >= 0; i--) {
+        const b = balls[i];
+        if (b && i !== keepIndex) {
+          b.y = FIELD_H + BALL_R + 10;
+          b.attachedTo = null;
+        }
       }
     },
 
@@ -307,14 +419,21 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         }
       }
 
-      stepBall(balls[0] as BallState, 0);
+      for (const b of [...balls]) stepBall(b, 0);
       stepCapsules(0);
 
-      // ball loss
-      const b = balls[0];
-      if (b && b.attachedTo === null && b.y - BALL_R > FIELD_H) {
+      // ball loss (multiball-safe): drop lost balls; only when the LAST ball
+      // is lost does a life decrement + effects clear + re-serve (spec §5).
+      for (let i = balls.length - 1; i >= 0; i--) {
+        const b = balls[i];
+        if (b && b.attachedTo === null && b.y - BALL_R > FIELD_H) {
+          balls.splice(i, 1);
+        }
+      }
+      if (balls.length === 0) {
         lives--;
         pushEvent("ballLoss", 0, -1);
+        clearEffectsOnBallLoss();
         if (lives <= 0) {
           phase = "gameOver";
           pushEvent("gameOver", 0, -1);
@@ -344,7 +463,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             meter: 0,
             target: -1,
             state: "playing",
-            effects: {},
+            effects: Object.fromEntries(
+              [...effects].map(([k, v]) => [k, v === Number.MAX_SAFE_INTEGER ? -1 : v]),
+            ),
           },
         ],
         balls: balls.map((b) => ({
