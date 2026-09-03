@@ -88,6 +88,8 @@ export interface PlayerSnapshot {
   meter: number;
   /** Current attack/assist target player index (-1 none). */
   target: number;
+  /** Current consecutive-brick chain without paddle touch (attack mode). */
+  chain: number;
   state: PlayerSlotState;
   /** Per-player effect timers (ms remaining), by effect id. */
   effects: Record<string, number>;
@@ -124,7 +126,8 @@ export type SimEventType =
   | "attack"
   | "assist"
   | "pause"
-  | "resume";
+  | "resume"
+  | "paddleBounce";
 
 /** Ring buffer event (last 8): type, source, target, tick (spec §9). */
 export interface SimEvent {

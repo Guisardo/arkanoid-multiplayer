@@ -71,6 +71,12 @@ export interface RoundSim {
   debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void;
   /** Test hook: force all but one ball below the field (no life penalty). */
   debugLoseBallsExcept(keepIndex: number): void;
+  /** Attack hook (ticket 39): paddle width factor (shrink 0.6). */
+  setAttackWidthFactor(factor: number): void;
+  /** Attack hook (ticket 39): ball speed factor (speed-up 1.3). */
+  setAttackSpeedFactor(factor: number): void;
+  /** Attack hook (ticket 39): resurrect destroyed bricks (rain). Deterministic LIFO. */
+  resurrectBricks(count: number): number;
 }
 
 /**
@@ -105,6 +111,12 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   const effects = new Map<CapsuleTypeId, number>();
 
   const consumedLaunch = new Set<number>();
+
+  // ---- Attack-mode hooks (ticket 39) — inert (1.0) outside Attack ----
+  let attackWidthFactor = 1;
+  let attackSpeedFactor = 1;
+  /** Destroyed-brick indices in break order — rain resurrects from here. */
+  const destroyedBricks: number[] = [];
 
   function pushEvent(type: SimEvent["type"], source: number, target: number): void {
     events.push({ type, source, target, tick });
@@ -151,7 +163,15 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     let s = baseSpeed;
     if (bricksLeft <= 15) s *= 1.08;
     if (bricksLeft <= 8) s *= 1.08;
-    return s;
+    return s * attackSpeedFactor;
+  }
+
+  /** Effective paddle width: base × capsule effects × attack shrink. */
+  function paddleWidth(): number {
+    let w = PADDLE_W;
+    if (effects.has("E")) w *= CAPSULE_EFFECTS.expandFactor;
+    if (effects.has("R")) w *= CAPSULE_EFFECTS.reduceFactor;
+    return w * attackWidthFactor;
   }
 
   function stepBall(b: BallState, player: number): void {
@@ -188,6 +208,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       b.vy = d.vy;
       if (res) b.y = res.y - BALL_R - 0.01;
       b.owner = player;
+      pushEvent("paddleBounce", player, -1);
     }
 
     // bricks: probe cells around the ball
@@ -252,6 +273,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       pushEvent("brickBreak", player, index);
       score += 50 + (cellV - 1) * 10; // colored tier scoring (placeholder table)
     }
+    destroyedBricks.push(index);
     // Deterministic capsule script trigger (spec §4): zero RNG.
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
@@ -270,12 +292,12 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     score += CAPSULE_EFFECTS.capsuleCatchBonus;
     switch (type) {
       case "E":
-        paddle.w = PADDLE_W * CAPSULE_EFFECTS.expandFactor;
         effects.set("E", Number.MAX_SAFE_INTEGER); // until ball loss
+        paddle.w = paddleWidth();
         break;
       case "R":
-        paddle.w = PADDLE_W * CAPSULE_EFFECTS.reduceFactor;
         effects.set("R", Number.MAX_SAFE_INTEGER);
+        paddle.w = paddleWidth();
         break;
       case "P":
         lives++;
@@ -337,7 +359,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     for (const type of EFFECTS_CLEAR_ON_BALL_LOSS) {
       if (effects.has(type)) effects.delete(type);
     }
-    paddle.w = PADDLE_W;
+    paddle.w = paddleWidth();
     paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
   }
 
@@ -394,6 +416,39 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           b.attachedTo = null;
         }
       }
+    },
+
+    setAttackWidthFactor(factor) {
+      attackWidthFactor = factor;
+      paddle.w = paddleWidth();
+      paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
+    },
+
+    setAttackSpeedFactor(factor) {
+      attackSpeedFactor = factor;
+    },
+
+    resurrectBricks(count) {
+      // Brick rain (ticket 39): refill destroyed cells with tier-1 colored
+      // bricks, most-recently-destroyed first — deterministic LIFO order,
+      // no RNG (bot-determinism rule). When the destroyed history is
+      // exhausted (target never broke bricks), fill the topmost empty
+      // cells instead — rain must always add bricks.
+      let placed = 0;
+      while (placed < count && destroyedBricks.length > 0) {
+        const index = destroyedBricks.pop();
+        if (index === undefined) break;
+        if ((bricks[index] ?? BRICK_EMPTY) !== BRICK_EMPTY) continue;
+        bricks[index] = coloredCell(1);
+        placed++;
+      }
+      for (let i = 0; placed < count && i < bricks.length; i++) {
+        if ((bricks[i] ?? BRICK_EMPTY) === BRICK_EMPTY) {
+          bricks[i] = coloredCell(1);
+          placed++;
+        }
+      }
+      return placed;
     },
 
     step(inputs) {
@@ -462,6 +517,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             score,
             meter: 0,
             target: -1,
+            chain: 0,
             state: "playing",
             effects: Object.fromEntries(
               [...effects].map(([k, v]) => [k, v === Number.MAX_SAFE_INTEGER ? -1 : v]),

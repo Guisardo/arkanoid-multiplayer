@@ -456,6 +456,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           score: scores[i as 0 | 1],
           meter: 0,
           target: -1,
+          chain: 0,
           state: "playing" as const,
           effects: {},
         })),

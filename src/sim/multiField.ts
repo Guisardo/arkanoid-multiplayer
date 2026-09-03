@@ -34,6 +34,8 @@ export interface MultiFieldSession {
   setNextRound(round: number): void;
   /** Test hook: place a player's ball. */
   debugSetBall(player: number, x: number, y: number, vx: number, vy: number): void;
+  /** Composition seam (tickets 39/40): player i's underlying round sim. */
+  simAt(player: number): RoundSim | undefined;
 }
 
 export interface MatchState {
@@ -82,9 +84,9 @@ export function resolveTimeout(
 export interface MultiFieldOptions {
   playerCount: number;
   config: MatchConfig;
-  playerNames?: string[];
+  playerNames?: string[] | undefined;
   /** Seed for random level selection (deterministic). */
-  seed?: number;
+  seed?: number | undefined;
 }
 
 export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSession {
@@ -196,6 +198,9 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
     },
     debugSetBall(player, x, y, vx, vy) {
       sims[player]?.debugSetBall(x, y, vx, vy);
+    },
+    simAt(player) {
+      return sims[player];
     },
   };
 
