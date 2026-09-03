@@ -113,16 +113,16 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
       case "hostPick":
         return cfg.hostPickRound ?? 1;
       case "fixedOrder":
-        return Math.min(roundIndex, 16);
+        return Math.min(roundIndex, 33);
       case "random": {
-        // Deterministic LCG pick in 1..16 (available rounds).
+        // Deterministic LCG pick in 1..33 (available rounds).
         let s = (seed + roundIndex * 2654435761) >>> 0;
         s ^= s << 13;
         s >>>= 0;
         s ^= s >> 17;
         s ^= s << 5;
         s >>>= 0;
-        return 1 + (s % 16);
+        return 1 + (s % 33);
       }
     }
   }

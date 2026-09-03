@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLevel, availableRounds } from "content/levels";
+import { getLevel, availableRounds, assertAttackRound, ATTACK_MAX_ROUND } from "content/levels";
 import { validateLevel } from "content/levelFormat";
 import { CHAR_TIER, TIER_SCORE, DUEL_DROP_BONUS } from "content/scoring";
 import { createRoundSim } from "sim/roundSim";
@@ -11,8 +11,8 @@ function input(tick: number, axisX = 0): InputFrame {
 }
 
 describe("level JSON validation (spec §4)", () => {
-  it("rounds 1–16 all present and validate with zero errors", () => {
-    expect(availableRounds()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  it("rounds 1–33 all present and validate with zero errors", () => {
+    expect(availableRounds()).toEqual(Array.from({ length: 33 }, (_, i) => i + 1));
     for (const round of availableRounds()) {
       const level = getLevel(round);
       const errors = validateLevel(level);
@@ -58,6 +58,27 @@ describe("level JSON validation (spec §4)", () => {
     }
   });
 
+  it("difficulty curve continuous across the 16→17 boundary (formulas hold)", () => {
+    // Speed formula 110 + 2×(round−1) continues unbroken; silver hits stay
+    // formula-driven (null override) so min(1+floor(round/8),4) escalates 3→4
+    // at round 24 exactly as in rounds 1–16.
+    expect(getLevel(16).baseBallSpeed).toBe(140);
+    expect(getLevel(17).baseBallSpeed).toBe(142);
+    expect(getLevel(33).baseBallSpeed).toBe(174);
+    for (const round of availableRounds()) {
+      expect(getLevel(round).baseBallSpeed).toBe(110 + 2 * (round - 1));
+      expect(getLevel(round).silverHitOverride).toBeNull();
+    }
+  });
+
+  it("round 33 (Doh) authored as data: gold-framed boss grid, playable params", () => {
+    const level = getLevel(33);
+    // Gold frame + silver ring + D core — boss data only; behavior = ticket 49.
+    expect(level.grid[1]).toBe("GGGGGGGGGGGGG");
+    expect(level.grid.join("")).toContain("SSSSSSSSS");
+    expect(level.round).toBe(33);
+  });
+
   it("scoring table covers every colored char used in grids; duel drop 500", () => {
     const used = new Set<string>();
     for (const round of availableRounds()) {
@@ -71,6 +92,13 @@ describe("level JSON validation (spec §4)", () => {
       expect(TIER_SCORE[tier ?? 0]).toBeDefined();
     }
     expect(DUEL_DROP_BONUS).toBe(500);
+  });
+
+  it("Attack excludes round 33 (Doh) — rounds 1–32 selectable, 33 throws", () => {
+    expect(ATTACK_MAX_ROUND).toBe(32);
+    expect(() => { assertAttackRound(1); }).not.toThrow();
+    expect(() => { assertAttackRound(32); }).not.toThrow();
+    expect(() => { assertAttackRound(33); }).toThrow();
   });
 });
 

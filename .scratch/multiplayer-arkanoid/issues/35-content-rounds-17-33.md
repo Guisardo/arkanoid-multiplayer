@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Rounds 17–33 authored, each playable start-to-clear with its capsule script
-- [ ] All 33 rounds pass the validation suite (dims, script bounds, metadata)
-- [ ] Round 33 data authored for the Doh boss (parameters consumable by ticket 49)
-- [ ] Doh excluded from Attack mode level selection (constraint enforced, unit-tested)
-- [ ] Difficulty curve continuous across the 1–16 / 17–33 boundary (base speeds, silver hits escalate per formula)
+- [x] Rounds 17–33 authored, each playable start-to-clear with its capsule script
+- [x] All 33 rounds pass the validation suite (dims, script bounds, metadata)
+- [x] Round 33 data authored for the Doh boss (parameters consumable by ticket 49)
+- [x] Doh excluded from Attack mode level selection (constraint enforced, unit-tested)
+- [x] Difficulty curve continuous across the 1–16 / 17–33 boundary (base speeds, silver hits escalate per formula)

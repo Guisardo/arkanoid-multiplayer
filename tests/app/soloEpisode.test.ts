@@ -124,12 +124,16 @@ describe("solo episode flow (ticket 36)", () => {
     expect(ep.currentTick).toBe(tickBefore + 1);
   });
 
-  it("episode completes at the final round (boundary = min(SOLO_MAX_ROUND, authored))", () => {
-    // Rounds 17–33 land with ticket 35; the completion boundary clamps to
-    // authored content. With 16 rounds authored, clearing 16 completes.
+  it("episode completes at the final round (SOLO_MAX_ROUND = 33)", () => {
+    // Rounds 17–33 landed (ticket 35): clearing round 33 completes the
+    // episode; clearing 16 now advances to 17 (no authored-content clamp).
     const ep = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 16 });
     clearRound(ep);
-    expect(ep.phase()).toBe("episodeComplete");
+    expect(ep.phase()).toBe("playing");
+    expect(ep.round()).toBe(17);
+    const epFinal = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 33 });
+    clearRound(epFinal);
+    expect(epFinal.phase()).toBe("episodeComplete");
     expect(SOLO_MAX_ROUND).toBe(33);
   });
 });
