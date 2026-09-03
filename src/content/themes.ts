@@ -30,7 +30,7 @@ const ARCADE_CLASSIC: FieldTheme = {
     crackStyle: "hairline",
     provenance: PROCEDURAL,
   },
-  background: { color: 0x101018, starDensity: 0, darkenAlpha: 0 },
+  background: { color: 0x101018, starDensity: 0, darkenAlpha: 0, sprite: null },
   chromeTint: 0xe8b04a,
   provenance: PROCEDURAL,
 };
@@ -54,7 +54,7 @@ const DEEP_SPACE: FieldTheme = {
     crackStyle: "shatter",
     provenance: PROCEDURAL,
   },
-  background: { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15 },
+  background: { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15, sprite: "/assets/backgrounds/pixel-space.png" },
   chromeTint: 0x00fcfc,
   provenance: PROCEDURAL,
 };
@@ -78,7 +78,7 @@ const SUNSET: FieldTheme = {
     crackStyle: "chip",
     provenance: PROCEDURAL,
   },
-  background: { color: 0x1a0a14, starDensity: 0, darkenAlpha: 0.1 },
+  background: { color: 0x1a0a14, starDensity: 0, darkenAlpha: 0.1, sprite: null },
   chromeTint: 0xf878f8,
   provenance: PROCEDURAL,
 };

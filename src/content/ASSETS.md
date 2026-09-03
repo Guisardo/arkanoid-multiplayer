@@ -4,19 +4,6 @@ All shipped assets are CC0 (public domain) — zero attribution obligation.
 Provenance per asset recorded below; the optional Credits screen + README
 assets line ship separately.
 
-## Current status: procedural placeholders
-
-Real CC0 pack downloads (Kenney Puzzle Pack 2, Buch OGA Breakout set, Tiny
-Break-em Pack, OGA Pixel Space, Kenney UI Pack / Input Prompts) were
-**blocked in this environment** — no network + no shell execution available
-to the implementing agent. Per the ticket's fallback instruction, the full
-registry + readability-gate machinery ships with **procedural placeholder
-assets** (authored in-repo descriptors rendered as Pixi Graphics geometry —
-same approach as the runtime-generated BitmapFont atlas in
-`src/render/gameFont.ts`). The gap is documented here; swapping descriptors
-for real sprite PNGs later is a render-layer change only (paint functions in
-`src/render/skinPainter.ts`), registries and gate stay untouched.
-
 ## Registries
 
 | Registry | File | Contents |
@@ -28,37 +15,30 @@ for real sprite PNGs later is a render-layer change only (paint functions in
 
 ## Per-asset provenance
 
-| Asset | Source | License | Production |
-|---|---|---|---|
-| All skins, themes, pills, boss (current) | authored in-repo (procedural descriptor) | CC0 | procedural |
+| Asset | Files | Source | License | Production |
+|---|---|---|---|---|
+| Paddle sprites (3) | `public/assets/paddles/paddle-{a-red,b-purple,c-blue}.png` | OGA "Tiny Break-em Pack" (Screaming Brain Studios) | CC0 | sourced |
+| Ball sprites (3) | `public/assets/balls/ball-{red,yellow,green}.png` | OGA "Tiny Break-em Pack" (Screaming Brain Studios) | CC0 | sourced |
+| Field background (Deep Space theme) | `public/assets/backgrounds/pixel-space.png` | OGA "Pixel Space Background" (ZaninDevelopers) | CC0 | sourced |
+| Capsule pills (10) | `src/render/pillGlyphs.ts` composite | custom-authored (no free pack ships lettered capsules — research §4.1) | CC0 | procedural |
+| Brick fills + crack overlays | `src/render/brickCracks.ts` + theme tier colors | custom-authored (procedural tint+crack per spec §13) | CC0 | procedural |
+| Doh boss sprite | `src/render/skinPainter.ts` paintBoss | custom-authored moai silhouette (behavior ticket 49) | CC0 | procedural |
 
-## Intended real-asset sources (when downloads unblock)
+## Sprite loading + fallback
 
-Per the all-CC0 recipe (research doc 20, verified 2026-09-02):
+`src/render/spriteSheet.ts` preloads every shipped sprite once at boot
+(`loadSkinSprites`, called from `src/app/main.ts`). Any failure — node test
+environment, missing file, network error — degrades to the procedural
+geometry painters in `src/render/skinPainter.ts`. The readability gate
+(owner glow ring) renders on the geometry layer, so ownership stays visible
+over whatever the ball wears, sprite or not.
 
-- **Paddle skins**: Kenney Puzzle Pack 2 (primary) / OGA "Breakout set" by
-  Buch (14 bars) / OGA "Tiny Break-em Pack" (30 paddles) — all CC0.
-- **Ball skins**: Tiny Break-em Pack (33 balls) / Buch set (7) / OGA
-  "Breakout graphics" by Mopz. Owner-colored variants = render-time tint on
-  white-base sprites — **never authored per-owner PNGs**.
-- **Brick sets**: Buch OGA Breakout set + surt/InanZen expansions /
-  Kenney Puzzle Pack 2 / Tiny Break-em Pack.
-- **Capsule pills**: custom-authored lettered pills (no free pack ships
-  Arkanoid lettered capsules — research §4.1). Current: pill-template +
-  3×5 pixel-glyph composite (`src/render/pillGlyphs.ts`).
-- **Field backgrounds**: OGA "Pixel Space Background" (64×64 tileable) /
-  Kenney Background Elements — darkening overlay pass regardless of source.
-- **UI chrome**: Kenney UI Pack (430) + Kenney Game Icons (105).
-- **Touch glyphs**: Kenney Input Prompts (1500).
+Owner-colored ball variants are a render-time tint/glow on the base sprite —
+never authored per-owner PNGs.
 
-Excluded per license rules: CraftPix freebies (custom license vs public
-commits), freepd.com (dead), LGPL/GPL OGA entries, Game-icons.net +
-incompetech (CC-BY — CC0 equivalents exist).
+## Excluded per license rules
 
-## Readability gate
-
-Every shipped skin/theme must pass `src/content/readabilityGate.ts` (spec
-§13 hard constraint): owner-colored outline glow (owner color + white
-outline) renders over whatever skin the ball wears — never the sole signal
-for Duel ball ownership. Enforced by unit tests over the full registry ×
-theme matrix.
+CraftPix freebies (custom license vs public commits), freepd.com (dead),
+LGPL/GPL OGA entries, Game-icons.net + incompetech (CC-BY — CC0 equivalents
+exist). Kenney packs (Puzzle Pack 2, UI Pack, Input Prompts) remain available
+as future CC0 sources for UI chrome + touch glyphs (tickets 41/42).

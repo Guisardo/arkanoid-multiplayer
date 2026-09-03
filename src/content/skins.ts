@@ -6,10 +6,11 @@ import type { AssetProvenance, PlayerSkin } from "./skinTypes";
 
 export type { PlayerSkin } from "./skinTypes";
 
-const PROCEDURAL: AssetProvenance = {
-  source: "authored in-repo (procedural descriptor)",
+// Tiny Break-em Pack (Screaming Brain Studios, OGA) — CC0, sourced PNGs.
+const TINY_BREAKEM: AssetProvenance = {
+  source: 'OGA "Tiny Break-em Pack" (Screaming Brain Studios)',
   license: "CC0",
-  production: "procedural",
+  production: "sourced",
 };
 
 // UUIDs minted at authoring (crypto.randomUUID at mint time, pasted here).
@@ -23,13 +24,15 @@ const CLASSIC: PlayerSkin = {
     stripes: 0,
     stripeColor: 0xe8b04a,
     shape: "rounded",
-    provenance: PROCEDURAL,
+    sprite: "/assets/paddles/paddle-a-red.png",
+    provenance: TINY_BREAKEM,
   },
   ball: {
     baseColor: 0xf8f8f8,
     pattern: "plain",
     radius: 3,
-    provenance: PROCEDURAL,
+    sprite: "/assets/balls/ball-red.png",
+    provenance: TINY_BREAKEM,
   },
 };
 
@@ -43,13 +46,15 @@ const NEON: PlayerSkin = {
     stripes: 3,
     stripeColor: 0x00fcfc,
     shape: "beveled",
-    provenance: PROCEDURAL,
+    sprite: "/assets/paddles/paddle-b-purple.png",
+    provenance: TINY_BREAKEM,
   },
   ball: {
     baseColor: 0xf0f0f0,
     pattern: "panel",
     radius: 3,
-    provenance: PROCEDURAL,
+    sprite: "/assets/balls/ball-yellow.png",
+    provenance: TINY_BREAKEM,
   },
 };
 
@@ -63,13 +68,15 @@ const RETRO: PlayerSkin = {
     stripes: 2,
     stripeColor: 0xfcbcd0,
     shape: "notched",
-    provenance: PROCEDURAL,
+    sprite: "/assets/paddles/paddle-c-blue.png",
+    provenance: TINY_BREAKEM,
   },
   ball: {
     baseColor: 0xf8f8f8,
     pattern: "core",
     radius: 3,
-    provenance: PROCEDURAL,
+    sprite: "/assets/balls/ball-green.png",
+    provenance: TINY_BREAKEM,
   },
 };
 

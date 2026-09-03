@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { SKINS, DEFAULT_SKIN, DEFAULT_SKIN_ID, getSkin, skinByIndex } from "content/skins";
 import { THEMES, DEFAULT_THEME, DEFAULT_THEME_ID, getTheme } from "content/themes";
 import { CAPSULE_PILLS, pillFor } from "content/capsulePills";
@@ -66,6 +68,30 @@ describe("skin/theme registries (spec §13)", () => {
       }
       expect(t.brickSet.silverColor).toBeDefined();
       expect(t.brickSet.goldColor).toBeDefined();
+    }
+  });
+
+  it("every referenced sprite ships in public/assets (real CC0 assets)", () => {
+    const paths = new Set<string>();
+    for (const s of SKINS) {
+      if (s.paddle.sprite !== null) paths.add(s.paddle.sprite);
+      if (s.ball.sprite !== null) paths.add(s.ball.sprite);
+    }
+    for (const t of THEMES) {
+      if (t.background.sprite !== null) paths.add(t.background.sprite);
+    }
+    expect(paths.size).toBeGreaterThan(0);
+    for (const p of paths) {
+      const file = path.join(process.cwd(), "public", p);
+      expect(existsSync(file), `${p} must exist in public/`).toBe(true);
+    }
+  });
+
+  it("sourced sprites carry sourced provenance; procedural ones declare it", () => {
+    for (const s of SKINS) {
+      const sourced = s.paddle.sprite !== null || s.ball.sprite !== null;
+      expect(s.paddle.provenance.production === "sourced").toBe(sourced);
+      expect(s.ball.provenance.production === "sourced").toBe(sourced);
     }
   });
 });

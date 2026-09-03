@@ -66,7 +66,7 @@ describe("theme background speckle (spec §13)", () => {
   it("paints without throwing (headless Graphics)", () => {
     const gfx = new Graphics();
     paintFieldBackground(gfx, DEFAULT_THEME.background);
-    paintFieldBackground(gfx, { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15 });
+    paintFieldBackground(gfx, { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15, sprite: null });
   });
 });
 
