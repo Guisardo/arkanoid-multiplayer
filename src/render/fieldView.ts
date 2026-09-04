@@ -17,7 +17,9 @@ import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
 import { pillFor } from "content/capsulePills";
 import { paintFieldBackground } from "./themeBackground";
 import { crackSegments } from "./brickCracks";
-import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule } from "./skinPainter";
+import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule, paintBoss } from "./skinPainter";
+import { DOH_BOSS } from "content/bosses";
+import { BOSS_PROJECTILE_SIZE } from "shared/protocol";
 
 export interface FieldViewOptions {
   layout: FieldLayout;
@@ -39,6 +41,7 @@ export class FieldView {
   private readonly ballGfx = new Graphics();
   private readonly capsuleGfx = new Graphics();
   private readonly brickGfx = new Graphics();
+  private readonly bossGfx = new Graphics();
   private readonly paddleSprite: Sprite | null;
   private readonly ballSprite: Sprite | null;
   private readonly bgSprite: TilingSprite | null;
@@ -97,7 +100,7 @@ export class FieldView {
     this.paddleSprite = paddleTex !== null ? new Sprite(paddleTex) : null;
     const ballTex = this.skin.ball.sprite !== null ? spriteTexture(this.skin.ball.sprite) : null;
     this.ballSprite = ballTex !== null ? new Sprite(ballTex) : null;
-    this.fieldContainer.addChild(this.brickGfx, this.capsuleGfx, this.paddleGfx, this.ballGfx);
+    this.fieldContainer.addChild(this.brickGfx, this.capsuleGfx, this.paddleGfx, this.ballGfx, this.bossGfx);
     if (this.paddleSprite !== null) this.fieldContainer.addChild(this.paddleSprite);
     if (this.ballSprite !== null) this.fieldContainer.addChild(this.ballSprite);
 
@@ -161,6 +164,19 @@ export class FieldView {
     this.capsuleGfx.clear();
     for (const c of snap.capsules) {
       paintCapsule(this.capsuleGfx, pillFor(c.type), c.x, c.y);
+    }
+
+    // Doh boss (ticket 49): moai sprite + projectiles, snapshot-driven only.
+    if (snap.boss !== undefined && !snap.boss.dead) {
+      paintBoss(this.bossGfx, DOH_BOSS, snap.boss.x, snap.boss.y);
+      const size = BOSS_PROJECTILE_SIZE;
+      for (const p of snap.bossProjectiles ?? []) {
+        this.bossGfx
+          .rect(p.x - size / 2, p.y - size / 2, size, size)
+          .fill(DOH_BOSS.accentColor);
+      }
+    } else {
+      this.bossGfx.clear();
     }
 
     // HUD strip: name + color chip, lives icons, score, R12/33

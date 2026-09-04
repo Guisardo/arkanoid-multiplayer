@@ -37,8 +37,11 @@ import {
 } from "shared/protocol";
 import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS, EFFECTS_CLEAR_ON_BALL_LOSS } from "./capsules";
+import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 
 const EVENT_RING_SIZE = 8;
+/** Round 33 = Doh boss finale (ticket 49). */
+const BOSS_ROUND = 33;
 
 interface BallState {
   x: number;
@@ -95,6 +98,13 @@ export interface RoundSim {
 export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSim {
   // ---- Static state ----
   const bricks = parseGrid(level.grid, level.silverHitOverride, level.round);
+  // Boss round (ticket 49): classic Doh fight = empty arena — the gold
+  // frame stays, destructibles are stripped so the ball reaches the boss.
+  if (level.round === BOSS_ROUND) {
+    for (let i = 0; i < bricks.length; i++) {
+      if (isDestructibleCell(bricks[i] ?? BRICK_EMPTY)) bricks[i] = BRICK_EMPTY;
+    }
+  }
   const baseSpeed = level.baseBallSpeed;
 
   // ---- Dynamic state ----
@@ -121,6 +131,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   let lastCaught: CapsuleTypeId | null = null;
 
   const consumedLaunch = new Set<number>();
+
+  // ---- Doh boss (ticket 49): round 33 only ----
+  const boss: BossState | null = level.round === BOSS_ROUND ? createBossState() : null;
 
   // ---- Attack-mode hooks (ticket 39) — inert (1.0) outside Attack ----
   let attackWidthFactor = 1;
@@ -245,6 +258,26 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         }
       }
     }
+
+    // Doh boss (ticket 49): ball bounces off the boss box; each contact = 1 hit.
+    if (boss && !boss.dead) {
+      const box = bossBox(boss);
+      const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, box.x, box.y, box.w, box.h);
+      if (res !== null) {
+        b.x = res.x;
+        b.y = res.y;
+        // Bounce off the face the ball came from (boss sits above the ball).
+        if (b.y > box.y + box.h / 2) b.vy = Math.abs(b.vy);
+        else if (b.y < box.y - box.h / 2) b.vy = -Math.abs(b.vy);
+        else b.vx = b.x > box.x ? Math.abs(b.vx) : -Math.abs(b.vx);
+        pushEvent("bossHit", player, -1);
+        if (hitBoss(boss)) {
+          pushEvent("bossDead", player, -1);
+          phase = "roundClear";
+          pushEvent("roundClear", player, -1);
+        }
+      }
+    }
   }
 
   function bounceOffBox(b: BallState, box: Box, res: { x: number; y: number }, hitY: number): void {
@@ -290,7 +323,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     if (drop !== null) {
       capsules.push({ x: at.x, y: at.y, type: drop });
     }
-    if (destructibleCount() === 0) {
+    // Boss round (49): only the boss's death clears the round — clearing
+    // every destructible brick while Doh lives does not (classic Doh fight).
+    if (destructibleCount() === 0 && !(boss && !boss.dead)) {
       phase = "roundClear";
       pushEvent("roundClear", player, -1);
     }
@@ -349,7 +384,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       }
       case "B": {
         // Break: fly through the exit = round clear, standard clear points,
-        // counts as clear in every respect (spec §4).
+        // counts as clear in every respect (spec §4). Never on the boss
+        // round — Doh must be defeated (ticket 49).
+        if (boss && !boss.dead) break;
         phase = "roundClear";
         pushEvent("roundClear", player, -1);
         break;
@@ -528,6 +565,15 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       for (const b of [...balls]) stepBall(b, 0);
       stepCapsules(0);
 
+      // Doh boss (ticket 49): advance boss + projectiles; projectile contact
+      // kills the paddle — routed through the standard ball-loss path.
+      if (boss && !boss.dead) {
+        const r = stepBoss(boss, tick, paddle);
+        if (r.paddleDied) {
+          balls.length = 0; // force the ball-loss path below
+        }
+      }
+
       // ball loss (multiball-safe): drop lost balls; only when the LAST ball
       // is lost does a life decrement + effects clear + re-serve (spec §5).
       for (let i = balls.length - 1; i >= 0; i--) {
@@ -583,6 +629,12 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         bricks: [...bricks],
         events: [...events],
         inputAcks: [tick],
+        ...(boss
+          ? {
+              boss: { x: boss.x, y: boss.y, hp: boss.hp, phase: boss.phase, dead: boss.dead },
+              bossProjectiles: boss.projectiles.map((p) => ({ x: p.x, y: p.y, vx: p.vx, vy: p.vy })),
+            }
+          : {}),
       };
     },
   };

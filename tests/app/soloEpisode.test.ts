@@ -24,6 +24,25 @@ function clearRound(ep: ReturnType<typeof createSoloEpisode>): void {
   let guard = 0;
   while (guard < 3000 && ep.round() === roundBefore && ep.phase() === "playing") {
     const snap = ep.snapshot();
+    // Boss round (ticket 49): defeat Doh — brick clearing never ends it.
+    // Ball placed once per batch (needs ~12 ticks to reach the boss); the
+    // paddle oscillates every step to dodge aimed projectiles.
+    if (snap.boss !== undefined && !snap.boss.dead) {
+      (ep as unknown as { debugSetBall: (x: number, y: number, vx: number, vy: number) => void }).debugSetBall(
+        snap.boss.x,
+        snap.boss.y + 40,
+        0,
+        -200,
+      );
+      for (let s = 0; s < 20; s++) {
+        const axis = Math.sin(guard * 0.5) > 0 ? 1 : -1;
+        ep.step([frame(guard, axis)]);
+        guard++;
+        if (ep.round() !== roundBefore) return;
+        if (ep.phase() !== "playing") return;
+      }
+      continue;
+    }
     let target = -1;
     for (let i = 0; i < snap.bricks.length; i++) {
       if (isDestructibleCell(snap.bricks[i] ?? 0)) {

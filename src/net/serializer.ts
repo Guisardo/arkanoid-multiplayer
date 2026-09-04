@@ -32,6 +32,7 @@ const PHASES: readonly SimPhase[] = ["serve", "play", "roundClear", "gameOver"];
 const EVENT_TYPES: readonly SimEventType[] = [
   "ballLaunch", "ballLoss", "brickBreak", "brickSilverHit", "capsuleCatch",
   "roundClear", "gameOver", "attack", "assist", "pause", "resume", "paddleBounce",
+  "bossHit", "bossDead",
 ];
 const EDGES: readonly PaddleEdge[] = ["bottom", "left", "right", "top"];
 const STATES: readonly PlayerSlotState[] = ["playing", "downed", "removed"];
@@ -139,6 +140,10 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
 
   const nameBytes = players.reduce((n, p) => n + p.name.length, 0);
   // Fixed player fields: u8×5 + u32 score + u8 meter + u8 chain + f32×4 + u8 edge + u16 nameLen = 30
+  // Boss tail (ticket 49): u8 present + (f32 x, f32 y, u8 hp, u8 phase, u8 dead) + u8 projCount + projCount × f32×4
+  const boss = snap.boss ?? null;
+  const bossProjectiles = snap.bossProjectiles ?? [];
+  const bossTail = boss !== null ? 5 + 15 + 1 + bossProjectiles.length * 16 : 0;
   const size =
     14 +
     players.length * 30 +
@@ -147,7 +152,8 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
     capsules.length * 9 +
     events.length * 7 +
     snap.inputAcks.length * 4 +
-    bricks.length;
+    bricks.length +
+    bossTail;
   const w = new Writer(new ArrayBuffer(size));
 
   w.u32(snap.tick);
@@ -200,6 +206,25 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   }
   for (const a of snap.inputAcks) w.u32(a);
   for (const cell of bricks) w.u8(cell & 0xff);
+
+  // Boss tail (ticket 49): absent boss = u8(0), nothing more.
+  if (boss !== null) {
+    w.u8(1);
+    w.f32(boss.x);
+    w.f32(boss.y);
+    w.u8(boss.hp & 0xff);
+    w.u8(boss.phase);
+    w.u8(boss.dead ? 1 : 0);
+    w.u8(bossProjectiles.length & 0xff);
+    for (const p of bossProjectiles) {
+      w.f32(p.x);
+      w.f32(p.y);
+      w.f32(p.vx);
+      w.f32(p.vy);
+    }
+  } else {
+    w.u8(0);
+  }
 
   return w.buffer.slice(0, w.pos);
 }
@@ -308,5 +333,35 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   const bricks: number[] = [];
   for (let i = 0; i < brickCount; i++) bricks.push(r.u8());
 
-  return { tick, phase, round, players, balls, capsules, events, inputAcks, bricks };
+  // Boss tail (ticket 49): u8 present; 0 = absent.
+  const bossPresent = r.u8();
+  let boss: Snapshot["boss"];
+  let bossProjectiles: Snapshot["bossProjectiles"];
+  if (bossPresent === 1) {
+    const bx = r.f32();
+    const by = r.f32();
+    const hp = r.u8();
+    const phase = r.u8() === 2 ? 2 : 1;
+    const dead = r.u8() === 1;
+    const projCount = r.u8();
+    if (projCount > 32) throw new Error("malformed snapshot: boss projectile count out of bounds");
+    boss = { x: bx, y: by, hp, phase, dead };
+    bossProjectiles = [];
+    for (let i = 0; i < projCount; i++) {
+      const px = r.f32();
+      const py = r.f32();
+      const pvx = r.f32();
+      const pvy = r.f32();
+      bossProjectiles.push({ x: px, y: py, vx: pvx, vy: pvy });
+    }
+  }
+
+  const result: Snapshot = {
+    tick, phase, round, players, balls, capsules, events, inputAcks, bricks,
+  };
+  if (boss !== undefined && bossProjectiles !== undefined) {
+    result.boss = boss;
+    result.bossProjectiles = bossProjectiles;
+  }
+  return result;
 }

@@ -92,6 +92,32 @@ describe("snapshot serializer (spec §9)", () => {
     const garbage = new ArrayBuffer(8);
     expect(() => deserializeSnapshot(garbage)).toThrow();
   });
+
+  it("round-trips a boss snapshot (ticket 49) with projectiles", () => {
+    const sim = createRoundSim(getLevel(33), { lives: 3, score: 0 });
+    sim.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: true, actions: EMPTY_ACTIONS }]);
+    // Advance until the boss has fired at least one projectile.
+    let snap = sim.snapshot();
+    for (let t = 1; t <= 200; t++) {
+      sim.step([{ player: 0, tick: t, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]);
+      snap = sim.snapshot();
+      if ((snap.bossProjectiles ?? []).length > 0) break;
+    }
+    expect(snap.boss).toBeDefined();
+    expect((snap.bossProjectiles ?? []).length).toBeGreaterThan(0);
+
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.boss).toEqual(snap.boss);
+    expect(back.bossProjectiles).toEqual(snap.bossProjectiles);
+  });
+
+  it("non-boss snapshots carry no boss tail (backward compatible)", () => {
+    const snap = fourPlayerSnapshot();
+    expect(snap.boss).toBeUndefined();
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.boss).toBeUndefined();
+    expect(back.bossProjectiles).toBeUndefined();
+  });
 });
 
 describe("delay queue (spec §9: uniform tick-D, host-local skips only the network hop)", () => {

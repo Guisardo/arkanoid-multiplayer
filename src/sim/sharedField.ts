@@ -34,10 +34,13 @@ import {
 } from "shared/protocol";
 import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
+import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 
 const EVENT_RING_SIZE = 8;
 /** Ball speed scaling per player beyond 2 (spec: +5–8%; 6.5% mid). */
 export const SPEED_SCALE_PER_EXTRA_PLAYER = 1.065;
+/** Round 33 = Doh boss finale (ticket 49). */
+const BOSS_ROUND = 33;
 
 export type Placement = "A" | "B" | "C";
 export type SharedBallModel = "shared" | "perPlayer";
@@ -108,6 +111,13 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     opts.playerNames ?? Array.from({ length: playerCount }, (_, i) => `Player ${String(i + 1)}`);
 
   const bricks = parseGrid(level.grid, level.silverHitOverride, level.round);
+  // Boss round (ticket 49): classic Doh fight = empty arena — the gold
+  // frame stays, destructibles stripped so the ball reaches the boss.
+  if (level.round === BOSS_ROUND) {
+    for (let i = 0; i < bricks.length; i++) {
+      if (isDestructibleCell(bricks[i] ?? BRICK_EMPTY)) bricks[i] = BRICK_EMPTY;
+    }
+  }
   const baseSpeed =
     placement === "C"
       ? level.baseBallSpeed
@@ -125,6 +135,9 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
   let brickBreaks = 0;
 
   const paddles: PaddleState[] = makePaddles();
+
+  // ---- Doh boss (ticket 49): round 33 only ----
+  const boss: BossState | null = level.round === BOSS_ROUND ? createBossState() : null;
 
   function makePaddles(): PaddleState[] {
     const out: PaddleState[] = [];
@@ -294,6 +307,25 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         }
       }
     }
+
+    // Doh boss (ticket 49): ball bounces off the boss box; each contact = 1 hit.
+    if (boss && !boss.dead) {
+      const box = bossBox(boss);
+      const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, box.x, box.y, box.w, box.h);
+      if (res !== null) {
+        b.x = res.x;
+        b.y = res.y;
+        if (b.y > box.y + box.h / 2) b.vy = Math.abs(b.vy);
+        else if (b.y < box.y - box.h / 2) b.vy = -Math.abs(b.vy);
+        else b.vx = b.x > box.x ? Math.abs(b.vx) : -Math.abs(b.vx);
+        pushEvent("bossHit", b.owner ?? 0, -1);
+        if (hitBoss(boss)) {
+          pushEvent("bossDead", b.owner ?? 0, -1);
+          phase = "roundClear";
+          pushEvent("roundClear", b.owner ?? 0, -1);
+        }
+      }
+    }
   }
 
   function brickAt(cx: number, cy: number): { index: number; box: Box } | null {
@@ -344,7 +376,8 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
     if (drop !== null) capsules.push({ x: at.x, y: at.y, type: drop });
-    if (destructibleCount() === 0) {
+    // Boss round (49): only the boss's death clears — bricks never do.
+    if (destructibleCount() === 0 && !(boss && !boss.dead)) {
       phase = "roundClear";
       pushEvent("roundClear", player, -1);
     }
@@ -390,6 +423,8 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         break;
       }
       case "B":
+        // Never on the boss round — Doh must be defeated (ticket 49).
+        if (boss && !boss.dead) break;
         phase = "roundClear";
         pushEvent("roundClear", catcher, -1);
         break;
@@ -498,6 +533,20 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       for (const b of [...balls]) stepBall(b);
       stepCapsules();
 
+      // Doh boss (ticket 49): advance boss + projectiles once per tick;
+      // projectile contact kills the touching bottom paddle — routed
+      // through the ball-loss path.
+      if (boss && !boss.dead) {
+        const bottom = paddles.filter((p) => p.edge === "bottom");
+        const first = bottom[0];
+        if (first) {
+          const r = stepBoss(boss, tick, { x: first.x, y: first.y, w: first.w, h: first.h });
+          if (r.paddleDied) {
+            balls.length = 0; // force the ball-loss path below
+          }
+        }
+      }
+
       // Ball loss: life lost when ball count hits zero (multiball = buffer).
       for (let i = balls.length - 1; i >= 0; i--) {
         const b = balls[i];
@@ -547,6 +596,12 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         bricks: [...bricks],
         events: [...events],
         inputAcks: new Array<number>(playerCount).fill(tick),
+        ...(boss
+          ? {
+              boss: { x: boss.x, y: boss.y, hp: boss.hp, phase: boss.phase, dead: boss.dead },
+              bossProjectiles: boss.projectiles.map((p) => ({ x: p.x, y: p.y, vx: p.vx, vy: p.vy })),
+            }
+          : {}),
       };
     },
     getTeamState() {

@@ -109,9 +109,19 @@ describe("playability: every round clears under scripted play", () => {
       const sim = createRoundSim(level, { lives: 99, score: 0 });
       let steps = 0;
       while (sim.snapshot().phase !== "roundClear" && steps < 3000) {
+        const snap = sim.snapshot();
+        // Boss round (ticket 49): defeat Doh — bricks never clear it.
+        if (snap.boss !== undefined && !snap.boss.dead) {
+          sim.debugSetBall(snap.boss.x, snap.boss.y + 40, 0, -200);
+          for (let s = 0; s < 20; s++) {
+            sim.step([input(sim.currentTick)]);
+            steps++;
+            if (sim.snapshot().phase === "roundClear") break;
+          }
+          continue;
+        }
         // Lowest (min row) destructible brick; approach from below, moving up
         // (real play direction — gold ceilings above never block this path).
-        const snap = sim.snapshot();
         let target = -1;
         for (let i = 0; i < snap.bricks.length; i++) {
           if (isDestructibleCell(snap.bricks[i] ?? 0)) {
@@ -134,7 +144,12 @@ describe("playability: every round clears under scripted play", () => {
         }
       }
       expect(sim.snapshot().phase).toBe("roundClear");
-      expect(sim.snapshot().bricks.every((c) => !isDestructibleCell(c))).toBe(true);
+      // Boss round (49): Doh's death clears — leftover destructibles are fine.
+      if (round === 33) {
+        expect(sim.snapshot().boss?.dead).toBe(true);
+      } else {
+        expect(sim.snapshot().bricks.every((c) => !isDestructibleCell(c))).toBe(true);
+      }
     });
   }
 });
