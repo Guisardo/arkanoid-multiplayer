@@ -77,6 +77,14 @@ export interface RoundSim {
   setAttackSpeedFactor(factor: number): void;
   /** Attack hook (ticket 39): resurrect destroyed bricks (rain). Deterministic LIFO. */
   resurrectBricks(count: number): number;
+  /** Assist hook (ticket 40): revive a downed field — 1 life, ball attached. */
+  revivePlayer(): void;
+  /** Assist hook (ticket 40): remove the n lowest destructible bricks (brick clear). */
+  clearLowestBricks(count: number): number;
+  /** Assist hook (ticket 40): drop a gifted capsule onto this field. */
+  giftCapsule(type: CapsuleTypeId): void;
+  /** Assist hook (ticket 40): last capsule type caught on this field (gift payload). */
+  lastCaughtCapsule(): CapsuleTypeId | null;
 }
 
 /**
@@ -109,6 +117,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   };
   /** Active effect timers in ms remaining (classic: cleared on ball loss). */
   const effects = new Map<CapsuleTypeId, number>();
+  /** Last capsule type caught (assist gift payload, ticket 40). */
+  let lastCaught: CapsuleTypeId | null = null;
 
   const consumedLaunch = new Set<number>();
 
@@ -290,6 +300,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   function applyCapsule(type: CapsuleTypeId, player: number): void {
     pushEvent("capsuleCatch", player, -1);
     score += CAPSULE_EFFECTS.capsuleCatchBonus;
+    lastCaught = type;
     switch (type) {
       case "E":
         effects.set("E", Number.MAX_SAFE_INTEGER); // until ball loss
@@ -449,6 +460,46 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         }
       }
       return placed;
+    },
+
+    revivePlayer() {
+      // Assist life gift (ticket 40): revive = 1 life, ball attached,
+      // owner launches. The life is created by the spend, never
+      // transferred — the giver's own lives are untouched.
+      lives = 1;
+      phase = "serve";
+      balls.length = 0;
+      capsules.length = 0;
+      effects.clear();
+      paddle.w = paddleWidth();
+      attachBall(0);
+    },
+
+    clearLowestBricks(count) {
+      // Assist brick clear (ticket 40): remove the n lowest destructible
+      // bricks (largest row index first — "lowest" = closest to the
+      // paddle). Gold and empty cells are never removed.
+      let removed = 0;
+      for (let i = bricks.length - 1; i >= 0 && removed < count; i--) {
+        const cell = bricks[i] ?? BRICK_EMPTY;
+        if (isDestructibleCell(cell)) {
+          bricks[i] = BRICK_EMPTY;
+          removed++;
+        }
+      }
+      return removed;
+    },
+
+    giftCapsule(type) {
+      // Assist power-up gift (ticket 40): drop a capsule above the
+      // paddle so the teammate can catch it. High enough that it is
+      // NOT caught on the drop tick (catch check runs in stepCapsules
+      // during the same step that would otherwise splice it instantly).
+      capsules.push({ x: paddle.x, y: paddle.y - 40, type });
+    },
+
+    lastCaughtCapsule() {
+      return lastCaught;
     },
 
     step(inputs) {

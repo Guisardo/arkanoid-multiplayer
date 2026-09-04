@@ -86,8 +86,20 @@ export function meterAdd(
   capsules: number,
   tuning: AttackTuning,
 ): number {
-  const income = bricks * tuning.fillPerBrick + capsules * tuning.fillPerCapsule;
-  return Math.min(tuning.meterMax, meter + income);
+  return meterFill(meter, bricks, capsules, tuning.fillPerBrick, tuning.fillPerCapsule, tuning.meterMax);
+}
+
+/** Shared meter-fill primitive (attack + assist use the same rules, spec §6.5). */
+export function meterFill(
+  meter: number,
+  bricks: number,
+  capsules: number,
+  fillPerBrick: number,
+  fillPerCapsule: number,
+  meterMax: number,
+): number {
+  const income = bricks * fillPerBrick + capsules * fillPerCapsule;
+  return Math.min(meterMax, meter + income);
 }
 
 export function meterCost(effect: AttackEffectId, tuning: AttackTuning): number {
