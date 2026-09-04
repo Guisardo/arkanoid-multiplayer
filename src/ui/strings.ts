@@ -54,6 +54,11 @@ const enUS = {
   "settings.name": "Name",
   "settings.skin": "Skin",
   "settings.theme": "Theme",
+  "touch.pause": "Pause",
+  "touch.stick": "Move",
+  "touch.launch": "Launch",
+  "touch.fire": "Fire {n}",
+  "touch.cycle": "Cycle target",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -102,6 +107,11 @@ const es419: Record<StringKey, string> = {
   "settings.name": "Nombre",
   "settings.skin": "Skin",
   "settings.theme": "Tema",
+  "touch.pause": "Pausa",
+  "touch.stick": "Mover",
+  "touch.launch": "Lanzar",
+  "touch.fire": "Disparo {n}",
+  "touch.cycle": "Ciclar objetivo",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

@@ -37,7 +37,10 @@ function ensureHighlightStyles(): void {
   style.id = HIGHLIGHT_STYLE_ID;
   style.textContent =
     "button.conflict{border:2px solid #e33 !important;color:#e33 !important;}" +
-    "button.capturing{border:2px solid #fd4 !important;color:#fd4 !important;}";
+    "button.capturing{border:2px solid #fd4 !important;color:#fd4 !important;}" +
+    // Tap targets ≥48 px, zero hover dependencies (ticket 42, spec §11/§14).
+    "button{min-height:48px;min-width:48px;touch-action:manipulation;}" +
+    "@media(hover:hover){button{min-height:24px;}}";
   document.head.appendChild(style);
 }
 
