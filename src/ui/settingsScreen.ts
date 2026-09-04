@@ -17,16 +17,29 @@ import { THEMES } from "content/themes";
 import {
   KEYBOARD_ACTIONS,
   GAMEPAD_ACTIONS,
-  DEFAULT_KEYBOARD_BINDINGS as KEYBOARD_DEFAULT,
   findKeyboardConflicts,
-  type KeyboardBindingsMap,
+  findGamepadConflicts,
+  type GamepadAction,
   type GamepadBindingsMap,
 } from "input/bindings";
 import type { KeyboardBindings, KeyboardBindingsKey } from "input/keyboard";
 import { KEYSET_1 } from "input/keyboard";
+import type { GamepadButton } from "input/gamepad";
 
 /** `settings.action.*` string keys (rebind row labels). */
 type StringActionKey = Extract<StringKey, `settings.action.${string}`>;
+
+/** Injected once per document: conflict/capture highlight styles. */
+const HIGHLIGHT_STYLE_ID = "arkanoid-rebind-highlight";
+function ensureHighlightStyles(): void {
+  if (document.getElementById(HIGHLIGHT_STYLE_ID) !== null) return;
+  const style = document.createElement("style");
+  style.id = HIGHLIGHT_STYLE_ID;
+  style.textContent =
+    "button.conflict{border:2px solid #e33 !important;color:#e33 !important;}" +
+    "button.capturing{border:2px solid #fd4 !important;color:#fd4 !important;}";
+  document.head.appendChild(style);
+}
 
 export interface SettingsScreenOptions {
   host: HTMLElement;
@@ -47,8 +60,10 @@ export class SettingsScreen {
   private activePlayer = 0;
   private activeDevice: "keyboard" | "gamepad" = "keyboard";
   private capture: { action: string; button: HTMLButtonElement } | null = null;
-  private keyboardMaps: KeyboardBindingsMap;
+  private keyboardMaps: KeyboardBindings[];
   private gamepadMap: GamepadBindingsMap;
+  private pollHandle: ReturnType<typeof setInterval> | null = null;
+  private prevPadButtons: Partial<Record<GamepadButton, boolean>> = {};
 
   constructor(opts: SettingsScreenOptions) {
     this.opts = opts;
@@ -57,7 +72,7 @@ export class SettingsScreen {
       "position:absolute;inset:0;background:rgba(8,8,16,0.92);display:flex;" +
       "align-items:center;justify-content:center;z-index:1000;font-family:monospace;";
     const cur = loadSettings(this.opts.storage);
-    this.keyboardMaps = cur.controls.keyboard;
+    this.keyboardMaps = cur.controls.keyboard.map((m) => ({ ...m }));
     this.gamepadMap = cur.controls.gamepad;
     this.keydownHandler = (e) => {
       this.onCaptureKey(e);
@@ -67,19 +82,30 @@ export class SettingsScreen {
 
   open(): void {
     if (!this.root.isConnected) {
+      ensureHighlightStyles();
       this.opts.host.appendChild(this.root);
       globalThis.addEventListener("keydown", this.keydownHandler);
+      // Gamepad rebind capture: poll button edges while the overlay is open.
+      this.pollHandle = setInterval(() => {
+        this.pollGamepadCapture();
+      }, 50);
+      // First local input takes focus (spec §11: any local input navigates menus).
+      const first = this.root.querySelector<HTMLElement>("button");
+      first?.focus();
     }
   }
 
   close(): void {
+    if (this.pollHandle !== null) {
+      clearInterval(this.pollHandle);
+      this.pollHandle = null;
+    }
     globalThis.removeEventListener("keydown", this.keydownHandler);
     this.root.remove();
     this.opts.onClose?.();
   }
 
   private build(): HTMLElement {
-    const cur = loadSettings(this.opts.storage);
     const panel = document.createElement("div");
     panel.style.cssText =
       "background:#181828;color:#eee;padding:24px 32px;border:2px solid #444;" +
@@ -90,6 +116,7 @@ export class SettingsScreen {
     title.style.margin = "0 0 8px";
     panel.appendChild(title);
 
+    const cur = loadSettings(this.opts.storage);
     for (const section of ["settings.controls", "settings.audio", "settings.display", "settings.appearance"] as const) {
       const h = document.createElement("h3");
       h.textContent = t(this.opts.locale, section);
@@ -224,6 +251,9 @@ export class SettingsScreen {
 
   // ---- Controls (ticket 41) ----
 
+  /** Max local players per device (desktop 4, spec §11). */
+  private static readonly MAX_LOCAL_PLAYERS = 4;
+
   private buildControls(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
@@ -243,9 +273,10 @@ export class SettingsScreen {
     }
     wrap.appendChild(deviceTabs);
 
-    // Player tabs (keyboard only — gamepad map is shared).
+    // Player tabs (keyboard only — gamepad map is shared). Always 4 slots:
+    // 4-on-keyboard is achievable via rebinding (spec §11).
     const playerTabs = document.createElement("div");
-    for (let p = 0; p < this.keyboardMaps.length; p++) {
+    for (let p = 0; p < SettingsScreen.MAX_LOCAL_PLAYERS; p++) {
       const tab = document.createElement("button");
       tab.dataset.playerTab = String(p);
       tab.textContent = t(this.opts.locale, "settings.controls.player").replace("{n}", String(p + 1));
@@ -278,7 +309,7 @@ export class SettingsScreen {
     reset.style.cssText = "margin-top:4px;padding:4px 10px;font-family:monospace;";
     reset.addEventListener("click", () => {
       const def = resetControls(this.opts.storage);
-      this.keyboardMaps = def.keyboard;
+      this.keyboardMaps = def.keyboard.map((m) => ({ ...m }));
       this.gamepadMap = def.gamepad;
       this.renderControls();
     });
@@ -297,9 +328,9 @@ export class SettingsScreen {
     rows.textContent = "";
     this.capture = null;
     if (this.activeDevice === "keyboard") {
-      const map = this.keyboardMaps[this.activePlayer] ?? KEYBOARD_DEFAULT[0] ?? KEYSET_1;
+      const map = this.keyboardMaps[this.activePlayer] ?? { ...KEYSET_1 };
       for (const action of KEYBOARD_ACTIONS) {
-        rows.appendChild(this.buildRebindRow(action, map[action].join(", ")));
+        rows.appendChild(this.buildRebindRow(action, map[action].join(", "), "key"));
       }
     } else {
       const fixed = document.createElement("div");
@@ -308,12 +339,12 @@ export class SettingsScreen {
       fixed.style.cssText = "font-size:11px;color:#999;";
       rows.appendChild(fixed);
       for (const action of GAMEPAD_ACTIONS) {
-        rows.appendChild(this.buildRebindRow(action, this.gamepadMap[action].join(", ")));
+        rows.appendChild(this.buildRebindRow(action, this.gamepadMap[action].join(", "), "button"));
       }
     }
   }
 
-  private buildRebindRow(action: string, binding: string): HTMLElement {
+  private buildRebindRow(action: string, binding: string, kind: "key" | "button"): HTMLElement {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:8px;";
     const label = document.createElement("span");
@@ -326,7 +357,10 @@ export class SettingsScreen {
     btn.style.cssText = "padding:4px 10px;font-family:monospace;min-width:90px;";
     btn.addEventListener("click", () => {
       this.capture = { action, button: btn };
-      btn.textContent = t(this.opts.locale, "settings.controls.pressKey");
+      btn.textContent = t(
+        this.opts.locale,
+        kind === "key" ? "settings.controls.pressKey" : "settings.controls.pressButton",
+      );
       btn.classList.add("capturing");
     });
     row.appendChild(label);
@@ -334,7 +368,7 @@ export class SettingsScreen {
     return row;
   }
 
-  /** Global keydown while capturing: apply or reject the rebind. */
+  /** Global keydown while capturing: apply, or Esc to cancel. */
   private onCaptureKey(e: KeyboardEvent): void {
     if (!this.capture) return;
     e.preventDefault();
@@ -342,10 +376,58 @@ export class SettingsScreen {
     const { action, button } = this.capture;
     this.capture = null;
     button.classList.remove("capturing");
-    if (this.activeDevice === "keyboard") {
-      this.applyKeyboardRebind(action as KeyboardBindingsKey, e.code, button);
+    if (this.activeDevice !== "keyboard") return;
+    if (e.code === "Escape") {
+      // Cancel — restore the current binding display.
+      this.renderControls();
+      return;
     }
-    // Gamepad rebinds capture via button presses, not keydown.
+    this.applyKeyboardRebind(action as KeyboardBindingsKey, e.code, button);
+  }
+
+  /** Poll gamepad button edges while the overlay is open (rebind capture). */
+  private pollGamepadCapture(): void {
+    // jsdom/test envs lack getGamepads — no pad, no capture.
+    if (typeof navigator.getGamepads !== "function") return;
+    const pads = navigator.getGamepads();
+    const pad = pads.find((p) => p !== null);
+    if (!pad) {
+      this.prevPadButtons = {};
+      return;
+    }
+    const b = (i: number): boolean => pad.buttons[i]?.pressed === true;
+    const now: Partial<Record<GamepadButton, boolean>> = {
+      a: b(0), b: b(1), x: b(2), y: b(3),
+      lb: b(4), rb: b(5), rt: b(7), lt: b(6),
+      start: b(9),
+    };
+    for (const name of Object.keys(now) as GamepadButton[]) {
+      const pressed = now[name] === true;
+      const was = this.prevPadButtons[name] === true;
+      if (pressed && !was && this.capture && this.activeDevice === "gamepad") {
+        const { action, button } = this.capture;
+        this.capture = null;
+        button.classList.remove("capturing");
+        this.applyGamepadRebind(action as GamepadAction, name, button);
+        break;
+      }
+    }
+    this.prevPadButtons = now;
+  }
+
+  private applyGamepadRebind(action: GamepadAction, buttonName: GamepadButton, button: HTMLButtonElement): void {
+    const map: Record<GamepadAction, readonly GamepadButton[]> = { ...this.gamepadMap };
+    map[action] = [buttonName];
+    const conflicts = findGamepadConflicts(map);
+    if (conflicts.some((c) => c.action === action && c.button === buttonName)) {
+      // Duplicate — reject, highlight, keep the old binding.
+      button.textContent = t(this.opts.locale, "settings.controls.duplicate");
+      button.classList.add("conflict");
+      return;
+    }
+    this.gamepadMap = map;
+    saveSettings(this.opts.storage, { controls: { gamepad: map } });
+    this.renderControls();
   }
 
   private applyKeyboardRebind(action: KeyboardBindingsKey, code: string, button: HTMLButtonElement): void {

@@ -70,8 +70,9 @@ export async function startSoloSession(
   // Stored rebinds apply from the start (ticket 41); solo merges both keysets.
   const applyStoredBindings = (): void => {
     const controls = loadSettings(storage).controls;
-    const p1 = controls.keyboard[1] ?? controls.keyboard[0];
-    keyboard.setBindings([controls.keyboard[0] ?? KEYSET_1, p1 ?? KEYSET_2]);
+    const p0 = controls.keyboard[0] ?? KEYSET_1;
+    const p1 = controls.keyboard[1] ?? KEYSET_2;
+    keyboard.setBindings([p0, p1]);
     gamepad.setBindings(controls.gamepad);
   };
   applyStoredBindings();
@@ -185,6 +186,8 @@ export async function startSoloSession(
     },
     render: () => {
       pollGamepads();
+      // Rebound menu key / gamepad Start opens settings (ticket 41).
+      if (menuRequested() && !settingsScreen) openSettings();
       for (const v of views) v.sync(latest);
     },
   });
@@ -199,6 +202,12 @@ export async function startSoloSession(
   };
   globalThis.addEventListener("resize", onResize);
 
+  // Menu/pause: rebindable menu key (ticket 41) + gamepad Start. Checked in
+  // render (not tick) so it works while paused and never races the sim.
+  function menuRequested(): boolean {
+    return keyboard.consumeMenuEvent() === "pause" || gamepad.consumeMenuEvent() === "pause";
+  }
+
   const onEsc = (e: KeyboardEvent): void => {
     if (e.code === "Escape" && !settingsScreen) {
       e.preventDefault();
@@ -212,8 +221,11 @@ export async function startSoloSession(
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
       onClose: () => {
         settingsScreen = null;
-        // Rebinds may have changed — re-apply live (ticket 41).
+        // Rebinds may have changed — re-apply live (ticket 41). Flush stale
+        // edges first so rebind keypresses never leak into gameplay frames.
         applyStoredBindings();
+        keyboard.flush();
+        gamepad.flush();
         loop.start();
       },
     });
