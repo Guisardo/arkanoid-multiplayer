@@ -146,6 +146,12 @@ export class Storage {
     this.writeString(STORAGE_KEYS.name, state.name);
     if (state.skin !== null) this.writeString(STORAGE_KEYS.skin, state.skin);
     if (state.theme !== null) this.writeString(STORAGE_KEYS.theme, state.theme);
+    if (state.bindingsKeyboard !== null) {
+      this.writeString(STORAGE_KEYS.bindingsKeyboard, state.bindingsKeyboard);
+    }
+    if (state.bindingsGamepad !== null) {
+      this.writeString(STORAGE_KEYS.bindingsGamepad, state.bindingsGamepad);
+    }
     this.writeJSON(STORAGE_KEYS.audio, state.audio);
     this.writeJSON(STORAGE_KEYS.display, state.display);
     if (state.language !== null) this.writeString(STORAGE_KEYS.language, state.language);
@@ -156,12 +162,16 @@ export class Storage {
   /** Persist a partial update over the current state (deep-merges audio/display). */
   savePartial(partial: Partial<StoredState>): void {
     const cur = this.loadAll();
+    // undefined fields mean "unchanged" — keep the current value.
+    const merged: Record<string, unknown> = { ...cur };
+    for (const [key, value] of Object.entries(partial) as [string, unknown][]) {
+      if (value !== undefined) merged[key] = value;
+    }
     this.writeAll({
-      ...cur,
-      ...partial,
+      ...merged,
       audio: { ...cur.audio, ...(partial.audio ?? {}) },
       display: { ...cur.display, ...(partial.display ?? {}) },
-    });
+    } as StoredState);
   }
 
   /** Solo records (spec §16). */

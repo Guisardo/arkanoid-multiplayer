@@ -2,6 +2,16 @@
 import type { Storage } from "persistence/storage";
 import { DEFAULT_SKIN_ID, getSkin } from "content/skins";
 import { DEFAULT_THEME_ID, getTheme } from "content/themes";
+import {
+  DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_KEYBOARD_BINDINGS,
+  parseGamepadBindings,
+  parseKeyboardBindings,
+  serializeGamepadBindings,
+  serializeKeyboardBindings,
+  type GamepadBindingsMap,
+  type KeyboardBindingsMap,
+} from "input/bindings";
 
 export interface AudioSettings {
   music: number;
@@ -21,10 +31,18 @@ export interface AppearanceSettings {
   themeId: string;
 }
 
+export interface ControlsSettings {
+  /** Per-local-player keyboard maps (spec §11; corrupt → defaults). */
+  keyboard: KeyboardBindingsMap;
+  /** Gamepad button map (movement fixed; corrupt → defaults). */
+  gamepad: GamepadBindingsMap;
+}
+
 export function loadSettings(storage: Storage): {
   audio: AudioSettings;
   display: DisplaySettings;
   appearance: AppearanceSettings;
+  controls: ControlsSettings;
 } {
   const all = storage.loadAll();
   return {
@@ -35,6 +53,10 @@ export function loadSettings(storage: Storage): {
       skinId: getSkin(all.skin)?.id ?? DEFAULT_SKIN_ID,
       themeId: getTheme(all.theme)?.id ?? DEFAULT_THEME_ID,
     },
+    controls: {
+      keyboard: parseKeyboardBindings(all.bindingsKeyboard),
+      gamepad: parseGamepadBindings(all.bindingsGamepad),
+    },
   };
 }
 
@@ -44,15 +66,35 @@ export function saveSettings(
     audio?: Partial<AudioSettings>;
     display?: Partial<DisplaySettings>;
     appearance?: Partial<AppearanceSettings>;
+    controls?: Partial<ControlsSettings>;
   },
 ): void {
   const cur = loadSettings(storage);
-  storage.savePartial({
+  const patch: Parameters<Storage["savePartial"]>[0] = {
     audio: { ...cur.audio, ...partial.audio },
     display: { ...cur.display, ...partial.display },
     skin: partial.appearance?.skinId ?? cur.appearance.skinId,
     theme: partial.appearance?.themeId ?? cur.appearance.themeId,
+  };
+  if (partial.controls?.keyboard !== undefined) {
+    patch.bindingsKeyboard = serializeKeyboardBindings(partial.controls.keyboard);
+  }
+  if (partial.controls?.gamepad !== undefined) {
+    patch.bindingsGamepad = serializeGamepadBindings(partial.controls.gamepad);
+  }
+  storage.savePartial(patch);
+}
+
+/** Reset controls to spec defaults (rebind screen "Reset"). */
+export function resetControls(storage: Storage): ControlsSettings {
+  storage.savePartial({
+    bindingsKeyboard: serializeKeyboardBindings(DEFAULT_KEYBOARD_BINDINGS),
+    bindingsGamepad: serializeGamepadBindings(DEFAULT_GAMEPAD_BINDINGS),
   });
+  return {
+    keyboard: DEFAULT_KEYBOARD_BINDINGS,
+    gamepad: DEFAULT_GAMEPAD_BINDINGS,
+  };
 }
 
 /** Effective dpr: auto → min(device, 2); numeric modes capped at 2 (spec §12). */

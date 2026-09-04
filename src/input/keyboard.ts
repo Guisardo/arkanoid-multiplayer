@@ -13,7 +13,12 @@ export interface KeyboardBindings {
   fire2: readonly string[];
   fire3: readonly string[];
   fire4: readonly string[];
+  /** Menu/pause key — rebindable like every other action (ticket 41). */
+  menu: readonly string[];
 }
+
+/** Rebindable keyboard action key (ticket 41). */
+export type KeyboardBindingsKey = keyof KeyboardBindings;
 
 /** Keyset 1 (arrows). */
 export const KEYSET_1: KeyboardBindings = {
@@ -26,6 +31,7 @@ export const KEYSET_1: KeyboardBindings = {
   fire2: ["2"],
   fire3: ["3"],
   fire4: ["4"],
+  menu: ["Escape"],
 };
 
 /** Keyset 2 (WASD cluster). */
@@ -39,6 +45,7 @@ export const KEYSET_2: KeyboardBindings = {
   fire2: ["KeyT"],
   fire3: ["KeyF"],
   fire4: ["KeyG"],
+  menu: ["Escape"],
 };
 
 /** Normalized KeyboardEvent.code key (no location variants). */
@@ -56,14 +63,29 @@ export interface KeyboardAdapterOptions {
  */
 export class KeyboardAdapter {
   private readonly player: number;
-  private readonly bindings: readonly KeyboardBindings[];
+  private bindings: readonly KeyboardBindings[];
   private readonly pressed = new Set<string>();
   private readonly edgeBuffer: Partial<InputFrameActions> = {};
   private launchEdge = false;
+  private menuEdge = false;
 
   constructor(opts: KeyboardAdapterOptions, bindings: readonly KeyboardBindings[]) {
     this.player = opts.player;
     this.bindings = bindings;
+  }
+
+  /** Swap bindings live (rebind screen applies without re-creating). */
+  setBindings(bindings: readonly KeyboardBindings[]): void {
+    this.bindings = bindings;
+  }
+
+  /** Menu-key edge — consumed once (pause/menu, spec §11). */
+  consumeMenuEvent(): "pause" | null {
+    if (this.menuEdge) {
+      this.menuEdge = false;
+      return "pause";
+    }
+    return null;
   }
 
   /** Feed raw DOM events (down/up). Track pressed set + edge events. */
@@ -87,6 +109,7 @@ export class KeyboardAdapter {
       if (b.fire2.includes(code)) this.setFire(1);
       if (b.fire3.includes(code)) this.setFire(2);
       if (b.fire4.includes(code)) this.setFire(3);
+      if (b.menu.includes(code)) this.menuEdge = true;
     }
   }
 

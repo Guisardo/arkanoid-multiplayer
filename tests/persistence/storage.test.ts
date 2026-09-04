@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Storage, STORAGE_KEYS, DEFAULTS, type StorageBackend } from "persistence/storage";
-import { loadSettings, saveSettings, effectiveDpr } from "ui/settings";
+import { loadSettings, saveSettings, effectiveDpr, resetControls } from "ui/settings";
 import { SKINS, DEFAULT_SKIN_ID } from "content/skins";
 import { THEMES, DEFAULT_THEME_ID } from "content/themes";
+import {
+  DEFAULT_GAMEPAD_BINDINGS,
+  DEFAULT_KEYBOARD_BINDINGS,
+  serializeGamepadBindings,
+  serializeKeyboardBindings,
+  type GamepadBindingsMap,
+  type KeyboardBindingsMap,
+} from "input/bindings";
 
 function fakeBackend(): StorageBackend & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -125,5 +133,63 @@ describe("settings logic", () => {
     expect(effectiveDpr("2", 3)).toBe(2);
     expect(effectiveDpr("1.5", 3)).toBe(1.5);
     expect(effectiveDpr("1", 3)).toBe(1);
+  });
+});
+
+describe("controls settings (ticket 41)", () => {
+  it("loadSettings returns default bindings when nothing stored", () => {
+    const s = new Storage(fakeBackend());
+    const cur = loadSettings(s);
+    expect(cur.controls.keyboard).toEqual(DEFAULT_KEYBOARD_BINDINGS);
+    expect(cur.controls.gamepad).toEqual(DEFAULT_GAMEPAD_BINDINGS);
+  });
+
+  it("saveSettings persists keyboard + gamepad maps under §16 keys", () => {
+    const b = fakeBackend();
+    const s = new Storage(b);
+    const kb: KeyboardBindingsMap = [
+      { ...DEFAULT_KEYBOARD_BINDINGS[0]!, launch: ["KeyP"], menu: ["F2"] },
+      DEFAULT_KEYBOARD_BINDINGS[1]!,
+    ];
+    const gp: GamepadBindingsMap = { ...DEFAULT_GAMEPAD_BINDINGS, launch: ["x"] };
+    saveSettings(s, { controls: { keyboard: kb, gamepad: gp } });
+    expect(b.map.get(STORAGE_KEYS.bindingsKeyboard)).toBe(serializeKeyboardBindings(kb));
+    expect(b.map.get(STORAGE_KEYS.bindingsGamepad)).toBe(serializeGamepadBindings(gp));
+    const after = loadSettings(s);
+    expect(after.controls.keyboard).toEqual(kb);
+    expect(after.controls.gamepad).toEqual(gp);
+  });
+
+  it("partial controls save: keyboard-only save keeps gamepad intact", () => {
+    const s = new Storage(fakeBackend());
+    const gp: GamepadBindingsMap = { ...DEFAULT_GAMEPAD_BINDINGS, fire1: ["a"] };
+    saveSettings(s, { controls: { gamepad: gp } });
+    saveSettings(s, {
+      controls: { keyboard: [{ ...DEFAULT_KEYBOARD_BINDINGS[0]!, left: ["KeyJ"] }] },
+    });
+    const after = loadSettings(s);
+    expect(after.controls.gamepad).toEqual(gp);
+    expect(after.controls.keyboard[0]!.left).toEqual(["KeyJ"]);
+  });
+
+  it("corrupt stored maps fall back to defaults (never throw)", () => {
+    const b = fakeBackend();
+    b.map.set(STORAGE_KEYS.bindingsKeyboard, "{corrupt!!");
+    b.map.set(STORAGE_KEYS.bindingsGamepad, "also corrupt");
+    const s = new Storage(b);
+    const cur = loadSettings(s);
+    expect(cur.controls.keyboard).toEqual(DEFAULT_KEYBOARD_BINDINGS);
+    expect(cur.controls.gamepad).toEqual(DEFAULT_GAMEPAD_BINDINGS);
+  });
+
+  it("resetControls restores spec defaults", () => {
+    const s = new Storage(fakeBackend());
+    saveSettings(s, {
+      controls: { keyboard: [{ ...DEFAULT_KEYBOARD_BINDINGS[0]!, launch: ["KeyP"] }] },
+    });
+    const reset = resetControls(s);
+    expect(reset.keyboard).toEqual(DEFAULT_KEYBOARD_BINDINGS);
+    expect(reset.gamepad).toEqual(DEFAULT_GAMEPAD_BINDINGS);
+    expect(loadSettings(s).controls.keyboard).toEqual(DEFAULT_KEYBOARD_BINDINGS);
   });
 });

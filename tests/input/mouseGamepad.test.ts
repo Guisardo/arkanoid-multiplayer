@@ -102,6 +102,62 @@ describe("GamepadAdapter (spec §11)", () => {
   });
 });
 
+describe("GamepadAdapter rebinds (ticket 41)", () => {
+  it("custom button map drives the adapter", () => {
+    const g = new GamepadAdapter({ player: 0 }, {
+      launch: ["b"],
+      cycleForward: ["y"],
+      cycleBack: ["x"],
+      fire1: ["a"],
+      fire2: ["rb"],
+      fire3: ["lb"],
+      fire4: ["lt"],
+      menu: ["start"],
+    });
+    g.feedState(padState({ buttons: { b: true } }));
+    expect(g.sampleFrame(0).launch).toBe(true);
+    g.feedState(padState({ buttons: { a: true } }));
+    expect(g.sampleFrame(1).actions.fire[0]).toBe(true);
+    g.feedState(padState({ buttons: { y: true } }));
+    expect(g.sampleFrame(2).actions.cycleForward).toBe(true);
+  });
+
+  it("setBindings swaps the map live", () => {
+    const g = new GamepadAdapter({ player: 0 });
+    g.setBindings({
+      launch: ["x"],
+      cycleForward: ["rb"],
+      cycleBack: ["lb"],
+      fire1: ["a"],
+      fire2: ["y"],
+      fire3: ["b"],
+      fire4: ["rt"],
+      menu: ["start"],
+    });
+    g.feedState(padState({ buttons: { x: true } }));
+    expect(g.sampleFrame(0).launch).toBe(true);
+    g.feedState(padState({ buttons: { a: true } }));
+    expect(g.sampleFrame(1).actions.fire[0]).toBe(true);
+  });
+
+  it("movement stays fixed — stick/d-pad never rebindable", () => {
+    const g = new GamepadAdapter({ player: 0 }, {
+      launch: ["a"],
+      cycleForward: ["rb"],
+      cycleBack: ["lb"],
+      fire1: ["x"],
+      fire2: ["y"],
+      fire3: ["b"],
+      fire4: ["rt"],
+      menu: ["start"],
+    });
+    g.feedState(padState({ stickX: 0.8 }));
+    expect(g.sampleFrame(0).axisX).toBeCloseTo(0.8, 5);
+    g.feedState(padState({ dpadRight: true }));
+    expect(g.sampleFrame(1).axisX).toBe(1);
+  });
+});
+
 describe("frame-shape parity across devices (spec §11 seam)", () => {
   it("all adapters emit the identical InputFrame shape", () => {
     const k = new KeyboardAdapter({ player: 0 }, [KEYSET_1]);

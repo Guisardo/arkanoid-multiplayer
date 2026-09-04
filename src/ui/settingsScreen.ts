@@ -1,17 +1,32 @@
 // Settings screen (spec §14): DOM overlay with four sections — Controls,
-// Audio, Display, Appearance. Audio + Display + Appearance live; Controls is
-// a stub until ticket 41. All strings from locale tables.
-import { t, type Locale } from "ui/strings";
+// Audio, Display, Appearance. Controls = full rebind UI (ticket 41): per-player
+// keyboard tabs, gamepad buttons, duplicate rejection with highlight,
+// rollover caveat. All strings from locale tables.
+import { t, type Locale, type StringKey } from "ui/strings";
 import type { Storage } from "persistence/storage";
 import {
   loadSettings,
   saveSettings,
+  resetControls,
   type AppearanceSettings,
   type AudioSettings,
   type DisplaySettings,
 } from "ui/settings";
 import { SKINS } from "content/skins";
 import { THEMES } from "content/themes";
+import {
+  KEYBOARD_ACTIONS,
+  GAMEPAD_ACTIONS,
+  DEFAULT_KEYBOARD_BINDINGS as KEYBOARD_DEFAULT,
+  findKeyboardConflicts,
+  type KeyboardBindingsMap,
+  type GamepadBindingsMap,
+} from "input/bindings";
+import type { KeyboardBindings, KeyboardBindingsKey } from "input/keyboard";
+import { KEYSET_1 } from "input/keyboard";
+
+/** `settings.action.*` string keys (rebind row labels). */
+type StringActionKey = Extract<StringKey, `settings.action.${string}`>;
 
 export interface SettingsScreenOptions {
   host: HTMLElement;
@@ -24,8 +39,16 @@ export interface SettingsScreenOptions {
 }
 
 export class SettingsScreen {
-  private readonly root: HTMLDivElement;
+  /** Root element (exposed for tests/e2e probing). */
+  readonly root: HTMLDivElement;
   private readonly opts: SettingsScreenOptions;
+  private readonly keydownHandler: (e: KeyboardEvent) => void;
+  private controlsPanel: HTMLElement | null = null;
+  private activePlayer = 0;
+  private activeDevice: "keyboard" | "gamepad" = "keyboard";
+  private capture: { action: string; button: HTMLButtonElement } | null = null;
+  private keyboardMaps: KeyboardBindingsMap;
+  private gamepadMap: GamepadBindingsMap;
 
   constructor(opts: SettingsScreenOptions) {
     this.opts = opts;
@@ -33,14 +56,24 @@ export class SettingsScreen {
     this.root.style.cssText =
       "position:absolute;inset:0;background:rgba(8,8,16,0.92);display:flex;" +
       "align-items:center;justify-content:center;z-index:1000;font-family:monospace;";
+    const cur = loadSettings(this.opts.storage);
+    this.keyboardMaps = cur.controls.keyboard;
+    this.gamepadMap = cur.controls.gamepad;
+    this.keydownHandler = (e) => {
+      this.onCaptureKey(e);
+    };
     this.root.appendChild(this.build());
   }
 
   open(): void {
-    if (!this.root.isConnected) this.opts.host.appendChild(this.root);
+    if (!this.root.isConnected) {
+      this.opts.host.appendChild(this.root);
+      globalThis.addEventListener("keydown", this.keydownHandler);
+    }
   }
 
   close(): void {
+    globalThis.removeEventListener("keydown", this.keydownHandler);
     this.root.remove();
     this.opts.onClose?.();
   }
@@ -62,14 +95,12 @@ export class SettingsScreen {
       h.textContent = t(this.opts.locale, section);
       h.style.margin = "8px 0 4px";
       panel.appendChild(h);
-      if (section === "settings.audio") panel.appendChild(this.buildAudio(cur.audio));
+      if (section === "settings.controls") {
+        this.controlsPanel = this.buildControls();
+        panel.appendChild(this.controlsPanel);
+      } else if (section === "settings.audio") panel.appendChild(this.buildAudio(cur.audio));
       else if (section === "settings.display") panel.appendChild(this.buildDisplay(cur.display));
-      else if (section === "settings.appearance") panel.appendChild(this.buildAppearance(cur.appearance));
-      else {
-        const stub = document.createElement("div");
-        stub.textContent = "—";
-        panel.appendChild(stub);
-      }
+      else panel.appendChild(this.buildAppearance(cur.appearance));
     }
 
     const back = document.createElement("button");
@@ -189,6 +220,154 @@ export class SettingsScreen {
     themeRow.appendChild(themeSelect);
     wrap.appendChild(themeRow);
     return wrap;
+  }
+
+  // ---- Controls (ticket 41) ----
+
+  private buildControls(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+
+    // Device tabs: keyboard / gamepad.
+    const deviceTabs = document.createElement("div");
+    for (const device of ["keyboard", "gamepad"] as const) {
+      const tab = document.createElement("button");
+      tab.dataset.deviceTab = device;
+      tab.textContent = t(this.opts.locale, `settings.controls.${device}`);
+      tab.style.cssText = "margin-right:8px;padding:4px 10px;font-family:monospace;";
+      tab.addEventListener("click", () => {
+        this.activeDevice = device;
+        this.renderControls();
+      });
+      deviceTabs.appendChild(tab);
+    }
+    wrap.appendChild(deviceTabs);
+
+    // Player tabs (keyboard only — gamepad map is shared).
+    const playerTabs = document.createElement("div");
+    for (let p = 0; p < this.keyboardMaps.length; p++) {
+      const tab = document.createElement("button");
+      tab.dataset.playerTab = String(p);
+      tab.textContent = t(this.opts.locale, "settings.controls.player").replace("{n}", String(p + 1));
+      tab.style.cssText = "margin-right:8px;padding:4px 10px;font-family:monospace;";
+      tab.addEventListener("click", () => {
+        this.activePlayer = p;
+        this.renderControls();
+      });
+      playerTabs.appendChild(tab);
+    }
+    wrap.appendChild(playerTabs);
+
+    // Rebind rows (re-rendered per tab).
+    const rows = document.createElement("div");
+    rows.dataset.rebindRows = "";
+    rows.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+    wrap.appendChild(rows);
+
+    // Rollover caveat (spec §11: ~6-key rollover on cheap keyboards).
+    const caveat = document.createElement("div");
+    caveat.dataset.rollover = "";
+    caveat.textContent = t(this.opts.locale, "settings.controls.rollover");
+    caveat.style.cssText = "font-size:11px;color:#999;";
+    wrap.appendChild(caveat);
+
+    // Reset to defaults.
+    const reset = document.createElement("button");
+    reset.dataset.resetControls = "";
+    reset.textContent = t(this.opts.locale, "settings.controls.reset");
+    reset.style.cssText = "margin-top:4px;padding:4px 10px;font-family:monospace;";
+    reset.addEventListener("click", () => {
+      const def = resetControls(this.opts.storage);
+      this.keyboardMaps = def.keyboard;
+      this.gamepadMap = def.gamepad;
+      this.renderControls();
+    });
+    wrap.appendChild(reset);
+
+    // First render — synchronous so the DOM is complete on open.
+    this.controlsPanel = wrap;
+    this.renderControls();
+    return wrap;
+  }
+
+  /** Re-render the rebind rows for the active device/player tab. */
+  private renderControls(): void {
+    const rows = this.controlsPanel?.querySelector<HTMLElement>("[data-rebind-rows]");
+    if (!rows) return;
+    rows.textContent = "";
+    this.capture = null;
+    if (this.activeDevice === "keyboard") {
+      const map = this.keyboardMaps[this.activePlayer] ?? KEYBOARD_DEFAULT[0] ?? KEYSET_1;
+      for (const action of KEYBOARD_ACTIONS) {
+        rows.appendChild(this.buildRebindRow(action, map[action].join(", ")));
+      }
+    } else {
+      const fixed = document.createElement("div");
+      fixed.dataset.movementFixed = "";
+      fixed.textContent = t(this.opts.locale, "settings.controls.movementFixed");
+      fixed.style.cssText = "font-size:11px;color:#999;";
+      rows.appendChild(fixed);
+      for (const action of GAMEPAD_ACTIONS) {
+        rows.appendChild(this.buildRebindRow(action, this.gamepadMap[action].join(", ")));
+      }
+    }
+  }
+
+  private buildRebindRow(action: string, binding: string): HTMLElement {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;";
+    const label = document.createElement("span");
+    label.textContent = t(this.opts.locale, `settings.action.${action}` as StringActionKey);
+    label.style.cssText = "min-width:120px;";
+    const btn = document.createElement("button");
+    btn.dataset.rebind = "";
+    btn.dataset.action = action;
+    btn.textContent = binding;
+    btn.style.cssText = "padding:4px 10px;font-family:monospace;min-width:90px;";
+    btn.addEventListener("click", () => {
+      this.capture = { action, button: btn };
+      btn.textContent = t(this.opts.locale, "settings.controls.pressKey");
+      btn.classList.add("capturing");
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    return row;
+  }
+
+  /** Global keydown while capturing: apply or reject the rebind. */
+  private onCaptureKey(e: KeyboardEvent): void {
+    if (!this.capture) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const { action, button } = this.capture;
+    this.capture = null;
+    button.classList.remove("capturing");
+    if (this.activeDevice === "keyboard") {
+      this.applyKeyboardRebind(action as KeyboardBindingsKey, e.code, button);
+    }
+    // Gamepad rebinds capture via button presses, not keydown.
+  }
+
+  private applyKeyboardRebind(action: KeyboardBindingsKey, code: string, button: HTMLButtonElement): void {
+    const maps: KeyboardBindings[] = this.keyboardMaps.map((m) => ({ ...m }));
+    const target: KeyboardBindings = maps[this.activePlayer] ?? { ...KEYSET_1 };
+    target[action] = [code];
+    const conflicts = findKeyboardConflicts(maps);
+    const mine = conflicts.find((c) => c.player === this.activePlayer && c.action === action && c.key === code);
+    if (mine) {
+      // Duplicate — reject, highlight, keep the old binding.
+      button.textContent = t(this.opts.locale, "settings.controls.duplicate");
+      button.classList.add("conflict");
+      return;
+    }
+    if (this.activePlayer < maps.length) {
+      maps[this.activePlayer] = target;
+    } else {
+      maps.push(target);
+    }
+    this.keyboardMaps = maps;
+    saveSettings(this.opts.storage, { controls: { keyboard: maps } });
+    this.renderControls();
   }
 
   private emitChange(): void {

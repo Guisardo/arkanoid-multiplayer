@@ -24,14 +24,38 @@ export interface GamepadAdapterOptions {
   player: number;
 }
 
+/** Button map consumed by the adapter — action → bound buttons. */
+export type GamepadBindingsMap = Readonly<
+  Record<"launch" | "cycleForward" | "cycleBack" | "fire1" | "fire2" | "fire3" | "fire4" | "menu", readonly GamepadButton[]>
+>;
+
+/** Default gamepad bindings (spec §11). */
+export const DEFAULT_GAMEPAD_MAP: GamepadBindingsMap = {
+  launch: ["a"],
+  cycleForward: ["rb"],
+  cycleBack: ["lb"],
+  fire1: ["x"],
+  fire2: ["y"],
+  fire3: ["b"],
+  fire4: ["rt"],
+  menu: ["start"],
+};
+
 export class GamepadAdapter {
   private readonly player: number;
+  private bindings: GamepadBindingsMap;
   private state: GamepadState | null = null;
   private readonly pressedEdges = new Set<GamepadButton>();
   private menuEdge = false;
 
-  constructor(opts: GamepadAdapterOptions) {
+  constructor(opts: GamepadAdapterOptions, bindings?: GamepadBindingsMap) {
     this.player = opts.player;
+    this.bindings = bindings ?? DEFAULT_GAMEPAD_MAP;
+  }
+
+  /** Swap the button map live (rebind screen applies without re-creating). */
+  setBindings(bindings: GamepadBindingsMap): void {
+    this.bindings = bindings;
   }
 
   /** App polls navigator.getGamepads() and feeds normalized state. */
@@ -83,19 +107,21 @@ export class GamepadAdapter {
     }
 
     const actions: InputFrameActions = {
-      cycleForward: this.takeEdge("rb"),
-      cycleBack: this.takeEdge("lb"),
+      cycleForward: this.takeEdgeAny(this.bindings.cycleForward),
+      cycleBack: this.takeEdgeAny(this.bindings.cycleBack),
       fire: [
-        this.takeEdge("x"),
-        this.takeEdge("y"),
-        this.takeEdge("b"),
-        this.takeEdge("rt"),
+        this.takeEdgeAny(this.bindings.fire1),
+        this.takeEdgeAny(this.bindings.fire2),
+        this.takeEdgeAny(this.bindings.fire3),
+        this.takeEdgeAny(this.bindings.fire4),
       ],
     };
-    const launch = this.takeEdge("a");
-    if (this.pressedEdges.has("start")) {
-      this.pressedEdges.delete("start");
-      this.menuEdge = true;
+    const launch = this.takeEdgeAny(this.bindings.launch);
+    for (const b of this.bindings.menu) {
+      if (this.pressedEdges.has(b)) {
+        this.pressedEdges.delete(b);
+        this.menuEdge = true;
+      }
     }
 
     return { player: this.player, tick, axisX, axisY: 0, launch, actions };
@@ -107,5 +133,14 @@ export class GamepadAdapter {
       return true;
     }
     return false;
+  }
+
+  /** True if any bound button has a pending edge (consumes all matches). */
+  private takeEdgeAny(buttons: readonly GamepadButton[]): boolean {
+    let hit = false;
+    for (const b of buttons) {
+      if (this.takeEdge(b)) hit = true;
+    }
+    return hit;
   }
 }
