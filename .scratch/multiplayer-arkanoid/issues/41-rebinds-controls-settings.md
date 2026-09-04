@@ -20,6 +20,7 @@ Implemented in PR #20 (commits 36c0ae9 + fb3d86b):
 - `src/input/bindings.ts` — pure rebind model: `KEYBOARD_ACTIONS` (incl. `menu`), `GAMEPAD_ACTIONS` (movement fixed), serialize/parse with per-player corrupt fallback, pairwise `findKeyboardConflicts`/`findGamepadConflicts` across all local players' maps (shared menu keys exempt).
 - Adapters consume maps: `KeyboardAdapter`/`GamepadAdapter` gained `setBindings()` (live swap), `consumeMenuEvent()` (rebound menu key / Start), `flush()` (stale-edge kill on settings close).
 - Settings → Controls: keyboard/gamepad device tabs, 4 player tabs (4-on-keyboard achievable), key capture with Esc-cancel, gamepad capture via 50 ms button-edge polling, duplicate rejection with CSS highlight (`.conflict`/`.capturing`), movement-fixed notice, rollover caveat, reset-to-defaults.
+- Menu navigation (spec §11 "any local input navigates menus"): first input takes focus on open; gamepad d-pad/stick edges move focus, A activates the focused button (same 50 ms poll loop; capture mode takes priority).
 - Persistence: `settings.bindings.keyboard` / `settings.bindings.gamepad` (§16 key table); corrupt stored maps fall back to spec defaults, never throw.
 - `soloSession` applies stored bindings at boot and re-applies live on settings close; rebound menu key / gamepad Start opens settings via `menuRequested()` in the render loop.
 - Validation: typecheck + lint clean, 458/458 tests (+43 new: bindings 17, keyboard 12, gamepad 17, settingsScreen 13 jsdom, storage 14).

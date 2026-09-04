@@ -64,6 +64,7 @@ export class SettingsScreen {
   private gamepadMap: GamepadBindingsMap;
   private pollHandle: ReturnType<typeof setInterval> | null = null;
   private prevPadButtons: Partial<Record<GamepadButton, boolean>> = {};
+  private prevPadAxes = { x: 0, y: 0 };
 
   constructor(opts: SettingsScreenOptions) {
     this.opts = opts;
@@ -393,6 +394,7 @@ export class SettingsScreen {
     const pad = pads.find((p) => p !== null);
     if (!pad) {
       this.prevPadButtons = {};
+      this.prevPadAxes = { x: 0, y: 0 };
       return;
     }
     const b = (i: number): boolean => pad.buttons[i]?.pressed === true;
@@ -400,19 +402,66 @@ export class SettingsScreen {
       a: b(0), b: b(1), x: b(2), y: b(3),
       lb: b(4), rb: b(5), rt: b(7), lt: b(6),
       start: b(9),
+      dpadLeft: b(14), dpadRight: b(15), dpadUp: b(12), dpadDown: b(13),
     };
-    for (const name of Object.keys(now) as GamepadButton[]) {
-      const pressed = now[name] === true;
-      const was = this.prevPadButtons[name] === true;
-      if (pressed && !was && this.capture && this.activeDevice === "gamepad") {
-        const { action, button } = this.capture;
-        this.capture = null;
-        button.classList.remove("capturing");
-        this.applyGamepadRebind(action as GamepadAction, name, button);
-        break;
+    // Rebind capture has priority over navigation (spec §11: capture consumes input).
+    if (this.capture && this.activeDevice === "gamepad") {
+      for (const name of Object.keys(now) as GamepadButton[]) {
+        const pressed = now[name] === true;
+        const was = this.prevPadButtons[name] === true;
+        if (pressed && !was) {
+          const { action, button } = this.capture;
+          this.capture = null;
+          button.classList.remove("capturing");
+          this.applyGamepadRebind(action as GamepadAction, name, button);
+          break;
+        }
+      }
+      this.prevPadButtons = now;
+      return;
+    }
+    // Menu navigation: any local input navigates menus (spec §11).
+    this.handleGamepadNav(now, pad);
+    this.prevPadButtons = now;
+  }
+
+  /** Gamepad menu navigation: d-pad/stick move focus, A activates. */
+  private handleGamepadNav(
+    now: Partial<Record<GamepadButton, boolean>>,
+    pad: Gamepad,
+  ): void {
+    const edge = (name: GamepadButton): boolean =>
+      now[name] === true && this.prevPadButtons[name] !== true;
+    // Stick counts as directional input beyond deadzone (0.2, spec §11).
+    const stickX = pad.axes[0] ?? 0;
+    const stickY = pad.axes[1] ?? 0;
+    const stickLeft = stickX <= -0.2 && this.prevPadAxes.x > -0.2;
+    const stickRight = stickX >= 0.2 && this.prevPadAxes.x < 0.2;
+    const stickUp = stickY <= -0.2 && this.prevPadAxes.y > -0.2;
+    const stickDown = stickY >= 0.2 && this.prevPadAxes.y < 0.2;
+
+    if (edge("dpadUp") || stickUp) this.moveFocus(-1);
+    else if (edge("dpadDown") || stickDown) this.moveFocus(1);
+    else if (edge("dpadLeft") || stickLeft) this.moveFocus(-1);
+    else if (edge("dpadRight") || stickRight) this.moveFocus(1);
+
+    if (edge("a")) {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLButtonElement && this.root.contains(focused)) {
+        focused.click();
       }
     }
-    this.prevPadButtons = now;
+    this.prevPadAxes = { x: stickX, y: stickY };
+  }
+
+  /** Move focus among this overlay's buttons by index delta. */
+  private moveFocus(delta: number): void {
+    const buttons = Array.from(this.root.querySelectorAll<HTMLButtonElement>("button"));
+    if (buttons.length === 0) return;
+    const current = document.activeElement;
+    const idx = current instanceof HTMLButtonElement ? buttons.indexOf(current) : -1;
+    const next = idx < 0 ? 0 : Math.min(buttons.length - 1, Math.max(0, idx + delta));
+    buttons[next]?.focus();
   }
 
   private applyGamepadRebind(action: GamepadAction, buttonName: GamepadButton, button: HTMLButtonElement): void {
