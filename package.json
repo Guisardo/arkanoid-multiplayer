@@ -17,15 +17,16 @@
     "wrangler:dev:turn": "wrangler dev --config workers/turn/wrangler.toml"
   },
   "dependencies": {
-    "pixi.js": "^8.20.1"
+    "pixi.js": "^8.20.1",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260831.1",
     "@codecov/vite-plugin": "^2.0.1",
     "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.48.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.0",
-    "@cloudflare/workers-types": "^5.20260831.1",
     "eslint": "^9.0.0",
     "eslint-import-resolver-typescript": "^3.6.0",
     "eslint-plugin-import": "^2.31.0",
