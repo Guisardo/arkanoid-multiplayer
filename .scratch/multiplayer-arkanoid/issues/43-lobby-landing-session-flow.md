@@ -4,7 +4,7 @@
 
 **Blocked by:** 34 — Race mode, local split-screen; 37 — Signaling: Cloudflare Worker + Durable Object + copy-paste fallback.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Landing shows three entries; Solo skips straight to game
 - [ ] Create room → code shown large + QR; Join → 5 auto-advancing boxes; `?code=` prefill works

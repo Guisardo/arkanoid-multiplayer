@@ -4,7 +4,7 @@
 
 **Blocked by:** 30 — Audio engine + content; 35 — Content: rounds 17–33.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Round 33 plays as a Doh boss fight to defeat in Solo, Race, and both coop variants
 - [ ] Boss uses the registered sprite + boss theme; defeat = episode/match finale

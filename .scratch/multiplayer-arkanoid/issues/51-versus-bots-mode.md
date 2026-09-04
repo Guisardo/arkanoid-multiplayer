@@ -4,7 +4,7 @@
 
 **Blocked by:** 25 — Bots; 32 — Duel mode; 33 — Shared field coop; 34 — Race mode, local split-screen; 39 — Attack mode; 40 — Parallel assist coop.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Every variant playable 1 human + N bots with correct bot counts (Race/Attack 1–3, Duel 1, coop 1–3)
 - [ ] Bots never appear alongside >1 human (enforced)
