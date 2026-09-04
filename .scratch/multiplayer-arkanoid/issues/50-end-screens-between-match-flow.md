@@ -4,7 +4,7 @@
 
 **Blocked by:** 32 — Duel mode; 33 — Shared field coop; 34 — Race mode, local split-screen; 36 — Solo episode flow; 39 — Attack mode; 40 — Parallel assist coop.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Competitive end screen: winner banner + standings with correct per-mode metric for Race/Duel/Attack
 - [ ] Coop end screen: outcome + team score + round reached + per-player bricks/capsules counters

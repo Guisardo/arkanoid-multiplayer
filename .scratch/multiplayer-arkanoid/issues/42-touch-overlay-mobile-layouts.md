@@ -4,7 +4,7 @@
 
 **Blocked by:** 34 — Race mode, local split-screen.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Virtual stick + context cluster render anchored to own field region; correct cluster per mode (Launch/Attack/Assist)
 - [ ] Buttons ≥48 px, semi-transparent, faint-visible always, brighten on active touch; multi-touch works (stick + buttons simultaneously)
