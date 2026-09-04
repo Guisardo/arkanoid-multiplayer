@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] All 10 capsules functional with classic-accurate behaviors and durations (values authored against the locked shape, marked data-only)
 - [x] Capsule script determinism unit-tested: same play → same drops, zero RNG anywhere in the drop path

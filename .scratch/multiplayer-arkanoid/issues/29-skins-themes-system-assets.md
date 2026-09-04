@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Skin + theme registries with UUID ids; uniqueness unit-tested
 - [x] At least one full paddle-skin and ball-skin set per source pack committed, CC0-only (no CraftPix/freepd/GPL/CC-BY)

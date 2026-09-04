@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Capsule system + capsule scripts; 31 — Content pipeline + rounds 1–16.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Landing → Solo starts immediately; full episode 1–33 playable (Doh behavior from 49 acceptable as stub until then)
 - [x] 3 lives; score accumulates across rounds; round advances on clear

@@ -4,7 +4,7 @@
 
 **Blocked by:** 34 — Race mode, local split-screen.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 2–4 players on separate fields, shared score, per-player lives; episode range playable to team win
 - [x] Downed state: field frozen, spectates, no meter income; life gift revives (1 life, ball attached, owner launches)

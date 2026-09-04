@@ -4,7 +4,7 @@
 
 **Blocked by:** 22 — Repo scaffold + seam enforcement.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] A human can play one round to clear or ball loss using keyboard defaults (P1: ←/→ move, Space launch; solo: both keysets drive P1)
 - [x] Sim is headless and deterministic: identical Input frame sequences produce identical outcomes (unit-tested)

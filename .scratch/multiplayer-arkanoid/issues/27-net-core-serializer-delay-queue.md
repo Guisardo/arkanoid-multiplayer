@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Snapshot serialize → deserialize round-trips losslessly (property/fuzz-tested across state shapes)
 - [x] Serialized Snapshot ≈600 B for a representative 4-player state (budget-checked in test)

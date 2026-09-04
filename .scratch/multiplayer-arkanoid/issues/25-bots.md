@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Bot plays a full round to clear or loss on each difficulty, visibly different in skill
 - [x] Bot Input frames enter the same delay queue as human local players — no separate pipeline (verified: bot indistinguishable from a local player at the seam)

@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Mouse-chase reaches the same max paddle speed as keyboard (parity unit-testable at the Input frame seam)
 - [x] Mouse click launches; HUD panel clickable; wheel does nothing

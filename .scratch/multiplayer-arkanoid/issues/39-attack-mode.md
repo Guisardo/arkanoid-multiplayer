@@ -4,7 +4,7 @@
 
 **Blocked by:** 34 — Race mode, local split-screen.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] All four triggers fire correctly; each lobby-toggleable; all-on default
 - [x] All four effects work with spec magnitudes/durations; economy defaults live-tunable
