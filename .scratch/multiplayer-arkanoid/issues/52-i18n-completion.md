@@ -11,3 +11,5 @@
 - [ ] Auto-detect + Settings override + en-US fallback all work; persisted per device
 - [ ] BitmapText atlas renders both locales incl. á é í ó ú ñ ü ¿ ¡
 - [ ] Language never synced across session; names/room codes/digits never localized
+
+

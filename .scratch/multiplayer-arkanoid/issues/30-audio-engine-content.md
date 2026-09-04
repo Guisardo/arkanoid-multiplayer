@@ -6,8 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Every game event with a spec'd SFX has one: brick hit (pitched by row), chain escalation, paddle hit, wall, capsule catch, capsule effect, ball loss, round clear, attack/assist events
-- [ ] Round-intro jingle plays at round start; level music loops seamlessly; boss theme reserved for Doh (wired in 49)
-- [ ] Music/SFX sliders + mute apply live from Settings without reload
-- [ ] All audio assets CC0 with provenance recorded; jsfxr used only for gaps
-- [ ] Audio engine never blocks the sim/render loop (decode/trigger off the hot path)
+- [x] Every game event with a spec'd SFX has one: brick hit (pitched by row), chain escalation, paddle hit, wall, capsule catch, capsule effect, ball loss, round clear, attack/assist events
+- [x] Round-intro jingle plays at round start; level music loops seamlessly; boss theme reserved for Doh (wired in 49)
+- [x] Music/SFX sliders + mute apply live from Settings without reload
+- [x] All audio assets CC0 with provenance recorded; jsfxr used only for gaps
+- [x] Audio engine never blocks the sim/render loop (decode/trigger off the hot path)
+

@@ -11,3 +11,5 @@
 - [ ] Competitive remote: pause inputs open quit-confirm only; sim provably never pauses
 - [ ] Quit from overlay = removal scored as loss (competitive) / slot gone (coop)
 - [ ] Local split-screen pause still pauses the whole device view (regression-checked)
+
+

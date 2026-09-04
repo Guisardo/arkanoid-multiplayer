@@ -14,3 +14,5 @@
 - [ ] Malformed frames → clean protocol-error session end on guest, never a crash (fuzz-tested)
 - [ ] Remote progress strip correct per mode; remote fields never rendered
 - [ ] D configurable 3–5 competitive (default 4), 0 coop; uniform delay queue holds for host-local players
+
+

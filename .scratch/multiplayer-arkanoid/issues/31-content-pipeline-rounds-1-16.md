@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] Level JSON schema validated in Vitest: dims, legend, metadata shape; invalid levels rejected with clear errors
-- [ ] Capsule script bounds enforced: 6–10 capsules, each trigger ≤ brick count
-- [ ] Silver hit formula `min(1 + floor(round / 8), 4)` unit-tested; gold indestructible
-- [ ] Speed tier bumps engage at ≤15 and ≤8 bricks remaining (unit-tested)
-- [ ] Scoring table complete and classic-accurate; Duel drop bonus 500 present
-- [ ] Rounds 1–16 authored, each playable start-to-clear with its capsule script
-- [ ] Grids hand-editable — a developer can tweak a level JSON and see it in-game without code changes
+- [x] Level JSON schema validated in Vitest: dims, legend, metadata shape; invalid levels rejected with clear errors
+- [x] Capsule script bounds enforced: 6–10 capsules, each trigger ≤ brick count
+- [x] Silver hit formula `min(1 + floor(round / 8), 4)` unit-tested; gold indestructible
+- [x] Speed tier bumps engage at ≤15 and ≤8 bricks remaining (unit-tested)
+- [x] Scoring table complete and classic-accurate; Duel drop bonus 500 present
+- [x] Rounds 1–16 authored, each playable start-to-clear with its capsule script
+- [x] Grids hand-editable — a developer can tweak a level JSON and see it in-game without code changes
+

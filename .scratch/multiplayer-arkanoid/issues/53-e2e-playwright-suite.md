@@ -12,3 +12,5 @@
 - [ ] Mobile-emulated viewport shows touch overlay; desktop doesn't
 - [ ] Zero console errors asserted across the suite
 - [ ] No sim-logic assertions in e2e — those live in Vitest only
+
+

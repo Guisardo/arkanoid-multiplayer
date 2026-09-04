@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Snapshot serialize → deserialize round-trips losslessly (property/fuzz-tested across state shapes)
-- [ ] Serialized Snapshot ≈600 B for a representative 4-player state (budget-checked in test)
-- [ ] Event ring buffer carries last 8 events with type, source, target, tick
-- [ ] Delay queue applies tick-D uniformly; D configurable; host-local path skips only the network hop
-- [ ] Input redundancy window ~10 ticks; host dedupes by (player, tick) — duplicate and out-of-order frames handled
-- [ ] All net-core tests run headless in Vitest with the real sim, zero network dependencies
+- [x] Snapshot serialize → deserialize round-trips losslessly (property/fuzz-tested across state shapes)
+- [x] Serialized Snapshot ≈600 B for a representative 4-player state (budget-checked in test)
+- [x] Event ring buffer carries last 8 events with type, source, target, tick
+- [x] Delay queue applies tick-D uniformly; D configurable; host-local path skips only the network hop
+- [x] Input redundancy window ~10 ticks; host dedupes by (player, tick) — duplicate and out-of-order frames handled
+- [x] All net-core tests run headless in Vitest with the real sim, zero network dependencies
+
