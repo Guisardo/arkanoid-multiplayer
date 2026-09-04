@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Settings screen opens from landing; all four sections visible (Controls/Audio/Display/Appearance)
-- [ ] Audio sliders + mute persist and apply on reload
-- [ ] Display dpr mode (auto/2/1.5/1) + reduced-effects toggle persist and apply
-- [ ] localStorage wrapper covers the full §16 key table with typed read/write
-- [ ] Corrupt/unparseable stored values fall back to defaults, never crash
-- [ ] Zero hardcoded strings; both locales complete for shipped UI
+- [x] Settings screen opens from landing; all four sections visible (Controls/Audio/Display/Appearance)
+- [x] Audio sliders + mute persist and apply on reload
+- [x] Display dpr mode (auto/2/1.5/1) + reduced-effects toggle persist and apply
+- [x] localStorage wrapper covers the full §16 key table with typed read/write
+- [x] Corrupt/unparseable stored values fall back to defaults, never crash
+- [x] Zero hardcoded strings; both locales complete for shipped UI
+

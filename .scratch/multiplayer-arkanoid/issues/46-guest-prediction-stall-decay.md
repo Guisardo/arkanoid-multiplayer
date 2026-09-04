@@ -11,3 +11,5 @@
 - [ ] Prediction clamps to walls, shared-field slice, Duel other-paddle-as-wall — display never settles short (unit-tested per constraint)
 - [ ] Host stall decay: ≤10 missing ticks hold last axis, then decay to 0; stalled paddle stops (unit-tested)
 - [ ] Prediction never applied to remote players or the ball
+
+

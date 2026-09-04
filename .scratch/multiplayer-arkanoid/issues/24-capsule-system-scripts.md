@@ -6,11 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] All 10 capsules functional with classic-accurate behaviors and durations (values authored against the locked shape, marked data-only)
-- [ ] Capsule script determinism unit-tested: same play → same drops, zero RNG anywhere in the drop path
-- [ ] `?` resolves to next undropped scripted capsule; E fallback when script exhausted
-- [ ] B counts as clear in every respect: win condition, points, round progression
-- [ ] Multiball last-ball rule: only last ball re-attaches on drop; others lost with no life penalty beyond normal ball-loss rules
-- [ ] Capsules spawn at the just-broken brick's position; catch = box overlap with paddle
-- [ ] Effects clear on ball loss per classic rules (unit-tested)
-- [ ] R (Reduce) behaves as negative capsule — catchable, shrinks own paddle
+- [x] All 10 capsules functional with classic-accurate behaviors and durations (values authored against the locked shape, marked data-only)
+- [x] Capsule script determinism unit-tested: same play → same drops, zero RNG anywhere in the drop path
+- [x] `?` resolves to next undropped scripted capsule; E fallback when script exhausted
+- [x] B counts as clear in every respect: win condition, points, round progression
+- [x] Multiball last-ball rule: only last ball re-attaches on drop; others lost with no life penalty beyond normal ball-loss rules
+- [x] Capsules spawn at the just-broken brick's position; catch = box overlap with paddle
+- [x] Effects clear on ball loss per classic rules (unit-tested)
+- [x] R (Reduce) behaves as negative capsule — catchable, shrinks own paddle
+

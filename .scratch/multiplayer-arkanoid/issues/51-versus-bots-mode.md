@@ -12,3 +12,5 @@
 - [ ] Difficulty selector session-wide, default Normal; all three sets behave per spec table
 - [ ] Bots use attacks/assists (meters, targeting) in the variants that have them
 - [ ] Pause freely works (coop semantics) in every versus-bots variant
+
+

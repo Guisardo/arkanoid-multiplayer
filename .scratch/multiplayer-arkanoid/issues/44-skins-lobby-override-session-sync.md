@@ -11,3 +11,5 @@
 - [ ] Field theme id broadcast via lobby config; applied to every rendered field
 - [ ] All players see all players' actual skins (local + remote) without reload
 - [ ] Bots still auto-assigned distinct skins, never colliding with any human's choice
+
+

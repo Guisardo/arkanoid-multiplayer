@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Bot plays a full round to clear or loss on each difficulty, visibly different in skill
-- [ ] Bot Input frames enter the same delay queue as human local players — no separate pipeline (verified: bot indistinguishable from a local player at the seam)
-- [ ] All six knobs from the spec table implemented as data-driven parameter sets
-- [ ] Hard bot targets smartly (Race leader; downed teammate first in assist) once those modes exist — random targeting acceptable until then
-- [ ] Bots auto-assigned distinct skins, never colliding with the human's choice
-- [ ] Bot behavior deterministic given the same game state sequence (unit-tested with fixed seeds/no RNG or seeded RNG)
+- [x] Bot plays a full round to clear or loss on each difficulty, visibly different in skill
+- [x] Bot Input frames enter the same delay queue as human local players — no separate pipeline (verified: bot indistinguishable from a local player at the seam)
+- [x] All six knobs from the spec table implemented as data-driven parameter sets
+- [x] Hard bot targets smartly (Race leader; downed teammate first in assist) once those modes exist — random targeting acceptable until then
+- [x] Bots auto-assigned distinct skins, never colliding with the human's choice
+- [x] Bot behavior deterministic given the same game state sequence (unit-tested with fixed seeds/no RNG or seeded RNG)
+

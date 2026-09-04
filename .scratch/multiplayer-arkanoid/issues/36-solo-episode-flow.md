@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Landing → Solo starts immediately; full episode 1–33 playable (Doh behavior from 49 acceptable as stub until then)
-- [ ] 3 lives; score accumulates across rounds; round advances on clear
-- [ ] Game over offers Continue (current round, fresh 3 lives, score −60%) and Restart (round 1, score 0) — both work
-- [ ] High score + highest round persisted; shown on end screen
-- [ ] Pause screen: Resume, Settings (Audio/Display only), Quit; sim pauses and resumes cleanly
-- [ ] No difficulty select anywhere in the Solo path
+- [x] Landing → Solo starts immediately; full episode 1–33 playable (Doh behavior from 49 acceptable as stub until then)
+- [x] 3 lives; score accumulates across rounds; round advances on clear
+- [x] Game over offers Continue (current round, fresh 3 lives, score −60%) and Restart (round 1, score 0) — both work
+- [x] High score + highest round persisted; shown on end screen
+- [x] Pause screen: Resume, Settings (Audio/Display only), Quit; sim pauses and resumes cleanly
+- [x] No difficulty select anywhere in the Solo path
+

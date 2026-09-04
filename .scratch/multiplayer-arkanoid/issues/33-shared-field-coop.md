@@ -6,11 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] 2P, 3P, 4P shared-field sessions playable on placements A, B, C (unit tests per placement)
-- [ ] Shared pool = 3 × player count; life lost when ball count hits zero per ball model
-- [ ] Placement B edge assignments correct per player count; side paddles vertical; top paddle bounces; ball hits bricks from any direction
-- [ ] Placement C summed inputs clamp to ±1; center drop serve; any player launches
-- [ ] Multiball splits only the capturing player's ball; capsules affect capturer's paddle only
-- [ ] Speed scaling +5–8% per player beyond 2 on A/B, exempt on C (unit-tested)
-- [ ] Single HUD strip: shared pool, team score, round
-- [ ] Any local player's pause request pauses the whole session; any player resumes
+- [x] 2P, 3P, 4P shared-field sessions playable on placements A, B, C (unit tests per placement)
+- [x] Shared pool = 3 × player count; life lost when ball count hits zero per ball model
+- [x] Placement B edge assignments correct per player count; side paddles vertical; top paddle bounces; ball hits bricks from any direction
+- [x] Placement C summed inputs clamp to ±1; center drop serve; any player launches
+- [x] Multiball splits only the capturing player's ball; capsules affect capturer's paddle only
+- [x] Speed scaling +5–8% per player beyond 2 on A/B, exempt on C (unit-tested)
+- [x] Single HUD strip: shared pool, team score, round
+- [x] Any local player's pause request pauses the whole session; any player resumes
+

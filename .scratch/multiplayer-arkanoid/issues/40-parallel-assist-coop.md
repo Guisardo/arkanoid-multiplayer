@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] 2–4 players on separate fields, shared score, per-player lives; episode range playable to team win
-- [ ] Downed state: field frozen, spectates, no meter income; life gift revives (1 life, ball attached, owner launches)
-- [ ] Meter spends: gift 20, brick clear 30 (8 lowest bricks), life gift 40; fill 2/brick + 10/capsule
-- [ ] Life gift creates the life (never transferred); self life gift impossible; downed keep gift/clear rights
-- [ ] Early clearer spectates with full gift rights incl. life gift
-- [ ] Team loses when all downed simultaneously; wins when last player clears
-- [ ] 3 assist buttons + cycle targeting on all input methods; HUD meter + target display
+- [x] 2–4 players on separate fields, shared score, per-player lives; episode range playable to team win
+- [x] Downed state: field frozen, spectates, no meter income; life gift revives (1 life, ball attached, owner launches)
+- [x] Meter spends: gift 20, brick clear 30 (8 lowest bricks), life gift 40; fill 2/brick + 10/capsule
+- [x] Life gift creates the life (never transferred); self life gift impossible; downed keep gift/clear rights
+- [x] Early clearer spectates with full gift rights incl. life gift
+- [x] Team loses when all downed simultaneously; wins when last player clears
+- [x] 3 assist buttons + cycle targeting on all input methods; HUD meter + target display
+

@@ -15,3 +15,5 @@
 - [ ] Mid-game join → "Game in progress"; between-match join works into freed slots; same code whole session
 - [ ] Host kick works in lobby and mid-session; host quit/tab close ends session for all with clear message
 - [ ] Names: default Player N, editable, persisted, never localized
+
+

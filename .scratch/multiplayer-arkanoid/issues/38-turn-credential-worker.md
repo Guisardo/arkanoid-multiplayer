@@ -6,8 +6,9 @@
 
 **Status:** ready-for-agent
 
-- [ ] Worker issues short-TTL TURN credentials; long-lived key absent from all client bundles (verified)
-- [ ] ICE config assembles: Google STUN primary, Open Relay STUN secondary, TURN fallback on 80/443 UDP/TCP/TLS
-- [ ] Connection succeeds TURN-only when STUN-direct is blocked (testable via browser throttle/force-relay)
-- [ ] Credential Worker down → STUN-direct connections still work; only TURN degrades
-- [ ] Metered free quota verified and documented (which limit applies); quota webhooks/labels configured
+- [x] Worker issues short-TTL TURN credentials; long-lived key absent from all client bundles (verified)
+- [x] ICE config assembles: Google STUN primary, Open Relay STUN secondary, TURN fallback on 80/443 UDP/TCP/TLS
+- [x] Connection succeeds TURN-only when STUN-direct is blocked (testable via browser throttle/force-relay)
+- [x] Credential Worker down → STUN-direct connections still work; only TURN degrades
+- [x] Metered free quota verified and documented (which limit applies); quota webhooks/labels configured
+

@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] Two local players play a Duel on one shared field to a clear or timeout
-- [ ] Paddles solid to each other; wall-constrained separation with leftover-shift, ends flush (unit-tested)
-- [ ] Both ball models work: shared-steal and owned-deflect; lobby choice switches between them
-- [ ] Ball drop pays opponent +500; multiball drop = per-ball last-toucher, only last ball re-attaches
-- [ ] Brick points attributed to ball owner; winner = most points; timeout exact tie → draw
-- [ ] Ownership readable: owner color + white outline glow over any skin (readability gate holds)
-- [ ] Duel draws rounds 1–32 only — round 33 never selected (content constraint enforced)
+- [x] Two local players play a Duel on one shared field to a clear or timeout
+- [x] Paddles solid to each other; wall-constrained separation with leftover-shift, ends flush (unit-tested)
+- [x] Both ball models work: shared-steal and owned-deflect; lobby choice switches between them
+- [x] Ball drop pays opponent +500; multiball drop = per-ball last-toucher, only last ball re-attaches
+- [x] Brick points attributed to ball owner; winner = most points; timeout exact tie → draw
+- [x] Ownership readable: owner color + white outline glow over any skin (readability gate holds)
+- [x] Duel draws rounds 1–32 only — round 33 never selected (content constraint enforced)
+
