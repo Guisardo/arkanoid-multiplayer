@@ -12,3 +12,5 @@
 - [ ] Deploy-disconnect behavior verified: clients auto-reconnect after Worker redeploy
 - [ ] QR share encodes the production URL; `?code=` prefill works in production
 - [ ] Cloudflare Pages fallback + itch.io mirror documented (runbook-level)
+
+

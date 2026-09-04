@@ -6,11 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] A human can play one round to clear or ball loss using keyboard defaults (P1: ←/→ move, Space launch; solo: both keysets drive P1)
-- [ ] Sim is headless and deterministic: identical Input frame sequences produce identical outcomes (unit-tested)
-- [ ] Collision suite green in Vitest: box overlap incl. edge contact, offset-deflect, edge clamp
-- [ ] Renderer reads Snapshots only — no sim internals imported (lint rule from 22 holds)
-- [ ] Fixed 60 Hz sim + rAF accumulator loop; sim never drops ticks at normal frame rates
-- [ ] HUD strip renders above the field inside its region: name + color chip, lives icons, score, round indicator
-- [ ] Zero hardcoded user-facing strings; both locales complete for all shipped strings; BitmapText renders á é í ó ú ñ ü ¿ ¡
-- [ ] Field letterboxed at fixed logical 208 × 256, fractional scale, dpr capped at min(dpr, 2)
+- [x] A human can play one round to clear or ball loss using keyboard defaults (P1: ←/→ move, Space launch; solo: both keysets drive P1)
+- [x] Sim is headless and deterministic: identical Input frame sequences produce identical outcomes (unit-tested)
+- [x] Collision suite green in Vitest: box overlap incl. edge contact, offset-deflect, edge clamp
+- [x] Renderer reads Snapshots only — no sim internals imported (lint rule from 22 holds)
+- [x] Fixed 60 Hz sim + rAF accumulator loop; sim never drops ticks at normal frame rates
+- [x] HUD strip renders above the field inside its region: name + color chip, lives icons, score, round indicator
+- [x] Zero hardcoded user-facing strings; both locales complete for all shipped strings; BitmapText renders á é í ó ú ñ ü ¿ ¡
+- [x] Field letterboxed at fixed logical 208 × 256, fractional scale, dpr capped at min(dpr, 2)
+

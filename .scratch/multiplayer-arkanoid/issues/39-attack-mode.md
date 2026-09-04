@@ -6,11 +6,12 @@
 
 **Status:** ready-for-agent
 
-- [ ] All four triggers fire correctly; each lobby-toggleable; all-on default
-- [ ] All four effects work with spec magnitudes/durations; economy defaults live-tunable
-- [ ] Chain tiers ≥4/≥7/≥10 → small/medium/large rain (unit-tested)
-- [ ] Meter fill 2/brick + 10/capsule; costs 30/25/20/40 enforced
-- [ ] Stacking rules: same-type refresh, different-type independent (unit-tested)
-- [ ] Control mangle corrupts the consumed axis sim-side — keyboard/mouse/gamepad/touch hit equally
-- [ ] Mid-level-reset targets immune; manual attacks auto-retarget
-- [ ] Target cycle + 4 fire buttons work on all input methods; HUD target display + cycle flash
+- [x] All four triggers fire correctly; each lobby-toggleable; all-on default
+- [x] All four effects work with spec magnitudes/durations; economy defaults live-tunable
+- [x] Chain tiers ≥4/≥7/≥10 → small/medium/large rain (unit-tested)
+- [x] Meter fill 2/brick + 10/capsule; costs 30/25/20/40 enforced
+- [x] Stacking rules: same-type refresh, different-type independent (unit-tested)
+- [x] Control mangle corrupts the consumed axis sim-side — keyboard/mouse/gamepad/touch hit equally
+- [x] Mid-level-reset targets immune; manual attacks auto-retarget
+- [x] Target cycle + 4 fire buttons work on all input methods; HUD target display + cycle flash
+

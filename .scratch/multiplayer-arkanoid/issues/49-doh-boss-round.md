@@ -10,3 +10,5 @@
 - [ ] Boss uses the registered sprite + boss theme; defeat = episode/match finale
 - [ ] Duel and Attack can never reach round 33 (constraints hold, regression-tested)
 - [ ] Boss behavior classic-accurate in feel: multi-hit, attacks the paddle, beatable but final-tier difficulty
+
+

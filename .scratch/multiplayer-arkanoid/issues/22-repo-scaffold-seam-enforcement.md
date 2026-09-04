@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Vite dev build + production build pass; strict TypeScript compiles clean
-- [ ] Vitest runs (at least one placeholder test green); Playwright installed with one placeholder spec green under SwiftShader headless WebGL
-- [ ] PixiJS v8 initializes an empty scene with spec renderer config (antialias: false, useContextAlpha: false, single context)
-- [ ] ESLint import-boundary rules reject cross-seam imports (verified by a deliberately-violating test case); sim module provably free of DOM/Pixi/network imports
-- [ ] `webglcontextrestored` handler stub exists (resync-from-snapshot contract documented, impl later)
-- [ ] MIT attribution placeholder for ball-and-wall content DNA present in README
+- [x] Vite dev build + production build pass; strict TypeScript compiles clean
+- [x] Vitest runs (at least one placeholder test green); Playwright installed with one placeholder spec green under SwiftShader headless WebGL
+- [x] PixiJS v8 initializes an empty scene with spec renderer config (antialias: false, useContextAlpha: false, single context)
+- [x] ESLint import-boundary rules reject cross-seam imports (verified by a deliberately-violating test case); sim module provably free of DOM/Pixi/network imports
+- [x] `webglcontextrestored` handler stub exists (resync-from-snapshot contract documented, impl later)
+- [x] MIT attribution placeholder for ball-and-wall content DNA present in README
+

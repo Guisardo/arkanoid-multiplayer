@@ -6,9 +6,10 @@
 
 **Status:** ready-for-agent
 
-- [ ] Mouse-chase reaches the same max paddle speed as keyboard (parity unit-testable at the Input frame seam)
-- [ ] Mouse click launches; HUD panel clickable; wheel does nothing
-- [ ] Gamepad stick proportional with 0.2 radial deadzone; d-pad live simultaneously, stick beyond deadzone wins, never summed
-- [ ] All gamepad buttons per spec mapped: launch, cycle, 4 fire slots, Start
-- [ ] Gamepad disconnect mid-game → paddle input idle, session continues, reconnect resumes control
-- [ ] All methods emit identical Input frame shape — sim cannot tell which device produced a frame
+- [x] Mouse-chase reaches the same max paddle speed as keyboard (parity unit-testable at the Input frame seam)
+- [x] Mouse click launches; HUD panel clickable; wheel does nothing
+- [x] Gamepad stick proportional with 0.2 radial deadzone; d-pad live simultaneously, stick beyond deadzone wins, never summed
+- [x] All gamepad buttons per spec mapped: launch, cycle, 4 fire slots, Start
+- [x] Gamepad disconnect mid-game → paddle input idle, session continues, reconnect resumes control
+- [x] All methods emit identical Input frame shape — sim cannot tell which device produced a frame
+

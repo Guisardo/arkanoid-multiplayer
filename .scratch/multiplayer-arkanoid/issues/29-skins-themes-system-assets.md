@@ -6,12 +6,13 @@
 
 **Status:** ready-for-agent
 
-- [ ] Skin + theme registries with UUID ids; uniqueness unit-tested
-- [ ] At least one full paddle-skin and ball-skin set per source pack committed, CC0-only (no CraftPix/freepd/GPL/CC-BY)
-- [ ] Custom lettered capsule pills authored for all 10 capsules, readable at game scale
-- [ ] Brick hit-state crack overlays (or procedural tint+crack) working
-- [ ] Doh boss sprite sourced/authored and registered (behavior lands in ticket 49)
-- [ ] Owner-colored ball variants via render-time tint on white-base sprites — no per-owner PNGs
-- [ ] Every shipped skin passes the readability gate (owner outline glow renders over the skin)
-- [ ] Settings Appearance section live: default skin + theme preference, persisted per device
-- [ ] Asset provenance recorded (source pack + license per asset); optional Credits screen + README assets line
+- [x] Skin + theme registries with UUID ids; uniqueness unit-tested
+- [x] At least one full paddle-skin and ball-skin set per source pack committed, CC0-only (no CraftPix/freepd/GPL/CC-BY)
+- [x] Custom lettered capsule pills authored for all 10 capsules, readable at game scale
+- [x] Brick hit-state crack overlays (or procedural tint+crack) working
+- [x] Doh boss sprite sourced/authored and registered (behavior lands in ticket 49)
+- [x] Owner-colored ball variants via render-time tint on white-base sprites — no per-owner PNGs
+- [x] Every shipped skin passes the readability gate (owner outline glow renders over the skin)
+- [x] Settings Appearance section live: default skin + theme preference, persisted per device
+- [x] Asset provenance recorded (source pack + license per asset); optional Credits screen + README assets line
+

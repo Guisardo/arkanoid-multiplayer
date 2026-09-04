@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] Worker + DO deployed (or wrangler dev-verified): create room → host WS held; join room → guest WS accepted; code charset + Origin validation reject bad input
-- [ ] Two browser tabs exchange SDP/ICE via the room code and open a DataChannel (echo test sufficient — no game traffic)
-- [ ] Guest WS closes after DataChannel opens; DO sees no game data
-- [ ] Copy-paste fallback: full SDP+ICE exchange via compressed base64 string both directions, connectable with the Worker unreachable
-- [ ] WS failure auto-offers copy-paste; "Advanced: manual join" always present
-- [ ] Unknown code → "Room not found"; Worker down → "Server unavailable" — both offer copy-paste, never a dead end
-- [ ] Hibernation works: idle host socket accrues no active-request charges (dev-verified; billing check at 55)
+- [x] Worker + DO deployed (or wrangler dev-verified): create room → host WS held; join room → guest WS accepted; code charset + Origin validation reject bad input
+- [x] Two browser tabs exchange SDP/ICE via the room code and open a DataChannel (echo test sufficient — no game traffic)
+- [x] Guest WS closes after DataChannel opens; DO sees no game data
+- [x] Copy-paste fallback: full SDP+ICE exchange via compressed base64 string both directions, connectable with the Worker unreachable
+- [x] WS failure auto-offers copy-paste; "Advanced: manual join" always present
+- [x] Unknown code → "Room not found"; Worker down → "Server unavailable" — both offer copy-paste, never a dead end
+- [x] Hibernation works: idle host socket accrues no active-request charges (dev-verified; billing check at 55)
+

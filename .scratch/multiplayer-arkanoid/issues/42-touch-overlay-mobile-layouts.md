@@ -12,3 +12,5 @@
 - [ ] Touch pause icon top corner out of drag zone; pause request works
 - [ ] All menus tap-navigable; ≥48 px targets; zero hover dependencies
 - [ ] Touch emits the same Input frame shape as other devices (parity at the seam)
+
+

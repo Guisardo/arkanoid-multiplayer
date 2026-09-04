@@ -13,3 +13,5 @@
 - [ ] Two-field rendering never collapses to one field under degradation
 - [ ] `webglcontextrestored` resyncs from snapshot — context loss recovers without reload
 - [ ] Manual on-device validation checklist documented for the human (reference device class)
+
+

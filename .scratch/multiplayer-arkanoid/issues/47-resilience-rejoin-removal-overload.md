@@ -12,3 +12,5 @@
 - [ ] Expiry removal: competitive loss / coop slot gone; removed player cannot return that match
 - [ ] Host backgrounding: wake lock + Worker tick keep the session alive; visibility return = pause-and-resync
 - [ ] Overload: 5-tick catch-up cap; sustained overload → slow-motion + 30 Hz wall-clock snapshots + throttle banner; clean recovery
+
+

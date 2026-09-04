@@ -6,10 +6,11 @@
 
 **Status:** ready-for-agent
 
-- [ ] 2–4 local players race on identical fields; first clear wins round per match structure
-- [ ] All three match structures work; all three level-selection modes work; time cap finite/infinite works
-- [ ] Timeout resolution correct per structure incl. exact-tie draw (unit-tested)
-- [ ] 0 lives → level resets with fresh layout and restored lives
-- [ ] Split-screen: N-across equal columns, 8 px gutters, per-field HUD strips, letterboxed fields
-- [ ] Quit-confirm overlay works; sim never pauses behind it; quit = removal scored as loss
-- [ ] Multi-field session composition extracted as a reusable seam for Attack/Parallel assist
+- [x] 2–4 local players race on identical fields; first clear wins round per match structure
+- [x] All three match structures work; all three level-selection modes work; time cap finite/infinite works
+- [x] Timeout resolution correct per structure incl. exact-tie draw (unit-tested)
+- [x] 0 lives → level resets with fresh layout and restored lives
+- [x] Split-screen: N-across equal columns, 8 px gutters, per-field HUD strips, letterboxed fields
+- [x] Quit-confirm overlay works; sim never pauses behind it; quit = removal scored as loss
+- [x] Multi-field session composition extracted as a reusable seam for Attack/Parallel assist
+
