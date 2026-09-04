@@ -61,3 +61,48 @@ describe("KeyboardAdapter (input frame seam)", () => {
     expect(f.tick).toBe(42);
   });
 });
+
+describe("KeyboardAdapter rebinds (ticket 41)", () => {
+  it("custom bindings drive the adapter", () => {
+    const kb = new KeyboardAdapter({ player: 0 }, [
+      { ...KEYSET_1, left: ["KeyJ"], right: ["KeyL"], launch: ["KeyK"] },
+    ]);
+    kb.keyDown("KeyJ");
+    expect(kb.sampleFrame(0).axisX).toBe(-1);
+    kb.keyUp("KeyJ");
+    kb.keyDown("KeyL");
+    expect(kb.sampleFrame(1).axisX).toBe(1);
+    kb.keyUp("KeyL");
+    kb.keyDown("KeyK");
+    expect(kb.sampleFrame(2).launch).toBe(true);
+  });
+
+  it("setBindings swaps maps live (changes apply without re-creating)", () => {
+    const kb = KeyboardAdapter.player(0);
+    kb.setBindings([{ ...KEYSET_1, launch: ["KeyP"] }]);
+    kb.keyDown("KeyP");
+    expect(kb.sampleFrame(0).launch).toBe(true);
+    kb.keyDown("Space"); // old binding no longer live
+    expect(kb.sampleFrame(1).launch).toBe(false);
+  });
+
+  it("menu key is rebindable and consumed once as an edge", () => {
+    const kb = KeyboardAdapter.player(0);
+    kb.keyDown("Escape");
+    expect(kb.consumeMenuEvent()).toBe("pause");
+    expect(kb.consumeMenuEvent()).toBeNull(); // held — no repeat
+    kb.keyUp("Escape");
+    kb.keyDown("Escape");
+    expect(kb.consumeMenuEvent()).toBe("pause");
+  });
+
+  it("rebound menu key works; menu edge never leaks into gameplay frames", () => {
+    const kb = KeyboardAdapter.player(0);
+    kb.setBindings([{ ...KEYSET_1, menu: ["F2"] }]);
+    kb.keyDown("F2");
+    const f = kb.sampleFrame(0);
+    expect(f.launch).toBe(false);
+    expect(f.axisX).toBe(0);
+    expect(kb.consumeMenuEvent()).toBe("pause");
+  });
+});

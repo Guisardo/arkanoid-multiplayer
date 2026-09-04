@@ -4,7 +4,7 @@ import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import type { RoundSim } from "sim/roundSim";
 import { createRoundSim } from "sim/roundSim";
 import { getLevel } from "content/levels";
-import { KeyboardAdapter } from "input/keyboard";
+import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { createBot, type BotDifficulty } from "sim/bot";
@@ -66,6 +66,15 @@ export async function startSoloSession(
   const gamepad = new GamepadAdapter({ player: 0 });
   const bot = opts.bot ? createBot(0, opts.bot.difficulty, opts.bot.seed) : null;
   const enablePointer = opts.enablePointer ?? true;
+
+  // Stored rebinds apply from the start (ticket 41); solo merges both keysets.
+  const applyStoredBindings = (): void => {
+    const controls = loadSettings(storage).controls;
+    const p1 = controls.keyboard[1] ?? controls.keyboard[0];
+    keyboard.setBindings([controls.keyboard[0] ?? KEYSET_1, p1 ?? KEYSET_2]);
+    gamepad.setBindings(controls.gamepad);
+  };
+  applyStoredBindings();
 
   const kd = (e: KeyboardEvent): void => {
     keyboard.keyDown(e.code);
@@ -203,6 +212,8 @@ export async function startSoloSession(
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
       onClose: () => {
         settingsScreen = null;
+        // Rebinds may have changed — re-apply live (ticket 41).
+        applyStoredBindings();
         loop.start();
       },
     });
