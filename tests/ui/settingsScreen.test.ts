@@ -144,6 +144,43 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     screen.close();
   });
 
+  it("gamepad navigates menus: d-pad moves focus, A activates (spec §11)", async () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    let padButtons: { pressed: boolean }[] = [];
+    const fakePad = { buttons: padButtons, axes: [0, 0] };
+    const nav = navigator as Navigator & { getGamepads?: () => (Gamepad | null)[] };
+    const realGetGamepads = nav.getGamepads?.bind(nav);
+    nav.getGamepads = () => [fakePad] as unknown as (Gamepad | null)[];
+    try {
+      const allButtons = Array.from(
+        screen.root.querySelectorAll<HTMLButtonElement>("button"),
+      );
+      // First input takes focus on open.
+      expect(document.activeElement).toBe(allButtons[0]);
+      // D-pad down edge → focus moves to next button.
+      padButtons = [];
+      fakePad.buttons = padButtons;
+      await new Promise((r) => setTimeout(r, 120)); // poll sees released state
+      padButtons = [
+        ...Array.from({ length: 13 }, () => ({ pressed: false })),
+        { pressed: true }, // index 13 = dpadDown
+      ];
+      fakePad.buttons = padButtons;
+      await new Promise((r) => setTimeout(r, 120));
+      expect(document.activeElement).toBe(allButtons[1]);
+      // A edge → focused button clicks (device tab 2 = gamepad).
+      padButtons = [{ pressed: true }];
+      fakePad.buttons = padButtons;
+      await new Promise((r) => setTimeout(r, 120));
+      const fixed = screen.root.querySelector("[data-movement-fixed]");
+      expect(fixed).not.toBeNull(); // gamepad tab rendered via gamepad A-click
+    } finally {
+      if (realGetGamepads) nav.getGamepads = realGetGamepads;
+      screen.close();
+    }
+  });
+
   it("gamepad tab lists rebindable buttons; movement marked fixed", () => {
     const storage = new Storage(fakeBackend());
     const screen = openScreen(storage);
