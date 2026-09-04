@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Capsule system + capsule scripts; 31 — Content pipeline + rounds 1–16.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 2P, 3P, 4P shared-field sessions playable on placements A, B, C (unit tests per placement)
 - [x] Shared pool = 3 × player count; life lost when ball count hits zero per ball model

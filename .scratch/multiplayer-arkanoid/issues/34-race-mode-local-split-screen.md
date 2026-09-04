@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Capsule system + capsule scripts; 31 — Content pipeline + rounds 1–16.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 2–4 local players race on identical fields; first clear wins round per match structure
 - [x] All three match structures work; all three level-selection modes work; time cap finite/infinite works

@@ -4,7 +4,7 @@
 
 **Blocked by:** 31 — Content pipeline + rounds 1–16.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Rounds 17–33 authored, each playable start-to-clear with its capsule script
 - [x] All 33 rounds pass the validation suite (dims, script bounds, metadata)

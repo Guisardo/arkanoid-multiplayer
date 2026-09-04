@@ -4,7 +4,7 @@
 
 **Blocked by:** 22 — Repo scaffold + seam enforcement.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Worker + DO deployed (or wrangler dev-verified): create room → host WS held; join room → guest WS accepted; code charset + Origin validation reject bad input
 - [x] Two browser tabs exchange SDP/ICE via the room code and open a DataChannel (echo test sufficient — no game traffic)

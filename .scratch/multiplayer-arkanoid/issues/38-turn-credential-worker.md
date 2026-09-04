@@ -4,7 +4,7 @@
 
 **Blocked by:** 37 — Signaling: Cloudflare Worker + Durable Object + copy-paste fallback.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Worker issues short-TTL TURN credentials; long-lived key absent from all client bundles (verified)
 - [x] ICE config assembles: Google STUN primary, Open Relay STUN secondary, TURN fallback on 80/443 UDP/TCP/TLS

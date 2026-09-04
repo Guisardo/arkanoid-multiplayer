@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Capsule system + capsule scripts.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Every game event with a spec'd SFX has one: brick hit (pitched by row), chain escalation, paddle hit, wall, capsule catch, capsule effect, ball loss, round clear, attack/assist events
 - [x] Round-intro jingle plays at round start; level music loops seamlessly; boss theme reserved for Doh (wired in 49)

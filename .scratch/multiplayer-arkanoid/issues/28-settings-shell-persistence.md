@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Settings screen opens from landing; all four sections visible (Controls/Audio/Display/Appearance)
 - [x] Audio sliders + mute persist and apply on reload

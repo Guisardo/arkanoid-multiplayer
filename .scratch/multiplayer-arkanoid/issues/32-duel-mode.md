@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Capsule system + capsule scripts; 31 — Content pipeline + rounds 1–16.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Two local players play a Duel on one shared field to a clear or timeout
 - [x] Paddles solid to each other; wall-constrained separation with leftover-shift, ends flush (unit-tested)

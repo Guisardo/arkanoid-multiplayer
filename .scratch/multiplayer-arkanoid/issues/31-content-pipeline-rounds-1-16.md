@@ -4,7 +4,7 @@
 
 **Blocked by:** 23 — Tracer bullet: Solo round playable; 24 — Capsule system + capsule scripts.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Level JSON schema validated in Vitest: dims, legend, metadata shape; invalid levels rejected with clear errors
 - [x] Capsule script bounds enforced: 6–10 capsules, each trigger ≤ brick count

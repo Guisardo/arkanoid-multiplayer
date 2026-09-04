@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] Vite dev build + production build pass; strict TypeScript compiles clean
 - [x] Vitest runs (at least one placeholder test green); Playwright installed with one placeholder spec green under SwiftShader headless WebGL
