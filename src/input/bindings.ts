@@ -68,12 +68,19 @@ function isStringArray(v: unknown): v is string[] {
 function parseKeyboardEntry(raw: unknown, fallback: KeyboardBindings): KeyboardBindings {
   if (typeof raw !== "object" || raw === null) return fallback;
   const rec = raw as Record<string, unknown>;
-  const out: Record<string, readonly string[]> = {};
-  for (const action of KEYBOARD_ACTIONS) {
-    const v = rec[action];
-    out[action] = isStringArray(v) ? v : fallback[action];
-  }
-  return out as unknown as KeyboardBindings;
+  const out: KeyboardBindings = {
+    left: isStringArray(rec.left) ? rec.left : fallback.left,
+    right: isStringArray(rec.right) ? rec.right : fallback.right,
+    launch: isStringArray(rec.launch) ? rec.launch : fallback.launch,
+    cycleForward: isStringArray(rec.cycleForward) ? rec.cycleForward : fallback.cycleForward,
+    cycleBack: isStringArray(rec.cycleBack) ? rec.cycleBack : fallback.cycleBack,
+    fire1: isStringArray(rec.fire1) ? rec.fire1 : fallback.fire1,
+    fire2: isStringArray(rec.fire2) ? rec.fire2 : fallback.fire2,
+    fire3: isStringArray(rec.fire3) ? rec.fire3 : fallback.fire3,
+    fire4: isStringArray(rec.fire4) ? rec.fire4 : fallback.fire4,
+    menu: isStringArray(rec.menu) ? rec.menu : fallback.menu,
+  };
+  return out;
 }
 
 /** Parse stored keyboard maps; corrupt/partial data falls back per-player. */
@@ -86,9 +93,12 @@ export function parseKeyboardBindings(json: string | null): KeyboardBindingsMap 
     return DEFAULT_KEYBOARD_BINDINGS;
   }
   if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_KEYBOARD_BINDINGS;
-  return parsed
-    .slice(0, 4)
-    .map((entry, i) => parseKeyboardEntry(entry, DEFAULT_KEYBOARD_BINDINGS[i % 2] ?? KEYSET_1));
+  return parsed.slice(0, 4).map((entry, i) => {
+    // Corrupt entries fall back to that player's default keyset — never a
+    // duplicate of another player's live keys (no phantom conflicts).
+    const fallback = DEFAULT_KEYBOARD_BINDINGS[i] ?? KEYSET_1;
+    return parseKeyboardEntry(entry, fallback);
+  });
 }
 
 export function serializeKeyboardBindings(maps: KeyboardBindingsMap): string {
@@ -137,51 +147,52 @@ export function serializeGamepadBindings(map: GamepadBindingsMap): string {
 /**
  * Duplicate-binding detection across ALL local players' maps on the device
  * (spec §11). Menu is a global action — shared menu keys are not conflicts.
+ * Pairwise: every (player, action) pair sharing a key is flagged.
  */
 export function findKeyboardConflicts(maps: KeyboardBindingsMap): KeyboardConflict[] {
   const conflicts: KeyboardConflict[] = [];
-  // key → first (player, action) that claimed it (menu keys exempt).
-  const claimed = new Map<string, { player: number; action: KeyboardAction; menu: boolean }>();
+  // key → all (player, action) claims so far.
+  const claims = new Map<string, { player: number; action: KeyboardAction }[]>();
   for (let player = 0; player < maps.length; player++) {
     const map = maps[player];
     if (map === undefined) continue;
     for (const action of KEYBOARD_ACTIONS) {
       for (const key of map[action]) {
-        const menu = action === "menu";
-        const prev = claimed.get(key);
-        if (prev === undefined) {
-          claimed.set(key, { player, action, menu });
-          continue;
-        }
-        if (prev.menu && menu) continue; // shared global menu key — OK
-        conflicts.push({ player, action, key });
-        if (!prev.menu || !menu) {
-          const alreadyFlagged = conflicts.some(
-            (c) => c.player === prev.player && c.action === prev.action && c.key === key,
-          );
-          if (!alreadyFlagged) {
-            conflicts.push({ player: prev.player, action: prev.action, key });
-          }
-        }
+        const list = claims.get(key) ?? [];
+        list.push({ player, action });
+        claims.set(key, list);
+      }
+    }
+  }
+  for (const [key, list] of claims) {
+    // Conflict iff a non-menu claim shares the key with anything else.
+    // Menu+menu alone is fine (shared global menu key); menu vs gameplay is not.
+    const hasNonMenu = list.some((c) => c.action !== "menu");
+    if (hasNonMenu && list.length > 1) {
+      for (const c of list) {
+        conflicts.push({ player: c.player, action: c.action, key });
       }
     }
   }
   return conflicts;
 }
 
-/** Duplicate-binding detection for the gamepad map. */
+/** Duplicate-binding detection for the gamepad map (pairwise). */
 export function findGamepadConflicts(map: GamepadBindingsMap): GamepadConflict[] {
   const conflicts: GamepadConflict[] = [];
-  const claimed = new Map<GamepadButton, GamepadAction>();
+  const claims = new Map<GamepadButton, GamepadAction[]>();
   for (const action of GAMEPAD_ACTIONS) {
     for (const button of map[action]) {
-      const prev = claimed.get(button);
-      if (prev === undefined) {
-        claimed.set(button, action);
-        continue;
+      const list = claims.get(button) ?? [];
+      list.push(action);
+      claims.set(button, list);
+    }
+  }
+  for (const [button, actions] of claims) {
+    if (actions.length > 1) {
+      for (const action of actions) {
+        conflicts.push({ action, button });
       }
-      conflicts.push({ action, button });
-      conflicts.push({ action: prev, button });
     }
   }
   return conflicts;

@@ -98,7 +98,7 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     const tabs = Array.from(
       screen.root.querySelectorAll<HTMLButtonElement>("button[data-player-tab]"),
     );
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBe(4);
     tabs[1]!.click(); // switch to Player 2
     const leftBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "left");
     expect(leftBtn!.textContent).toContain("A");
@@ -106,6 +106,41 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     pressKey("Semicolon");
     const after = loadSettings(storage);
     expect(after.controls.keyboard[1]!.left).toEqual(["Semicolon"]);
+    screen.close();
+  });
+
+  it("4 player tabs rendered — 4-on-keyboard achievable via rebinding", () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const tabs = screen.root.querySelectorAll<HTMLButtonElement>("button[data-player-tab]");
+    expect(tabs.length).toBe(4);
+    // Player 3 tab: rebind works on a fresh slot.
+    tabs[2]!.click();
+    const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+    launchBtn!.click();
+    pressKey("KeyO");
+    const after = loadSettings(storage);
+    expect(after.controls.keyboard[2]!.launch).toEqual(["KeyO"]);
+    screen.close();
+  });
+
+  it("Esc during capture cancels the rebind instead of binding Esc", () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+    launchBtn!.click();
+    pressKey("Escape");
+    const after = loadSettings(storage);
+    expect(after.controls.keyboard[0]!.launch).toEqual(["Space"]); // unchanged
+    expect(after.controls.keyboard[0]!.menu).toEqual(["Escape"]); // unchanged
+    screen.close();
+  });
+
+  it("conflict highlight has a visible CSS rule", () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const style = document.getElementById("arkanoid-rebind-highlight");
+    expect(style?.textContent).toContain("button.conflict");
     screen.close();
   });
 
@@ -119,6 +154,59 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     const fixed = screen.root.querySelector("[data-movement-fixed]");
     expect(fixed?.textContent).toContain(t(locale, "settings.controls.movementFixed"));
     screen.close();
+  });
+
+  it("gamepad rebind: button press captured via polling, duplicate rejected", async () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    // Fake one gamepad with no buttons pressed.
+    let padButtons: { pressed: boolean }[] = [];
+    const fakePad = { buttons: padButtons, axes: [0, 0] };
+    const nav = navigator as Navigator & { getGamepads?: () => (Gamepad | null)[] };
+    const realGetGamepads = nav.getGamepads?.bind(nav);
+    nav.getGamepads = () => [fakePad] as unknown as (Gamepad | null)[];
+    try {
+      const padTab = Array.from(
+        screen.root.querySelectorAll<HTMLButtonElement>("button[data-device-tab]"),
+      ).find((b) => b.dataset.deviceTab === "gamepad");
+      padTab!.click();
+      const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+      launchBtn!.click();
+      expect(launchBtn!.textContent).toContain(t(locale, "settings.controls.pressButton"));
+      // Press LT (index 6) — unbound, edge detected on next poll.
+      padButtons = [
+        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
+        { pressed: false }, { pressed: false }, { pressed: true },
+      ];
+      fakePad.buttons = padButtons;
+      // Poll runs on a 50 ms interval — wait for it.
+      await new Promise((r) => setTimeout(r, 120));
+      const after = loadSettings(storage);
+      expect(after.controls.gamepad.launch).toEqual(["lt"]);
+      // Duplicate: rebind fire1 to lt (already launch) → rejected.
+      // (Rows were rebuilt after the first rebind — re-query.)
+      const fire1Btn = rebindButtons(screen.root).find((b) => b.dataset.action === "fire1");
+      fire1Btn!.click();
+      // Release all, let the poll see the release, then press LT again.
+      padButtons = [
+        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
+        { pressed: false }, { pressed: false }, { pressed: false },
+      ];
+      fakePad.buttons = padButtons;
+      await new Promise((r) => setTimeout(r, 120));
+      padButtons = [
+        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
+        { pressed: false }, { pressed: false }, { pressed: true },
+      ];
+      fakePad.buttons = padButtons;
+      await new Promise((r) => setTimeout(r, 120));
+      const after2 = loadSettings(storage);
+      expect(after2.controls.gamepad.fire1).toEqual(["x"]); // unchanged
+      expect(fire1Btn!.textContent).toContain(t(locale, "settings.controls.duplicate"));
+    } finally {
+      if (realGetGamepads) nav.getGamepads = realGetGamepads;
+      screen.close();
+    }
   });
 
   it("reset button restores defaults", () => {

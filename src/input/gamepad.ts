@@ -58,6 +58,11 @@ export class GamepadAdapter {
     this.bindings = bindings;
   }
 
+  /** Drop all buffered edges + state (settings overlay close). */
+  flush(): void {
+    this.reset();
+  }
+
   /** App polls navigator.getGamepads() and feeds normalized state. */
   feedState(state: GamepadState): void {
     // Track newly-pressed buttons (edge events).

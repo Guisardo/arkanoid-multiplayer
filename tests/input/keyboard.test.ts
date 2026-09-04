@@ -105,4 +105,15 @@ describe("KeyboardAdapter rebinds (ticket 41)", () => {
     expect(f.axisX).toBe(0);
     expect(kb.consumeMenuEvent()).toBe("pause");
   });
+
+  it("flush() drops buffered edges — rebind keypresses never leak into gameplay", () => {
+    const kb = KeyboardAdapter.player(0);
+    kb.keyDown("Space"); // buffered launch edge
+    kb.keyDown("1"); // buffered fire edge
+    kb.flush();
+    const f = kb.sampleFrame(0);
+    expect(f.launch).toBe(false);
+    expect(f.actions.fire[0]).toBe(false);
+    expect(kb.consumeMenuEvent()).toBeNull();
+  });
 });

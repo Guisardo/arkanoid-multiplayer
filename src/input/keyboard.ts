@@ -79,6 +79,16 @@ export class KeyboardAdapter {
     this.bindings = bindings;
   }
 
+  /** Drop all buffered edges + pressed keys (settings overlay close). */
+  flush(): void {
+    this.pressed.clear();
+    this.edgeBuffer.cycleForward = false;
+    this.edgeBuffer.cycleBack = false;
+    this.fire = [false, false, false, false];
+    this.launchEdge = false;
+    this.menuEdge = false;
+  }
+
   /** Menu-key edge — consumed once (pause/menu, spec §11). */
   consumeMenuEvent(): "pause" | null {
     if (this.menuEdge) {
