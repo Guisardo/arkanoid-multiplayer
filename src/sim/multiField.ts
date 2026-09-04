@@ -20,6 +20,8 @@ export interface MatchConfig {
   timeCapTicks: number | null;
   /** Host-picked round for the current round (hostPick mode). */
   hostPickRound?: number;
+  /** Round ceiling for level selection (e.g. Attack excludes Doh, 33). */
+  maxRound?: number;
 }
 
 export interface MultiFieldSession {
@@ -111,20 +113,26 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
   }
 
   function pickRound(cfg: MatchConfig, roundIndex: number, seed: number): number {
+    const ceiling = cfg.maxRound ?? 33;
     switch (cfg.levelSelection) {
-      case "hostPick":
-        return cfg.hostPickRound ?? 1;
+      case "hostPick": {
+        const picked = cfg.hostPickRound ?? 1;
+        if (picked > ceiling) {
+          throw new Error(`level selection cannot pick round ${String(picked)} (max ${String(ceiling)})`);
+        }
+        return picked;
+      }
       case "fixedOrder":
-        return Math.min(roundIndex, 33);
+        return Math.min(roundIndex, ceiling);
       case "random": {
-        // Deterministic LCG pick in 1..33 (available rounds).
+        // Deterministic LCG pick in 1..ceiling (available rounds).
         let s = (seed + roundIndex * 2654435761) >>> 0;
         s ^= s << 13;
         s >>>= 0;
         s ^= s >> 17;
         s ^= s << 5;
         s >>>= 0;
-        return 1 + (s % 33);
+        return 1 + (s % ceiling);
       }
     }
   }

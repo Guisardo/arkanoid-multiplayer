@@ -21,6 +21,7 @@ import {
   type AttackTuning,
 } from "./attack";
 import { createMultiFieldSession, type MatchConfig, type MultiFieldSession } from "./multiField";
+import { ATTACK_MAX_ROUND } from "content/levels";
 import { isDestructibleCell, type InputFrame, type Snapshot } from "shared/protocol";
 
 const TICK_MS = 1000 / 60;
@@ -84,7 +85,7 @@ export function createAttackSession(opts: AttackSessionOptions): AttackSession {
     config: MatchConfig;
     playerNames?: string[] | undefined;
     seed?: number | undefined;
-  } = { playerCount, config: opts.config };
+  } = { playerCount, config: { ...opts.config, maxRound: ATTACK_MAX_ROUND } };
   if (opts.playerNames !== undefined) raceOpts.playerNames = opts.playerNames;
   if (opts.seed !== undefined) raceOpts.seed = opts.seed;
   const race = createMultiFieldSession(raceOpts);
