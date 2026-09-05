@@ -21,7 +21,7 @@ const AWAIT_TIMEOUT_MS = 30000;
 
 export class SignalingClient {
   private readonly ws: WebSocket;
-  private messageHandler: ((msg: SignalingEvent) => void) | null = null;
+  private readonly handlers: Array<(msg: SignalingEvent) => void> = [];
   private readonly pending: SignalingEvent[] = [];
   private closed = false;
 
@@ -34,11 +34,11 @@ export class SignalingClient {
       } catch {
         parsed = { type: "error", reason: "malformed server message" };
       }
-      if (this.messageHandler === null) {
+      if (this.handlers.length === 0) {
         this.pending.push(parsed);
         return;
       }
-      this.messageHandler(parsed);
+      for (const h of [...this.handlers]) h(parsed);
     });
   }
 
@@ -80,13 +80,22 @@ export class SignalingClient {
     return client;
   }
 
-  onMessage(cb: (msg: SignalingEvent) => void): void {
-    this.messageHandler = cb;
+  /**
+   * Live event stream. Multiple handlers may register simultaneously (the
+   * host room listens for joins while awaiting a specific guest's answer);
+   * all receive every event.
+   */
+  onMessage(cb: (msg: SignalingEvent) => void): () => void {
+    this.handlers.push(cb);
     while (this.pending.length > 0) {
       const buffered = this.pending.shift();
       if (buffered === undefined) break;
       cb(buffered);
     }
+    return () => {
+      const i = this.handlers.indexOf(cb);
+      if (i >= 0) this.handlers.splice(i, 1);
+    };
   }
 
   send(msg: RelayMessage): void {
@@ -100,37 +109,38 @@ export class SignalingClient {
   ): Promise<SignalingEvent> {
     return new Promise<SignalingEvent>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.onMessage(() => undefined);
+        off();
         reject(new SignalingUnavailable("signaling wait timeout"));
       }, AWAIT_TIMEOUT_MS);
-      this.onMessage((msg) => {
+      const off = this.onMessage((msg) => {
         if (failTypes.includes(msg.type)) {
           clearTimeout(timer);
-          this.onMessage(() => undefined);
+          off();
           reject(new SignalingUnavailable(msg.reason ?? msg.type));
           return;
         }
         if (pred(msg)) {
           clearTimeout(timer);
-          this.onMessage(() => undefined);
+          off();
           resolve(msg);
         }
       });
     });
   }
 
-  async host(offerSdp: string): Promise<string> {
-    this.send({ type: "host-offer", sdp: offerSdp });
-    const answer = await this.waitFor(
-      (msg) => msg.type === "guest-answer" && msg.sdp !== undefined,
+  // ---- Guest flow ----
+
+  /** Guest: await the joined-ack carrying our guest index. */
+  async joinedAck(): Promise<number> {
+    const ack = await this.waitFor(
+      (msg) => msg.type === "joined-ack" && msg.guestIndex !== undefined,
       ["error", "room-full"],
     );
-    const sdp = answer.sdp;
-    if (sdp === undefined) throw new SignalingUnavailable("answer missing sdp");
-    return sdp;
+    return ack.guestIndex ?? 0;
   }
 
-  async guest(): Promise<string> {
+  /** Guest: await the host offer targeted at our guest index. */
+  async offer(): Promise<string> {
     const offer = await this.waitFor(
       (msg) => msg.type === "host-offer" && msg.sdp !== undefined,
       ["error", "room-full"],

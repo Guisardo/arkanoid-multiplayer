@@ -42,7 +42,7 @@ export class RoomDO extends DurableObject {
 
   private initStorage(): void {
     this.ctx.storage.sql.exec(
-      "CREATE TABLE IF NOT EXISTS room_log (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS room_offers (guest_index INTEGER PRIMARY KEY, payload TEXT NOT NULL)",
     );
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS room_kv (key TEXT PRIMARY KEY, value INTEGER NOT NULL)",
@@ -50,13 +50,15 @@ export class RoomDO extends DurableObject {
   }
 
   private restoreFromStorage(): void {
-    const rows = this.ctx.storage.sql.exec("SELECT payload FROM room_log").toArray();
+    const rows = this.ctx.storage.sql.exec(
+      "SELECT guest_index, payload FROM room_offers",
+    ).toArray();
     for (const row of rows) {
-      const msg = parseRelayMessage(row.payload as string);
-      if (msg === null) continue;
-      if (msg.type === "host-offer" && msg.sdp !== undefined) {
-        this.relayState.hostOffer = msg.sdp;
-      }
+      const guestIndex = row.guest_index as number;
+      const payload = row.payload as string;
+      const msg = parseRelayMessage(payload);
+      if (msg === null || msg.type !== "host-offer" || msg.sdp === undefined) continue;
+      this.relayState.hostOffers.set(guestIndex, msg.sdp);
     }
     const hostRows = this.ctx.storage.sql.exec(
       "SELECT value FROM room_kv WHERE key = 'host-present'",
@@ -102,8 +104,12 @@ export class RoomDO extends DurableObject {
       ws.send(JSON.stringify({ type: "error", reason: "malformed message" }));
       return;
     }
-    if (msg.type === "host-offer" && msg.sdp !== undefined) {
-      this.ctx.storage.sql.exec("INSERT INTO room_log (payload) VALUES (?)", message);
+    if (msg.type === "host-offer" && msg.sdp !== undefined && msg.guestIndex !== undefined) {
+      this.ctx.storage.sql.exec(
+        "INSERT OR REPLACE INTO room_offers (guest_index, payload) VALUES (?, ?)",
+        msg.guestIndex,
+        message,
+      );
     }
     const actions = handleRoomMessage(this.relayState, member, msg);
     this.dispatch(actions);
@@ -152,6 +158,11 @@ export class RoomDO extends DurableObject {
     if (member.role === "host") {
       this.ctx.storage.sql.exec(
         "INSERT OR REPLACE INTO room_kv (key, value) VALUES ('host-present', 0)",
+      );
+    } else {
+      this.ctx.storage.sql.exec(
+        "DELETE FROM room_offers WHERE guest_index = ?",
+        member.guestIndex,
       );
     }
     this.dispatch(actions);

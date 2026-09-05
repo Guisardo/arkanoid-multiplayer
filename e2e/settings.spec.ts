@@ -4,6 +4,8 @@ test("settings: Esc opens overlay, audio persists across reload", async ({ page 
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await page.goto("/");
+  // Landing (ticket 45): Solo entry boots the solo session.
+  await page.locator("button", { hasText: "Solo" }).click();
   await page.waitForFunction(() => globalThis.__arkanoid !== undefined, null, { timeout: 15_000 });
 
   // Esc opens the settings overlay
@@ -20,6 +22,7 @@ test("settings: Esc opens overlay, audio persists across reload", async ({ page 
   const back = overlay.locator("button", { hasText: "Back" }).first();
   await back.click();
   await page.reload();
+  await page.locator("button", { hasText: "Solo" }).click();
   await page.waitForFunction(() => globalThis.__arkanoid !== undefined, null, { timeout: 15_000 });
   await page.keyboard.press("Escape");
   const overlay2 = page.locator("div", { hasText: "Settings" }).first();
