@@ -21,7 +21,7 @@ import {
   type HostGamePlayer,
 } from "app/hostGame";
 import { createGuestGameSession, type GuestGameSession, type ProgressRow } from "app/guestGame";
-import { createAccumulatorLoop } from "app/loop";
+import { createAccumulatorLoop, type AccumulatorLoop } from "app/loop";
 import { assignSkinIndices } from "content/skinSync";
 import { DEFAULT_THEME_ID } from "content/themes";
 import type { LobbyState, LobbyMode } from "app/lobbyState";
@@ -78,7 +78,7 @@ export class MpFlow {
   private guestIndex = 0;
   private isHost = false;
   private phase: MpPhase = "idle";
-  private loop: { stop(): void } | null = null;
+  private loop: AccumulatorLoop | null = null;
   private pendingLocal: InputFrame[] = [];
   private lobbyState: LobbyState | null = null;
   private matchPlayers: string[] = [];
@@ -109,9 +109,22 @@ export class MpFlow {
     this.phase = "lobby";
 
     if (this.isHost) {
-      this.lobby = createHostLobbySession((gi, msg) => {
-        this.channels?.hostControl(gi, JSON.stringify(msg));
-      });
+      this.lobby = createHostLobbySession(
+        (gi, msg) => {
+          this.channels?.hostControl(gi, JSON.stringify(msg));
+        },
+        {
+          // Any host-side state change (guest intents included) updates the
+          // flow's mirror — the lobby screen and tests read from here.
+          onStateChanged: (s) => {
+            this.lobbyState = s;
+            this.opts.onLobbyState?.(s);
+          },
+          onCountdownComplete: (s) => {
+            this.lobbyState = s;
+          },
+        },
+      );
       this.lobbyState = this.lobby.state();
     } else {
       this.guestLobby = createGuestLobbySession(
@@ -582,6 +595,11 @@ export class MpFlow {
   /** Test/e2e probes. */
   get isHostSide(): boolean {
     return this.isHost;
+  }
+
+  /** Test hook: drive the running loop deterministically (solo pattern). */
+  advanceTest(ms: number): void {
+    this.loop?.advance(ms);
   }
 
   localSnapshots(): Snapshot[] {
