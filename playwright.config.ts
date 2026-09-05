@@ -18,6 +18,9 @@ export default defineConfig({
         "--use-angle=swiftshader",
         "--enable-unsafe-swiftshader",
         "--disable-gpu-sandbox",
+        // WebRTC loopback e2e (ticket 45): expose raw host IPs instead of
+        // mDNS .local names — two contexts on one CI box resolve real IPs.
+        "--disable-features=WebRtcHideLocalIpsWithMdns,msForceBrowserSignInEnabled",
       ],
     },
   },

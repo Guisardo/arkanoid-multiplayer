@@ -16,32 +16,56 @@ function guestOf(idx: number): RelayMember {
 }
 
 describe("room relay logic", () => {
-  it("stores host offer", () => {
+  it("stores targeted host offer and relays it to that guest", () => {
     const state = createRelayState();
     attachHost(state);
-    const actions = handleRoomMessage(state, HOST, { type: "host-offer", sdp: "offer-sdp" });
-    expect(actions).toEqual([]);
-    expect(state.hostOffer).toBe("offer-sdp");
+    joinGuest(state); // guest 0 present
+    const actions = handleRoomMessage(state, HOST, { type: "host-offer", guestIndex: 0, sdp: "offer-sdp" });
+    expect(actions).toEqual([
+      { to: guestOf(0), message: { type: "host-offer", guestIndex: 0, sdp: "offer-sdp" } },
+    ]);
+    expect(state.hostOffers.get(0)).toBe("offer-sdp");
   });
 
-  it("guest join notifies host and delivers stored offer", () => {
+  it("host offer without guestIndex is rejected", () => {
     const state = createRelayState();
     attachHost(state);
-    handleRoomMessage(state, HOST, { type: "host-offer", sdp: "offer-sdp" });
+    joinGuest(state);
+    const actions = handleRoomMessage(state, HOST, { type: "host-offer", sdp: "offer-sdp" });
+    expect(actions[0]!.message.type).toBe("error");
+    expect(state.hostOffers.size).toBe(0);
+  });
+
+  it("guest join notifies host, acks the guest, delivers stored offer", () => {
+    const state = createRelayState();
+    attachHost(state);
+    handleRoomMessage(state, HOST, { type: "host-offer", guestIndex: 0, sdp: "offer-sdp" });
     const result = joinGuest(state);
     expect(result.member).toEqual({ role: "guest", guestIndex: 0 });
     expect(result.actions).toEqual([
       { to: HOST, message: { type: "guest-joined", guestIndex: 0 } },
-      { to: guestOf(0), message: { type: "host-offer", sdp: "offer-sdp" } },
+      { to: guestOf(0), message: { type: "joined-ack", guestIndex: 0 } },
+      { to: guestOf(0), message: { type: "host-offer", guestIndex: 0, sdp: "offer-sdp" } },
     ]);
   });
 
-  it("guest join without stored offer notifies host only", () => {
+  it("second guest gets a distinct offer slot", () => {
+    const state = createRelayState();
+    attachHost(state);
+    joinGuest(state);
+    joinGuest(state);
+    handleRoomMessage(state, HOST, { type: "host-offer", guestIndex: 1, sdp: "offer-1" });
+    expect(state.hostOffers.get(1)).toBe("offer-1");
+    expect(state.hostOffers.get(0)).toBeUndefined();
+  });
+
+  it("guest join without stored offer notifies host + acks only", () => {
     const state = createRelayState();
     attachHost(state);
     const result = joinGuest(state);
     expect(result.actions).toEqual([
       { to: HOST, message: { type: "guest-joined", guestIndex: 0 } },
+      { to: guestOf(0), message: { type: "joined-ack", guestIndex: 0 } },
     ]);
   });
 
@@ -90,7 +114,7 @@ describe("room relay logic", () => {
     joinGuest(state);
     const actions = handleRoomMessage(state, HOST, { type: "ice", guestIndex: 0, candidate: "cand" });
     expect(actions).toEqual([
-      { to: guestOf(0), message: { type: "ice", from: "host", candidate: "cand" } },
+      { to: guestOf(0), message: { type: "ice", from: "host", guestIndex: 0, candidate: "cand" } },
     ]);
   });
 
@@ -108,9 +132,9 @@ describe("room relay logic", () => {
     const state = createRelayState();
     attachHost(state);
     joinGuest(state);
-    const actions = handleRoomMessage(state, guestOf(0), { type: "host-offer", sdp: "fake" });
+    const actions = handleRoomMessage(state, guestOf(0), { type: "host-offer", guestIndex: 0, sdp: "fake" });
     expect(actions[0]!.message.type).toBe("error");
-    expect(state.hostOffer).toBeNull();
+    expect(state.hostOffers.size).toBe(0);
   });
 
   it("host cannot send guest-answer", () => {
@@ -129,8 +153,15 @@ describe("room relay logic", () => {
   });
 
   it("valid message parses", () => {
-    const msg = parseRelayMessage('{"type":"host-offer","sdp":"x"}');
-    expect(msg).toEqual({ type: "host-offer", sdp: "x" });
+    const msg = parseRelayMessage('{"type":"host-offer","guestIndex":0,"sdp":"x"}');
+    expect(msg).toEqual({ type: "host-offer", guestIndex: 0, sdp: "x" });
+  });
+
+  it("joined-ack is server-sent only", () => {
+    const state = createRelayState();
+    attachHost(state);
+    const actions = handleRoomMessage(state, HOST, { type: "joined-ack", guestIndex: 0 });
+    expect(actions[0]!.message.type).toBe("error");
   });
 
   it("join message from attached member is rejected as server-only", () => {

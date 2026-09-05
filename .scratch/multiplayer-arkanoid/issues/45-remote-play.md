@@ -4,7 +4,7 @@
 
 **Blocked by:** 27 — Net core: snapshot serializer + delay queue; 43 — Lobby + landing + session flow.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Two devices (or two browser contexts) join via room code and play a full Race remotely
 - [ ] Game channel unreliable/unordered; control channel reliable/ordered; binary on game, JSON on control

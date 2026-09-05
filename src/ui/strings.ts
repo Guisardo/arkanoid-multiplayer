@@ -112,6 +112,12 @@ const enUS = {
   "lobby.errNoLateJoin": "Game in progress — join between matches",
   "lobby.errInvalidCode": "Invalid room code",
   "lobby.errPlayerNotFound": "Player not found",
+  "mp.connecting": "Connecting…",
+  "mp.refreshBrowser": "Version mismatch — refresh your browser",
+  "mp.connectionCorrupted": "Connection corrupted — session ended",
+  "mp.hostLeft": "Host left — session ended",
+  "mp.remoteProgress": "Remote players",
+  "mp.reconnecting": "Connection lost…",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -218,6 +224,12 @@ const es419: Record<StringKey, string> = {
   "lobby.errNoLateJoin": "Partida en curso — únete entre partidas",
   "lobby.errInvalidCode": "Código de sala inválido",
   "lobby.errPlayerNotFound": "Jugador no encontrado",
+  "mp.connecting": "Conectando…",
+  "mp.refreshBrowser": "Versión incompatible — actualiza el navegador",
+  "mp.connectionCorrupted": "Conexión corrupta — sesión terminada",
+  "mp.hostLeft": "El host salió — sesión terminada",
+  "mp.remoteProgress": "Jugadores remotos",
+  "mp.reconnecting": "Conexión perdida…",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

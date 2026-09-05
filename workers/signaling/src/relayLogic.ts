@@ -8,13 +8,15 @@ export interface RelayMember {
 export interface RelayState {
   host: RelayMember | null;
   guests: RelayMember[];
-  hostOffer: string | null;
+  /** Latest host offer per guest index (multi-guest: one PC per guest). */
+  hostOffers: Map<number, string>;
 }
 
 export const MAX_GUESTS = 3;
 
 export type RelayMessageType =
   | "join"
+  | "joined-ack"
   | "host-offer"
   | "guest-answer"
   | "ice"
@@ -25,11 +27,11 @@ export type RelayMessageType =
 
 export interface RelayMessage {
   type: RelayMessageType;
-  from?: RelayRole;
-  guestIndex?: number;
-  sdp?: string;
-  candidate?: string;
-  reason?: string;
+  from?: RelayRole | undefined;
+  guestIndex?: number | undefined;
+  sdp?: string | undefined;
+  candidate?: string | undefined;
+  reason?: string | undefined;
 }
 
 export interface RelayAction {
@@ -38,11 +40,12 @@ export interface RelayAction {
 }
 
 export function createRelayState(): RelayState {
-  return { host: null, guests: [], hostOffer: null };
+  return { host: null, guests: [], hostOffers: new Map() };
 }
 
 const RELAY_MESSAGE_TYPES: readonly RelayMessageType[] = [
-  "join", "host-offer", "guest-answer", "ice", "guest-joined", "guest-left", "room-full", "error",
+  "join", "joined-ack", "host-offer", "guest-answer", "ice",
+  "guest-joined", "guest-left", "room-full", "error",
 ];
 
 export function parseRelayMessage(raw: string): RelayMessage | null {
@@ -86,9 +89,12 @@ export function joinGuest(state: RelayState): { member: RelayMember | null; acti
   state.guests.push(member);
   const actions: RelayAction[] = [
     { to: state.host, message: { type: "guest-joined", guestIndex: idx } },
+    // Ack the guest with its index so it can await the targeted offer.
+    { to: member, message: { type: "joined-ack", guestIndex: idx } },
   ];
-  if (state.hostOffer !== null) {
-    actions.push({ to: member, message: { type: "host-offer", sdp: state.hostOffer } });
+  const offer = state.hostOffers.get(idx);
+  if (offer !== undefined) {
+    actions.push({ to: member, message: { type: "host-offer", guestIndex: idx, sdp: offer } });
   }
   return { member, actions };
 }
@@ -98,12 +104,23 @@ export function handleRoomMessage(state: RelayState, from: RelayMember, msg: Rel
     case "join": {
       return [{ to: from, message: { type: "error", reason: "join is handled at connection level" } }];
     }
+    case "joined-ack": {
+      return [{ to: from, message: { type: "error", reason: "joined-ack is server-sent only" } }];
+    }
     case "host-offer": {
       if (from.role !== "host") {
         return [{ to: from, message: { type: "error", reason: "only host may send offer" } }];
       }
-      state.hostOffer = msg.sdp ?? null;
-      return [];
+      if (msg.guestIndex === undefined) {
+        return [{ to: from, message: { type: "error", reason: "offer needs guestIndex" } }];
+      }
+      state.hostOffers.set(msg.guestIndex, msg.sdp ?? "");
+      const target = state.guests.find((g) => g.guestIndex === msg.guestIndex) ?? null;
+      if (target === null) return [];
+      return [{
+        to: target,
+        message: { type: "host-offer", guestIndex: msg.guestIndex, ...(msg.sdp !== undefined ? { sdp: msg.sdp } : {}) },
+      }];
     }
     case "guest-answer": {
       if (from.role !== "guest") {
@@ -127,7 +144,7 @@ export function handleRoomMessage(state: RelayState, from: RelayMember, msg: Rel
         }
         return [{
           to: target,
-          message: { type: "ice", from: "host", ...(msg.candidate !== undefined ? { candidate: msg.candidate } : {}) },
+          message: { type: "ice", from: "host", guestIndex: msg.guestIndex, ...(msg.candidate !== undefined ? { candidate: msg.candidate } : {}) },
         }];
       }
       if (state.host === null) {
@@ -139,8 +156,7 @@ export function handleRoomMessage(state: RelayState, from: RelayMember, msg: Rel
           type: "ice",
           from: "guest",
           guestIndex: from.guestIndex,
-          ...(msg.candidate !== undefined ? { candidate: msg.candidate } : {}),
-        },
+          ...(msg.candidate !== undefined ? { candidate: msg.candidate } : {}) },
       }];
     }
     case "guest-joined": {
