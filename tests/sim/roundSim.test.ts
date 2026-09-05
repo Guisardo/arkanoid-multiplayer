@@ -186,7 +186,9 @@ describe("silver hits formula (spec §4)", () => {
     expect(hitsToBreak(8)).toBe(2);
     expect(hitsToBreak(16)).toBe(3);
     expect(hitsToBreak(24)).toBe(4);
-    expect(hitsToBreak(33)).toBe(4);
+    // Round 33 = Doh boss round (ticket 49): destructibles stripped, so the
+    // formula cap is proven at 32 (same min(1+floor(r/8),4) = 4 tier).
+    expect(hitsToBreak(32)).toBe(4);
   });
 
   it("per-level override replaces the formula", () => {

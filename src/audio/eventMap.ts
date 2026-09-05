@@ -42,6 +42,11 @@ export function sfxForEvent(
       return { id: "attack" };
     case "assist":
       return { id: "assist" };
+    case "bossHit":
+      // Doh boss (ticket 49): heavy pitched hit, escalating by lost HP.
+      return { id: "brickHit", pitch: 0.6, gain: 1 };
+    case "bossDead":
+      return { id: "roundClear" };
     default:
       return null;
   }

@@ -127,7 +127,9 @@ export type SimEventType =
   | "assist"
   | "pause"
   | "resume"
-  | "paddleBounce";
+  | "paddleBounce"
+  | "bossHit"
+  | "bossDead";
 
 /** Ring buffer event (last 8): type, source, target, tick (spec §9). */
 export interface SimEvent {
@@ -155,4 +157,28 @@ export interface Snapshot {
   events: SimEvent[];
   /** Per-player last acked input tick (net seam; host fills with current tick). */
   inputAcks: number[];
+  /** Doh boss (round 33 only; absent otherwise). */
+  boss?: BossSnapshot;
+  /** Boss projectiles (round 33 only; absent otherwise). */
+  bossProjectiles?: BossProjectileSnapshot[];
 }
+
+/** Doh boss state in a snapshot (ticket 49). */
+export interface BossSnapshot {
+  x: number;
+  y: number;
+  hp: number;
+  /** 1 = opening, 2 = final tier. */
+  phase: 1 | 2;
+  dead: boolean;
+}
+
+export interface BossProjectileSnapshot {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+}
+
+/** Boss projectile square size in field units (render + sim shared, ticket 49). */
+export const BOSS_PROJECTILE_SIZE = 4;
