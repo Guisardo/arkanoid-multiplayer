@@ -1,5 +1,5 @@
 import type { Application } from "pixi.js";
-import type { Snapshot } from "shared/protocol";
+import type { InputFrame, Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import type { RoundSim } from "sim/roundSim";
 import { createRoundSim } from "sim/roundSim";
@@ -7,6 +7,9 @@ import { getLevel } from "content/levels";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
+import { TouchAdapter } from "input/touch";
+import { TouchOverlay } from "render/touchOverlay";
+import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
 import { layoutField } from "render/layout";
@@ -67,6 +70,20 @@ export async function startSoloSession(
   const bot = opts.bot ? createBot(0, opts.bot.difficulty, opts.bot.seed) : null;
   const enablePointer = opts.enablePointer ?? true;
 
+  // Touch overlay (ticket 42): touch devices get the virtual stick + cluster.
+  const coarse =
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(pointer: coarse)").matches;
+  const ua: string =
+    typeof globalThis.navigator !== "undefined" ? globalThis.navigator.userAgent : "";
+  const device = detectDeviceClass(coarse, ua);
+  const touch: TouchAdapter | null = device.touch ? new TouchAdapter({
+    player: 0,
+    mode: "solo",
+    layout: { stick: { x: 80, y: 0 }, buttons: {}, buttonRadius: 24 },
+  }) : null;
+  let touchOverlay: TouchOverlay | null = null;
+
   // Stored rebinds apply from the start (ticket 41); solo merges both keysets.
   const applyStoredBindings = (): void => {
     const controls = loadSettings(storage).controls;
@@ -99,6 +116,31 @@ export async function startSoloSession(
   const firstView = makeView();
   const views: FieldView[] = [firstView];
   app.stage.addChild(firstView.container);
+
+  // Touch overlay floats over the whole canvas, anchored to the field region.
+  if (touch !== null) {
+    const region = { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height };
+    touchOverlay = new TouchOverlay(touch, region, "solo");
+    app.stage.addChild(touchOverlay.container);
+    const route = (e: PointerEvent, down: boolean): void => {
+      const rect = app.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (down) touch.pointerDown(e.pointerId, x, y);
+      else touch.pointerMove(e.pointerId, x, y);
+    };
+    app.canvas.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") route(e, true);
+    });
+    app.canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") route(e, false);
+    });
+    const up = (e: PointerEvent): void => {
+      if (e.pointerType === "touch") touch.pointerUp(e.pointerId);
+    };
+    app.canvas.addEventListener("pointerup", up);
+    app.canvas.addEventListener("pointercancel", up);
+  }
 
   let latest: Snapshot = sim.snapshot();
   let settingsScreen: SettingsScreen | null = null;
@@ -155,27 +197,32 @@ export async function startSoloSession(
         const kf = keyboard.sampleFrame(tick);
         const mf = mouse.sampleFrame(tick);
         const gf = gamepad.sampleFrame(tick);
+        const tf = touch !== null ? touch.sampleFrame(tick) : null;
         const active =
+          (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
           (mf.axisX !== 0 ? "mouse" : "") ||
           (gf.axisX !== 0 ? "gamepad" : "") ||
           (kf.axisX !== 0 ? "keyboard" : "");
-        const pick =
-          active === "mouse" ? mf : active === "gamepad" ? gf : kf;
+        const pick: InputFrame =
+          active === "touch" && tf !== null ? tf :
+          active === "mouse" ? mf :
+          active === "gamepad" ? gf : kf;
         const edges =
+          (tf !== null && (tf.launch || tf.actions.cycleForward)) ||
           mf.launch || gf.launch || kf.launch ||
           mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward;
         frame = edges
           ? {
               ...pick,
-              launch: mf.launch || gf.launch || kf.launch,
+              launch: (tf !== null && tf.launch) || mf.launch || gf.launch || kf.launch,
               actions: {
-                cycleForward: mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward,
-                cycleBack: mf.actions.cycleBack || gf.actions.cycleBack || kf.actions.cycleBack,
+                cycleForward: (tf !== null && tf.actions.cycleForward) || mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward,
+                cycleBack: (tf !== null && tf.actions.cycleBack) || mf.actions.cycleBack || gf.actions.cycleBack || kf.actions.cycleBack,
                 fire: [
-                  mf.actions.fire[0] || gf.actions.fire[0] || kf.actions.fire[0],
-                  mf.actions.fire[1] || gf.actions.fire[1] || kf.actions.fire[1],
-                  mf.actions.fire[2] || gf.actions.fire[2] || kf.actions.fire[2],
-                  mf.actions.fire[3] || gf.actions.fire[3] || kf.actions.fire[3],
+                  (tf !== null && tf.actions.fire[0]) || mf.actions.fire[0] || gf.actions.fire[0] || kf.actions.fire[0],
+                  (tf !== null && tf.actions.fire[1]) || mf.actions.fire[1] || gf.actions.fire[1] || kf.actions.fire[1],
+                  (tf !== null && tf.actions.fire[2]) || mf.actions.fire[2] || gf.actions.fire[2] || kf.actions.fire[2],
+                  (tf !== null && tf.actions.fire[3]) || mf.actions.fire[3] || gf.actions.fire[3] || kf.actions.fire[3],
                 ] as [boolean, boolean, boolean, boolean],
               },
             }
@@ -187,7 +234,10 @@ export async function startSoloSession(
     render: () => {
       pollGamepads();
       // Rebound menu key / gamepad Start opens settings (ticket 41).
-      if (menuRequested() && !settingsScreen) openSettings();
+      // Touch pause icon (ticket 42) — same overlay, same semantics.
+      const touchPause = touch !== null && touch.consumePause();
+      if ((menuRequested() || touchPause) && !settingsScreen) openSettings();
+      touchOverlay?.redraw();
       for (const v of views) v.sync(latest);
     },
   });
@@ -199,6 +249,10 @@ export async function startSoloSession(
     views.length = 0;
     views.push(fresh);
     app.stage.addChild(fresh.container);
+    if (touchOverlay !== null) {
+      touchOverlay.setRegion({ x: 0, y: 0, w: app.renderer.width, h: app.renderer.height });
+      app.stage.addChild(touchOverlay.container);
+    }
   };
   globalThis.addEventListener("resize", onResize);
 
