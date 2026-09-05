@@ -19,6 +19,8 @@ import {
 } from "sim/assistSession";
 import { createSharedFieldSim, type SharedFieldSim, type SharedFieldOptions } from "sim/sharedField";
 import { getLevel } from "content/levels";
+import { DEFAULT_SKIN_ID } from "content/skins";
+import { assignSkinIndices, autoAssignBotSkins } from "content/skinSync";
 import type { InputFrame, Snapshot } from "shared/protocol";
 
 export type BotVariant =
@@ -65,6 +67,8 @@ export interface VersusBotsOptions {
   /** Assist range. */
   assistRange?: Pick<AssistSessionOptions, "startRound" | "endRound">;
   playerNames?: string[];
+  /** Human's skin UUID (ticket 44); bots auto-assign distinct non-colliding skins. */
+  humanSkinId?: string | undefined;
   seed?: number;
 }
 
@@ -92,6 +96,12 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
     opts.playerNames ?? ["You", ...Array.from({ length: opts.bots }, (_, i) => `Bot ${String(i + 1)}`)];
   const total = 1 + opts.bots;
 
+  // Skins (ticket 44): human's choice first, bots auto-assigned distinct
+  // skins that never collide with it; UUIDs → compact session indices.
+  const humanSkinId = opts.humanSkinId ?? DEFAULT_SKIN_ID;
+  const botSkinIds = autoAssignBotSkins([humanSkinId], opts.bots);
+  const skinIndices = assignSkinIndices([humanSkinId, ...botSkinIds]).indices;
+
   // Bots: host-local input sources, one per bot player index.
   const bots: BotSource[] = [];
   for (let i = 1; i < total; i++) {
@@ -116,6 +126,7 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       ballModel: opts.duelBallModel ?? "shared",
       timeCapTicks: null,
       playerNames: [names[0] ?? "You", names[1] ?? "Bot 1"],
+      skinIndices: [skinIndices[0] ?? 0, skinIndices[1] ?? 1],
     });
     return {
       variant: "duel",
@@ -146,6 +157,7 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       ballModel: opts.sharedField?.ballModel ?? "shared",
       playerCount: total as 2 | 3 | 4,
       playerNames: names.slice(0, total),
+      skinIndices,
     });
     return {
       variant: "sharedField",
@@ -179,6 +191,7 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       startRound: range.startRound,
       endRound: range.endRound,
       playerNames: names.slice(0, total),
+      skinIndices,
       seed,
     });
     return {
@@ -216,6 +229,7 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       playerCount: total,
       config,
       playerNames: names.slice(0, total),
+      skinIndices,
       seed,
     });
     return {
@@ -244,6 +258,7 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
     playerCount: total,
     config,
     playerNames: names.slice(0, total),
+    skinIndices,
     seed,
   });
   return {

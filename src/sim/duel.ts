@@ -91,11 +91,14 @@ export interface DuelOptions {
   /** Finite time cap in ticks, or null = infinite. */
   timeCapTicks: number | null;
   playerNames?: [string, string];
+  /** Compact per-session skin indices [p0, p1] (ticket 44). */
+  skinIndices?: readonly [number, number];
 }
 
 export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
   assertDuelRound(level.round);
   const names = opts.playerNames ?? ["Player 1", "Player 2"];
+  const skinIndices = opts.skinIndices ?? [0, 1];
 
   const bricks = parseGrid(level.grid, level.silverHitOverride, level.round);
   const baseSpeed = level.baseBallSpeed;
@@ -450,7 +453,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         players: paddles.map((p, i) => ({
           player: i,
           name: names[i] ?? `Player ${String(i + 1)}`,
-          skinIndex: i,
+          skinIndex: skinIndices[i] ?? i,
           paddle: { x: p.x, y: p.y, w: p.w, h: p.h, edge: "bottom" as const },
           lives: 0, // no lives in duel
           score: scores[i as 0 | 1],

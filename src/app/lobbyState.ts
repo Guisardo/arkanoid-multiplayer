@@ -4,7 +4,11 @@
 // by player count, kick, join states (lobby-join between matches, no
 // mid-game late-join), host-left handling. Pure logic — the UI and
 // signaling layers drive it with events.
+// Ticket 44: per-player skin override (Settings default → lobby override),
+// host-chosen field theme in LobbyConfig, full skin UUID on remote join.
 import { validateRoomCode } from "signaling/code";
+import { DEFAULT_SKIN_ID, getSkin } from "content/skins";
+import { DEFAULT_THEME_ID, getTheme } from "content/themes";
 
 export const SESSION_CAP = 4;
 export const NAME_MAX_CHARS = 12;
@@ -19,6 +23,8 @@ export interface LobbyConfig {
   levelSelection: "hostPick" | "fixedOrder" | "random";
   hostPickRound: number;
   timeCapTicks: number | null;
+  /** Host-chosen field theme UUID (ticket 44; visual-only, spec §13). */
+  themeId: string;
 }
 
 export const DEFAULT_CONFIG: LobbyConfig = {
@@ -28,6 +34,7 @@ export const DEFAULT_CONFIG: LobbyConfig = {
   levelSelection: "hostPick",
   hostPickRound: 1,
   timeCapTicks: null,
+  themeId: DEFAULT_THEME_ID,
 };
 
 export type PlayerKind = "local" | "remote";
@@ -38,6 +45,8 @@ export interface LobbyPlayer {
   kind: PlayerKind;
   name: string;
   ready: boolean;
+  /** Player skin UUID (ticket 44): Settings default until lobby override. */
+  skinId: string;
 }
 
 export type LobbyPhase =
@@ -59,11 +68,13 @@ export interface LobbyState {
 export type LobbyEvent =
   | { type: "createRoom"; code: string }
   | { type: "joinRoom"; code: string }
-  | { type: "addLocalPlayer"; name?: string }
-  | { type: "remoteJoined"; guestIndex: number; name: string }
+  | { type: "addLocalPlayer"; name?: string; skinId?: string }
+  | { type: "remoteJoined"; guestIndex: number; name: string; skinId?: string }
   | { type: "remoteLeft"; guestIndex: number }
   | { type: "removePlayer"; playerId: number } // kick (host-only) or local remove
   | { type: "setReady"; playerId: number; ready: boolean }
+  | { type: "setPlayerName"; playerId: number; name: string }
+  | { type: "setPlayerSkin"; playerId: number; skinId: string }
   | { type: "setConfig"; config: Partial<LobbyConfig> }
   | { type: "startCountdown" }
   | { type: "countdownTick" }
@@ -95,7 +106,7 @@ export function createLobbyState(isHost: boolean): LobbyState {
     phase: "lobby",
     code: null,
     isHost,
-    players: [{ id: 0, kind: "local", name: "Player 1", ready: false }],
+    players: [{ id: 0, kind: "local", name: "Player 1", ready: false, skinId: DEFAULT_SKIN_ID }],
     config: { ...DEFAULT_CONFIG },
     countdownRemaining: 0,
   };
@@ -153,6 +164,7 @@ export function reduceLobby(
         kind: "local",
         name: event.name ?? `Player ${String(next.players.length + 1)}`,
         ready: false,
+        skinId: validSkin(event.skinId) ?? DEFAULT_SKIN_ID,
       });
       return { state: next };
     }
@@ -162,7 +174,14 @@ export function reduceLobby(
       }
       if (next.players.length >= SESSION_CAP) return { state, error: "sessionFull" };
       // Between-match joiners start unready; existing players keep state.
-      next.players.push({ id: event.guestIndex + 100, kind: "remote", name: event.name, ready: false });
+      // Full skin UUID rides the join (ticket 44, spec §13 wire rule).
+      next.players.push({
+        id: event.guestIndex + 100,
+        kind: "remote",
+        name: event.name,
+        ready: false,
+        skinId: validSkin(event.skinId) ?? DEFAULT_SKIN_ID,
+      });
       return { state: next };
     }
     case "remoteLeft": {
@@ -184,9 +203,27 @@ export function reduceLobby(
       p.ready = event.ready;
       return { state: next };
     }
+    case "setPlayerName": {
+      const p = next.players.find((x) => x.id === event.playerId);
+      if (!p) return { state, error: "playerNotFound" };
+      // Names never localized (spec §8); trimmed + capped.
+      p.name = event.name.trim().slice(0, NAME_MAX_CHARS) || p.name;
+      return { state: next };
+    }
+    case "setPlayerSkin": {
+      const p = next.players.find((x) => x.id === event.playerId);
+      if (!p) return { state, error: "playerNotFound" };
+      // Unknown UUIDs fall back to default — never a crash (spec §13).
+      p.skinId = validSkin(event.skinId) ?? DEFAULT_SKIN_ID;
+      return { state: next };
+    }
     case "setConfig": {
       if (!next.isHost) return { state, error: "notHost" };
-      next.config = { ...next.config, ...event.config };
+      const themeId =
+        event.config.themeId !== undefined
+          ? (getTheme(event.config.themeId)?.id ?? next.config.themeId)
+          : next.config.themeId;
+      next.config = { ...next.config, ...event.config, themeId };
       // Any config change resets all ready checks (spec §8).
       for (const p of next.players) p.ready = false;
       return { state: next };
@@ -220,4 +257,10 @@ export function reduceLobby(
       return { state: createLobbyState(true) };
     }
   }
+}
+
+/** Known skin UUID or null (callers fall back to the default skin). */
+function validSkin(id: string | undefined): string | null {
+  if (id === undefined) return null;
+  return getSkin(id)?.id ?? null;
 }

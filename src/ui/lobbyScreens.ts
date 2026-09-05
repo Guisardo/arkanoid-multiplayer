@@ -17,6 +17,8 @@ import {
   type LobbyMode,
   type LobbyState,
 } from "app/lobbyState";
+import { SKINS } from "content/skins";
+import { THEMES } from "content/themes";
 import { ROOM_CODE_REGEX } from "signaling/code";
 
 // ---- QR (client-side, zero network) ----
@@ -278,6 +280,8 @@ export interface LobbyScreenOptions {
   host: HTMLElement;
   locale: Locale;
   device?: LobbyDevice;
+  /** Per-device default skin UUID (Settings Appearance) — new locals start on it. */
+  defaultSkinId?: string;
   /** State changes feed this screen (host or guest view). */
   onEvent: (event: Parameters<typeof reduceLobby>[1]) => void;
   /** Host start pressed with a valid, all-ready state. */
@@ -323,7 +327,10 @@ export class LobbyScreen {
 
     const addLocal = menuBtn(opts.locale, "lobby.addLocalPlayer");
     addLocal.addEventListener("click", () => {
-      this.dispatch({ type: "addLocalPlayer" });
+      this.dispatch({
+        type: "addLocalPlayer",
+        ...(opts.defaultSkinId !== undefined ? { skinId: opts.defaultSkinId } : {}),
+      });
     });
     panel.appendChild(addLocal);
 
@@ -374,7 +381,8 @@ export class LobbyScreen {
       this.statusEl.textContent = "";
     }
 
-    // Players: name, ready check, kick (host-only on remotes).
+    // Players: name (editable, local), skin picker (local, ticket 44),
+    // ready check, kick (host-only on remotes).
     this.playersEl.replaceChildren();
     for (const p of s.players) {
       const row = document.createElement("div");
@@ -384,6 +392,41 @@ export class LobbyScreen {
       const name = document.createElement("span");
       name.textContent = p.name;
       name.style.color = "#eee";
+      if (p.kind === "local") {
+        // Name editing (ticket 43 leftover, spec §8): 12-char max,
+        // never localized. Input replaces the span on this row.
+        const input = document.createElement("input");
+        input.className = "ld-input";
+        input.style.letterSpacing = "0";
+        input.style.width = "12ch";
+        input.style.textTransform = "none";
+        input.value = p.name;
+        input.maxLength = NAME_MAX_CHARS;
+        input.addEventListener("change", () => {
+          this.dispatch({ type: "setPlayerName", playerId: p.id, name: input.value });
+        });
+        row.appendChild(input);
+        // Skin picker (ticket 44): same slot as name editing.
+        const skin = document.createElement("select");
+        skin.className = "ld-input";
+        skin.style.letterSpacing = "0";
+        skin.style.textTransform = "none";
+        skin.style.width = "auto";
+        skin.style.minHeight = "48px";
+        for (const sk of SKINS) {
+          const opt = document.createElement("option");
+          opt.value = sk.id;
+          opt.textContent = sk.name;
+          skin.appendChild(opt);
+        }
+        skin.value = p.skinId;
+        skin.addEventListener("change", () => {
+          this.dispatch({ type: "setPlayerSkin", playerId: p.id, skinId: skin.value });
+        });
+        row.appendChild(skin);
+      } else {
+        row.appendChild(name);
+      }
       const ready = document.createElement("button");
       ready.className = "ld-btn";
       ready.style.minHeight = "48px";
@@ -392,7 +435,7 @@ export class LobbyScreen {
       ready.addEventListener("click", () => {
         this.dispatch({ type: "setReady", playerId: p.id, ready: !p.ready });
       });
-      row.append(name, ready);
+      row.appendChild(ready);
       if (s.isHost && p.kind === "remote") {
         const kick = menuBtn(locale, "lobby.kick");
         kick.style.minHeight = "48px";
@@ -433,6 +476,43 @@ export class LobbyScreen {
       modeRow.appendChild(btn);
     }
     this.configEl.appendChild(modeRow);
+
+    // Field theme (ticket 44): host-chosen, visual-only (spec §13).
+    // Host edits via select; guests see the chosen name read-only.
+    const themeRow = document.createElement("div");
+    themeRow.style.display = "flex";
+    themeRow.style.alignItems = "center";
+    themeRow.style.gap = "8px";
+    const themeLabel = document.createElement("span");
+    themeLabel.className = "ld-hint";
+    themeLabel.textContent = t(locale, "settings.theme");
+    themeRow.appendChild(themeLabel);
+    if (s.isHost) {
+      const themeSelect = document.createElement("select");
+      themeSelect.className = "ld-input";
+      themeSelect.style.letterSpacing = "0";
+      themeSelect.style.textTransform = "none";
+      themeSelect.style.width = "auto";
+      themeSelect.style.minHeight = "48px";
+      for (const th of THEMES) {
+        const opt = document.createElement("option");
+        opt.value = th.id;
+        opt.textContent = th.name;
+        themeSelect.appendChild(opt);
+      }
+      themeSelect.value = s.config.themeId;
+      themeSelect.addEventListener("change", () => {
+        this.dispatch({ type: "setConfig", config: { themeId: themeSelect.value } });
+      });
+      themeRow.appendChild(themeSelect);
+    } else {
+      const themeName = document.createElement("span");
+      themeName.style.color = "#eee";
+      themeName.textContent =
+        THEMES.find((th) => th.id === s.config.themeId)?.name ?? THEMES[0]?.name ?? "";
+      themeRow.appendChild(themeName);
+    }
+    this.configEl.appendChild(themeRow);
   }
 
   close(): void {

@@ -14,6 +14,8 @@ import {
   errorKey,
 } from "ui/lobbyScreens";
 import { reduceLobby, createLobbyState, MOBILE_DEVICE, type LobbyEvent, type LobbyError } from "app/lobbyState";
+import { SKINS } from "content/skins";
+import { THEMES } from "content/themes";
 import { t } from "ui/strings";
 
 describe("QR + code helpers", () => {
@@ -414,5 +416,112 @@ describe("QR matrix rendering", () => {
     expect(screen.root.textContent).toContain("ABC23");
     screen.close();
     delete (globalThis as Record<string, unknown>).qrcode;
+  });
+});
+
+describe("LobbyScreen skins + theme + names (ticket 44)", () => {
+  function makeLobby(events: LobbyEvent[] = []): { screen: LobbyScreen; events: LobbyEvent[] } {
+    const host = document.body;
+    host.innerHTML = "";
+    const seen: LobbyEvent[] = [];
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: (e) => {
+        seen.push(e);
+      },
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    let state = createLobbyState(true);
+    for (const e of events) state = reduceLobby(state, e).state;
+    screen.sync(state);
+    return { screen, events: seen };
+  }
+
+  it("local players get a skin select listing every registry skin", () => {
+    const { screen } = makeLobby();
+    const select = screen.root.querySelector("select");
+    expect(select).not.toBeNull();
+    const opts = [...(select?.querySelectorAll("option") ?? [])].map((o) => o.textContent);
+    expect(opts.length).toBe(SKINS.length);
+    screen.close();
+  });
+
+  it("skin select change dispatches setPlayerSkin", () => {
+    const { screen, events } = makeLobby();
+    const select = screen.root.querySelector("select");
+    expect(select).not.toBeNull();
+    if (select !== null) {
+      select.value = SKINS[1]?.id ?? "";
+      select.dispatchEvent(new Event("change"));
+    }
+    expect(events.some((e) => e.type === "setPlayerSkin")).toBe(true);
+    screen.close();
+  });
+
+  it("local players get a name input (12-char max) dispatching setPlayerName", () => {
+    const { screen, events } = makeLobby();
+    const input = screen.root.querySelector("input");
+    expect(input).not.toBeNull();
+    expect(input?.maxLength).toBe(12);
+    if (input !== null) {
+      input.value = "Ace";
+      input.dispatchEvent(new Event("change"));
+    }
+    expect(events.some((e) => e.type === "setPlayerName")).toBe(true);
+    screen.close();
+  });
+
+  it("host sees a theme select; change dispatches setConfig with themeId", () => {
+    const { screen, events } = makeLobby();
+    const selects = screen.root.querySelectorAll("select");
+    const themeSelect = [...selects].find((s) =>
+      [...s.querySelectorAll("option")].some((o) => o.value === THEMES[1]?.id),
+    );
+    expect(themeSelect).not.toBeUndefined();
+    if (themeSelect !== undefined) {
+      themeSelect.value = THEMES[1]?.id ?? "";
+      themeSelect.dispatchEvent(new Event("change"));
+    }
+    const cfg = events.find((e): e is Extract<LobbyEvent, { type: "setConfig" }> => e.type === "setConfig");
+    expect(cfg?.config.themeId).toBe(THEMES[1]?.id);
+    screen.close();
+  });
+
+  it("guest view shows the theme name read-only (no theme select)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    // Drive to guest state: hostLeft resets to fresh host lobby, so build
+    // guest state directly via sync.
+    const guestState = createLobbyState(false);
+    screen.sync(guestState);
+    const selects = screen.root.querySelectorAll("select");
+    // Guest: no theme select (only local-player skin selects remain).
+    const themeSelect = [...selects].find((s) =>
+      [...s.querySelectorAll("option")].some((o) => o.value === THEMES[1]?.id),
+    );
+    expect(themeSelect).toBeUndefined();
+    // Theme name still visible in the config panel.
+    expect(screen.root.textContent).toContain(THEMES[0]?.name ?? "");
+    screen.close();
+  });
+
+  it("remote players show name + no skin select (host edits nothing for them)", () => {
+    const { screen } = makeLobby([
+      { type: "remoteJoined", guestIndex: 0, name: "Guest", skinId: SKINS[2]?.id ?? "" },
+    ]);
+    // Two selects max: one local skin + host theme. Remote adds none.
+    const selects = screen.root.querySelectorAll("select");
+    expect(selects.length).toBe(2);
+    expect(screen.root.textContent).toContain("Guest");
+    screen.close();
   });
 });
