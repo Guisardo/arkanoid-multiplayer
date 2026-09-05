@@ -77,6 +77,19 @@ const enUS = {
   "end.lobby": "Return to lobby",
   "end.continue": "Continue",
   "end.restart": "Restart",
+  "menu.race": "Race",
+  "menu.attack": "Attack",
+  "menu.duel": "Duel",
+  "menu.sharedField": "Shared field",
+  "menu.parallelAssist": "Parallel assist",
+  "vb.variant": "Variant",
+  "vb.bots": "Bots",
+  "vb.difficulty": "Difficulty",
+  "vb.difficultyEasy": "Easy",
+  "vb.difficultyNormal": "Normal",
+  "vb.difficultyHard": "Hard",
+  "vb.start": "Start",
+  "vb.invalidSetup": "Invalid setup for this variant",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -148,6 +161,19 @@ const es419: Record<StringKey, string> = {
   "end.lobby": "Volver al lobby",
   "end.continue": "Continuar",
   "end.restart": "Reiniciar",
+  "menu.race": "Carrera",
+  "menu.attack": "Ataque",
+  "menu.duel": "Duelo",
+  "menu.sharedField": "Campo compartido",
+  "menu.parallelAssist": "Asistencia paralela",
+  "vb.variant": "Variante",
+  "vb.bots": "Bots",
+  "vb.difficulty": "Dificultad",
+  "vb.difficultyEasy": "Fácil",
+  "vb.difficultyNormal": "Normal",
+  "vb.difficultyHard": "Difícil",
+  "vb.start": "Empezar",
+  "vb.invalidSetup": "Configuración inválida para esta variante",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {
