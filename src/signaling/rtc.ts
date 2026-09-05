@@ -100,24 +100,126 @@ function localSdp(pc: RTCPeerConnection): string {
   return desc.sdp;
 }
 
-export async function connectViaSignalingHost(code: string, iceConfig?: IceConfig): Promise<RtcConnection> {
-  const signaling = await SignalingClient.connect(code, { role: "host" });
-  const pc = createPeerConnection(iceConfig);
-  const { gameChannel, controlChannel } = createChannelPair(pc);
+async function offerSdpOf(pc: RTCPeerConnection): Promise<string> {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   await waitForIceComplete(pc);
-  const answerSdp = await signaling.host(localSdp(pc));
-  await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-  await channelOpen(gameChannel, controlChannel);
-  return { pc, gameChannel, controlChannel };
+  return localSdp(pc);
 }
+
+// ---- Host room (signaling transport, multi-guest) ----
+
+/**
+ * Host side of a room: holds the signaling WS all session (spec §10 —
+ * discoverable for between-match joins), one RTCPeerConnection per guest.
+ * `connectGuest` fires per finished connection keyed by guest index.
+ */
+export interface HostRoom {
+  /** Resolves when the signaling connection is established. */
+  ready(): Promise<void>;
+  /** Live signaling events (guest-joined / guest-left / host-left). */
+  onEvent(cb: (ev: HostRoomEvent) => void): void;
+  /** Stop accepting guests and close signaling. */
+  close(): void;
+}
+
+export type HostRoomEvent =
+  | { type: "guest-joined"; guestIndex: number }
+  | { type: "guest-left"; guestIndex: number }
+  | { type: "host-left" };
+
+export interface HostRoomOptions {
+  code: string;
+  iceConfig?: IceConfig;
+  /** Called with the finished connection for that guest index. */
+  connectGuest?: (guestIndex: number, conn: RtcConnection) => void;
+}
+
+export function openHostRoom(opts: HostRoomOptions): HostRoom {
+  let eventCb: ((ev: HostRoomEvent) => void) | null = null;
+  let closed = false;
+  const pendingEvents: HostRoomEvent[] = [];
+
+  const signalingPromise = (async (): Promise<SignalingClient> => {
+    const signaling = await SignalingClient.connect(opts.code, { role: "host" });
+    signaling.onMessage((msg) => {
+      if (msg.type === "guest-joined" && msg.guestIndex !== undefined) {
+        void connectGuest(msg.guestIndex);
+        emit({ type: "guest-joined", guestIndex: msg.guestIndex });
+      } else if (msg.type === "guest-left" && msg.guestIndex !== undefined) {
+        emit({ type: "guest-left", guestIndex: msg.guestIndex });
+      } else if (msg.type === "error" && msg.reason === "host left") {
+        emit({ type: "host-left" });
+      }
+    });
+    return signaling;
+  })();
+
+  async function connectGuest(guestIndex: number): Promise<void> {
+    try {
+      const signaling = await signalingPromise;
+      const pc = createPeerConnection(opts.iceConfig);
+      const { gameChannel, controlChannel } = createChannelPair(pc);
+      const sdp = await offerSdpOf(pc);
+      // Targeted offer: one PC per guest, keyed by guestIndex (spec §9).
+      signaling.send({ type: "host-offer", guestIndex, sdp });
+
+      // Await this guest's answer on the shared event stream (multi-handler).
+      const answer = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          off();
+          reject(new Error("guest answer timeout"));
+        }, 30000);
+        const off = signaling.onMessage((msg) => {
+          if (msg.type === "guest-answer" && msg.guestIndex === guestIndex && msg.sdp !== undefined) {
+            clearTimeout(timer);
+            off();
+            resolve(msg.sdp);
+          }
+        });
+      });
+      await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      await channelOpen(gameChannel, controlChannel);
+      opts.connectGuest?.(guestIndex, { pc, gameChannel, controlChannel });
+    } catch {
+      emit({ type: "guest-left", guestIndex });
+    }
+  }
+
+  function emit(ev: HostRoomEvent): void {
+    if (eventCb === null) {
+      pendingEvents.push(ev);
+      return;
+    }
+    eventCb(ev);
+  }
+
+  return {
+    ready: () => signalingPromise.then(() => undefined),
+    onEvent(cb) {
+      eventCb = cb;
+      while (pendingEvents.length > 0) {
+        const ev = pendingEvents.shift();
+        if (ev === undefined) break;
+        cb(ev);
+      }
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      void signalingPromise.then((s) => { s.close(); }).catch(() => undefined);
+    },
+  };
+}
+
+// ---- Guest (signaling transport) ----
 
 export async function connectViaSignalingGuest(code: string, iceConfig?: IceConfig): Promise<RtcConnection> {
   const signaling = await SignalingClient.connect(code, { role: "guest" });
+  await signaling.joinedAck();
   const pc = createPeerConnection(iceConfig);
-  const offerSdp = await signaling.guest();
-  await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+  const offerSdpStr = await signaling.offer();
+  await pc.setRemoteDescription({ type: "offer", sdp: offerSdpStr });
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   await waitForIceComplete(pc);
@@ -126,6 +228,8 @@ export async function connectViaSignalingGuest(code: string, iceConfig?: IceConf
   signaling.close();
   return { pc, gameChannel, controlChannel };
 }
+
+// ---- Copy-paste transport (fallback + dev connector) ----
 
 export interface CopyPasteHostFlow {
   offerCode: string;

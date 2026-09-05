@@ -4,6 +4,8 @@ test("solo round playable: paddle moves with keyboard, launch serves the ball", 
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await page.goto("/");
+  // Landing (ticket 45): Solo entry boots the session.
+  await page.locator("button", { hasText: "Solo" }).click();
   await page.waitForFunction(() => globalThis.__arkanoid !== undefined, null, { timeout: 15_000 });
 
   const initial = await page.evaluate(() => {

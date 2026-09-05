@@ -1,6 +1,11 @@
 // Cross-seam protocol types (spec §2, §9, §11). Leaf module: imports nothing.
 // sim/, net/, render/, input/ all import from here — never each other.
 
+// ---- Wire protocol version (spec §9 version handshake) ----
+
+/** Bump on any incompatible change to the game/control wire format. */
+export const PROTOCOL_VERSION = 1;
+
 // ---- Input frame (the input→sim seam) ----
 
 /** Sim action edge events, buffered max 1 per action per tick (spec §11). */
