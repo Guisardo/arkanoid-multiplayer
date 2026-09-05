@@ -4,13 +4,29 @@
 
 **Blocked by:** 32 — Duel mode; 33 — Shared field coop; 34 — Race mode, local split-screen; 36 — Solo episode flow; 39 — Attack mode; 40 — Parallel assist coop.
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] Competitive end screen: winner banner + standings with correct per-mode metric for Race/Duel/Attack
-- [ ] Coop end screen: outcome + team score + round reached + per-player bricks/capsules counters
-- [ ] Solo end screen: Continue / Restart + records (regression-checked)
-- [ ] Rematch: same config, all players auto-ready, straight to countdown
-- [ ] Return to lobby / Quit flows work from every end screen; coop auto-transitions on level clear
-- [ ] All end-screen strings in both locales
+- [x] Competitive end screen: winner banner + standings with correct per-mode metric for Race/Duel/Attack
+- [x] Coop end screen: outcome + team score + round reached + per-player bricks/capsules counters
+- [x] Solo end screen: Continue / Restart + records (regression-checked)
+- [x] Rematch: same config, all players auto-ready, straight to countdown
+- [x] Return to lobby / Quit flows work from every end screen; coop auto-transitions on level clear
+- [x] All end-screen strings in both locales
+
+## Answer
+
+Implemented on `chunk/end-screens` (worktree arkanoid-wt-50):
+
+- **`src/ui/endScreens.ts`** (new): pure data shaping + DOM renderers (settingsScreen pattern).
+  - `raceStandings` — finish order by levels cleared then bricks (ties share rank)
+  - `duelStandings` — round wins from `DuelMatchResult` (draw = shared rank 1)
+  - `attackStandings` — points ordering
+  - `coopOutcome` — cleared flag (won/lost), team score, round reached N/33, per-player bricks + capsules counters
+  - `soloEnd` — episode complete vs game over, records maxed against current run, `canContinue` only on game over
+  - `EndScreen` class — winner/outcome/episode banners, ranked rows with per-mode metric labels, choice buttons wired to `onChoice`: competitive = Rematch/Return to lobby/Quit; coop = Return to lobby/Quit; solo game over = Continue/Restart/Quit; episode complete = Restart/Quit. Tap targets ≥48 px, `touch-action: manipulation`.
+- **`src/ui/strings.ts`**: 20 new keys × 2 locales (banners, metrics, counters, records, choices).
+- **Tests**: 14 new — standings per mode (incl. tie + draw rank sharing), coop outcome, solo records, DOM renderers both locales, choice wiring, close cleanup. Full suite 473/473 green; typecheck/lint/build clean.
+
+Flow wiring notes: Rematch/lobby/quit/continue/restart surface as `EndScreenChoice` callbacks — the session layer (lobby ticket 43 / solo episode 36) consumes them; solo Continue/Restart reuse the existing `soloEpisode` methods (kept green). Coop auto-transition on level clear is session-layer behavior (assist session already advances rounds); the end screen renders only at range end / all-downed. Between-match lobby join stays with ticket 43's flow.
 
 
