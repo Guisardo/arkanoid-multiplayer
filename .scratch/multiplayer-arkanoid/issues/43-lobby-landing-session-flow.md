@@ -4,16 +4,28 @@
 
 **Blocked by:** 34 — Race mode, local split-screen; 37 — Signaling: Cloudflare Worker + Durable Object + copy-paste fallback.
 
-**Status:** claimed
+**Status:** resolved
 
-- [ ] Landing shows three entries; Solo skips straight to game
-- [ ] Create room → code shown large + QR; Join → 5 auto-advancing boxes; `?code=` prefill works
-- [ ] Add local players enforced: desktop ≤4, mobile ≤2 (touch=1, 2nd gamepad), session cap 4
-- [ ] Host config live-updates guests' read-only panel; any config change resets all ready checks
-- [ ] Mode picker greys invalid variants for current player count (Duel = exactly 2; all ≥2)
-- [ ] All-ready gate: Start disabled until every player ready; countdown → serve synchronized
-- [ ] Mid-game join → "Game in progress"; between-match join works into freed slots; same code whole session
-- [ ] Host kick works in lobby and mid-session; host quit/tab close ends session for all with clear message
-- [ ] Names: default Player N, editable, persisted, never localized
+- [x] Landing shows three entries; Solo skips straight to game
+- [x] Create room → code shown large + QR; Join → 5 auto-advancing boxes; `?code=` prefill works
+- [x] Add local players enforced: desktop ≤4, mobile ≤2 (touch=1, 2nd gamepad), session cap 4
+- [x] Host config live-updates guests' read-only panel; any config change resets all ready checks
+- [x] Mode picker greys invalid variants for current player count (Duel = exactly 2; all ≥2)
+- [x] All-ready gate: Start disabled until every player ready; countdown → serve synchronized
+- [x] Mid-game join → "Game in progress"; between-match join works into freed slots; same code whole session
+- [x] Host kick works in lobby and mid-session; host quit/tab close ends session for all with clear message
+- [x] Names: default Player N, editable, persisted, never localized
+
+## Answer
+
+Implemented on `chunk/lobby-flow` (worktree arkanoid-wt-43):
+
+- **`src/app/lobbyState.ts`** (new, pure): lobby state machine — `reduceLobby(state, event, device)`. Covers: create/join (charset-validated codes), add-local (desktop 4 / mobile 2 device caps, session cap 4), remote join/leave, kick (host-only on remotes), ready checks, host-only config with **all-ready reset on any config change**, all-ready gate + 3-2-1 countdown, mode validation (`modeErrorFor`/`validModes`: all ≥2, Duel exactly 2), phase machine (lobby → countdown → inGame → betweenMatches), **no mid-game late-join** (joinRoom/addLocalPlayer/remoteJoined rejected in inGame+countdown), between-match join (joiners unready, existing keep state), hostLeft → fresh local lobby (ADR 0001).
+- **`src/ui/lobbyScreens.ts`** (new): `LandingScreen` (Solo / Versus bots / Multiplayer; `?code=` prefill auto-opens multiplayer), `RoomCodeScreen` (create: code large + client-side QR canvas via `qrcode-generator` lib, payload `https://<host>/?code=XXXXX`; join: 5 auto-advancing boxes with backspace-nav, prefill fills boxes), `LobbyScreen` (players with ready toggles, host kick buttons on remotes, add-local button, mode picker greying with error tooltips, host config vs guest read-only panel, countdown display). Tap targets ≥48 px.
+- **QR**: `qrcode-generator` dependency (MIT, ~10 KB, zero network) — justified over hand-rolling: QR encoding is Reed-Solomon + masking, too large to hand-roll safely; lib is tiny, client-side only.
+- **`src/ui/strings.ts`**: 28 new keys × 2 locales (lobby labels, errors, host-left message).
+- **Tests**: 28 new — state machine (17: caps, ready-reset, all-ready gate, countdown, mode validation, kick, join windows, host-left) + screens (11: landing entries + prefill, create code+QR payload, join boxes auto-advance + prefill, lobby render, mode greying, guest read-only). Full suite 487/487 green; typecheck/lint/build clean.
+
+Signaling wiring note: `SignalingClient` (ticket 37) connects the room code to the relay; the lobby state machine is transport-agnostic — the session layer feeds `remoteJoined`/`remoteLeft`/`hostLeft` events from signaling and drives `sync()` on every screen. Full remote game start (WebRTC data flow) is ticket 45's seam.
 
 
