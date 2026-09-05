@@ -41,9 +41,13 @@ Implemented on `chunk/remote-play` (worktree arkanoid-wt-45, PR #29).
 - **`main.ts`**: landing (Solo / Versus bots / Multiplayer); Multiplayer → RoomCodeScreen (create/join) → host: `openHostRoom` + LobbyScreen wired to `hostLocalEvent`/`hostStartMatch` + guest channel wiring; guest: `connectViaSignalingGuest` + LobbyScreen intents → `guestHello`; `?code=` prefill preserved.
 - **`strings.ts`**: 8 new keys ×2 locales (connecting, refresh browser, connection corrupted, host left, remote progress, reconnecting).
 
-### Tests — 68 new, 688/688 green
-- `tests/net/`: inputCodec (13, incl. fuzz + quantization), hostGuard (8), interpolate (7), control (12, incl. fuzz)
-- `tests/app/`: mpLobby loopback (11 — hello/intents/caps/countdown/refused/dropped), mpLoopback (13 — full data plane with deterministic 5%/30% loss, malformed-drop, packMulti/progress round-trips, Duel 60 Hz, coop D=0)
+### Tests — 93 new, 713/713 green
+- `tests/net/`: inputCodec (14, incl. fuzz + quantization), hostGuard (8), interpolate (7), control (12, incl. fuzz)
+- `tests/app/`: mpLobby loopback (11 — hello/intents/caps/countdown/refused/dropped), mpLoopback (13 — full data plane with deterministic 5%/30% loss, malformed-drop, packMulti/progress round-trips, Duel 60 Hz, coop D=0), mpFlow full wiring (7 — jsdom, in-memory loopback MpChannels, mocked Pixi seams, rAF shim: hello/ready → countdown → match launch → frames + progress rows, drop/host-gone fatals), main boot (4 — landing entries, Solo boots, versus-bots opens config, multiplayer create screen)
+- `tests/render/`: remoteStrip (5 — DOM rows, downed flag, compact, empty, close)
+- `tests/signaling/`: client (6 — loopback WebSocket pair: join send, multi-handler fan-out, joinedAck/offer awaits, room-full reject, answer/ice relay, invalid code), rtc (3 — fake RTCPeerConnection/DataChannel + mocked SignalingClient: guest flow, host-room targeted offer → answer → connectGuest, guest-left events)
 - `e2e/remote.spec.ts` (new): **two browser contexts connect via real WebRTC copy-paste** — both channels open + binary echo host→guest→host; `playwright.config.ts` disables mDNS hiding so loopback ICE works in CI
 - boot/settings/solo e2e updated for the landing gate (Solo click first)
 - lint / typecheck / build clean; signaling relay tests updated to targeted-offer semantics
+
+Coverage after lift: guestGame 96%, hostGame 86%, mpLobby 93%, mpFlow 78%, client 85%, rtc 68%, remoteStrip 100%, main 29% (boot module — DOM/WebRTC glue covered by e2e).
