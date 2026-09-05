@@ -455,7 +455,8 @@ function modeKey(m: LobbyMode): StringKey {
   }
 }
 
-function errorKey(e: LobbyError): StringKey {
+/** Map a lobby error to its display string key (exported for tests + callers). */
+export function errorKey(e: LobbyError): StringKey {
   switch (e) {
     case "modeNeedsTwo":
       return "lobby.errNeedsTwo";

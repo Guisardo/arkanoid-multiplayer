@@ -8,10 +8,13 @@ import {
   RoomCodeScreen,
   LobbyScreen,
   qrPayloadFor,
+  qrMatrix,
   codeFromUrl,
   generateRoomCode,
+  errorKey,
 } from "ui/lobbyScreens";
-import { reduceLobby, createLobbyState, type LobbyEvent } from "app/lobbyState";
+import { reduceLobby, createLobbyState, MOBILE_DEVICE, type LobbyEvent, type LobbyError } from "app/lobbyState";
+import { t } from "ui/strings";
 
 describe("QR + code helpers", () => {
   it("qrPayload encodes https://<host>/?code=XXXXX", () => {
@@ -213,5 +216,203 @@ describe("LobbyScreen", () => {
     expect(race?.disabled).toBe(true);
     expect(screen.root.textContent).toContain("host edits");
     screen.close();
+  });
+
+  it("countdown phase shows the remaining number; code shows otherwise", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    let s = createLobbyState(true);
+    s = reduceLobby(s, { type: "createRoom", code: "ABC23" }).state;
+    screen.sync(s);
+    expect(screen.root.textContent).toContain("ABC23");
+    s = reduceLobby(s, { type: "startCountdown" }).state; // not all ready → error, stays lobby
+    expect(s.phase).toBe("lobby");
+    s = reduceLobby(s, { type: "setReady", playerId: 0, ready: true }).state;
+    s = reduceLobby(s, { type: "remoteJoined", guestIndex: 0, name: "G" }).state;
+    s = reduceLobby(s, { type: "setReady", playerId: 100, ready: true }).state;
+    s = reduceLobby(s, { type: "startCountdown" }).state;
+    expect(s.phase).toBe("countdown");
+    screen.sync(s);
+    expect(screen.root.textContent).toContain("3");
+    s = reduceLobby(s, { type: "countdownTick" }).state;
+    screen.sync(s);
+    expect(screen.root.textContent).toContain("2");
+    screen.close();
+  });
+
+  it("host kick button dispatches removePlayer", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const events: LobbyEvent[] = [];
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: (e) => {
+        events.push(e);
+      },
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    let s = createLobbyState(true);
+    s = reduceLobby(s, { type: "remoteJoined", guestIndex: 0, name: "Guest 0" }).state;
+    screen.sync(s);
+    const kick = [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Kick");
+    kick?.click();
+    expect(events.some((e) => e.type === "removePlayer")).toBe(true);
+    screen.close();
+  });
+
+  it("host mode click dispatches setConfig (selected mode updates)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const events: LobbyEvent[] = [];
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: (e) => {
+        events.push(e);
+      },
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    let s = createLobbyState(true);
+    s = reduceLobby(s, { type: "remoteJoined", guestIndex: 0, name: "G" }).state;
+    screen.sync(s);
+    const attack = [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Attack");
+    attack?.click();
+    expect(events.some((e) => e.type === "setConfig")).toBe(true);
+    // Config change resets ready checks — the reducer ran through dispatch.
+    expect(screen.root.textContent).toContain("Not ready");
+    screen.close();
+  });
+
+  it("add-local button dispatches addLocalPlayer; device cap enforced via MOBILE_DEVICE", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const events: LobbyEvent[] = [];
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      device: MOBILE_DEVICE,
+      onEvent: (e) => {
+        events.push(e);
+      },
+      onStart: () => {},
+      onQuit: () => {},
+    });
+    const add = [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Add local player");
+    add?.click(); // → 2 locals (mobile cap)
+    add?.click(); // → deviceFull, no change
+    const adds = events.filter((e) => e.type === "addLocalPlayer");
+    expect(adds.length).toBe(2); // dispatch fires even when the reducer errors
+    screen.close();
+  });
+
+  it("start + quit buttons wire through", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    let started = 0;
+    let quit = 0;
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => {
+        started++;
+      },
+      onQuit: () => {
+        quit++;
+      },
+    });
+    [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Start")?.click();
+    [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Quit")?.click();
+    expect(started).toBe(1);
+    expect(quit).toBe(1);
+    screen.close();
+  });
+});
+
+describe("errorKey mapping (all lobby errors)", () => {
+  it("maps every LobbyError to its string key in both locales", () => {
+    const cases: Array<[LobbyError, string]> = [
+      ["modeNeedsTwo", "Needs at least 2 players"],
+      ["duelNeedsExactlyTwo", "Duel needs exactly 2 players"],
+      ["notAllReady", "All players must be ready"],
+      ["notHost", "Only the host can do that"],
+      ["sessionFull", "Session is full (4 players)"],
+      ["deviceFull", "Device local-player limit reached"],
+      ["noLateJoin", "Game in progress — join between matches"],
+      ["invalidCode", "Invalid room code"],
+      ["playerNotFound", "Player not found"],
+    ];
+    for (const [err, enText] of cases) {
+      expect(t("en-US", errorKey(err))).toBe(enText);
+    }
+    // es-419 spot checks per branch.
+    expect(t("es-419", errorKey("modeNeedsTwo"))).toBe("Necesita al menos 2 jugadores");
+    expect(t("es-419", errorKey("notHost"))).toBe("Solo el host puede hacer eso");
+    expect(t("es-419", errorKey("invalidCode"))).toBe("Código de sala inválido");
+  });
+});
+
+describe("QR matrix rendering", () => {
+  it("qrMatrix returns a boolean matrix when the lib is present", () => {
+    // Minimal fake qrcode-generator: 3x3 with dark corners.
+    (globalThis as Record<string, unknown>).qrcode = (): unknown => ({
+      addData: () => {},
+      make: () => {},
+      getModuleCount: () => 3,
+      isDark: (y: number, x: number): boolean => (y + x) % 2 === 0,
+    });
+    const m = qrMatrix("https://example.com/?code=ABC23");
+    expect(m).not.toBeNull();
+    expect(m?.length).toBe(3);
+    expect(m?.[0]?.[0]).toBe(true);
+    expect(m?.[0]?.[1]).toBe(false);
+  });
+
+  it("qrMatrix returns null when the lib throws", () => {
+    (globalThis as Record<string, unknown>).qrcode = (): unknown => {
+      throw new Error("lib broken");
+    };
+    expect(qrMatrix("anything")).toBeNull();
+  });
+
+  it("qrMatrix returns null when the lib is absent", () => {
+    delete (globalThis as Record<string, unknown>).qrcode;
+    expect(qrMatrix("anything")).toBeNull();
+  });
+
+  it("RoomCodeScreen create renders the QR canvas path when the lib is present", () => {
+    (globalThis as Record<string, unknown>).qrcode = (): unknown => ({
+      addData: () => {},
+      make: () => {},
+      getModuleCount: () => 3,
+      isDark: (y: number, x: number): boolean => (y + x) % 2 === 0,
+    });
+    const host = document.body;
+    host.innerHTML = "";
+    const screen = new RoomCodeScreen({
+      host,
+      locale: "en-US",
+      mode: "create",
+      code: "ABC23",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => {},
+    });
+    // jsdom canvas 2d context is null without the canvas package — the
+    // matrix branch runs, ctx-null guard skips drawing, no crash.
+    expect(screen.root.textContent).toContain("ABC23");
+    screen.close();
+    delete (globalThis as Record<string, unknown>).qrcode;
   });
 });
