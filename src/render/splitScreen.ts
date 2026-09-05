@@ -1,6 +1,7 @@
 // Split-screen composition (ticket 34, spec §12): desktop N-across equal
 // columns with 8 px gutters, per-field HUD strips, letterboxed fields.
-// Consumes Snapshots only.
+// Consumes Snapshots only. Ticket 44: per-player skin UUIDs + host-chosen
+// field theme flow into each FieldView.
 import { Container } from "pixi.js";
 import type { Snapshot } from "shared/protocol";
 import { splitRegions, layoutField, type Region } from "./layout";
@@ -12,6 +13,10 @@ export interface SplitScreenOptions {
   players: number[];
   locale: Locale;
   maxRound: number;
+  /** Per-player skin UUIDs, index-aligned with players (ticket 44). */
+  skinIds?: readonly string[];
+  /** Host-chosen field theme UUID (ticket 44; default when absent). */
+  themeId?: string;
 }
 
 export class SplitScreenView {
@@ -38,6 +43,8 @@ export class SplitScreenView {
         player,
         locale: this.opts.locale,
         maxRound: this.opts.maxRound,
+        skinId: this.opts.skinIds?.[i],
+        themeId: this.opts.themeId,
       });
       this.views.push(view);
       this.container.addChild(view.container);

@@ -31,6 +31,8 @@ export interface AttackSessionOptions {
   config: MatchConfig;
   playerNames?: string[] | undefined;
   seed?: number | undefined;
+  /** Compact per-session skin indices, one per player (ticket 44). */
+  skinIndices?: readonly number[] | undefined;
   /** Lobby toggles — all-on default. */
   triggers?: AttackTriggerToggles | undefined;
   /** Live-tunable economy values. */
@@ -84,9 +86,11 @@ export function createAttackSession(opts: AttackSessionOptions): AttackSession {
     playerCount: number;
     config: MatchConfig;
     playerNames?: string[] | undefined;
+    skinIndices?: readonly number[] | undefined;
     seed?: number | undefined;
   } = { playerCount, config: { ...opts.config, maxRound: ATTACK_MAX_ROUND } };
   if (opts.playerNames !== undefined) raceOpts.playerNames = opts.playerNames;
+  if (opts.skinIndices !== undefined) raceOpts.skinIndices = opts.skinIndices;
   if (opts.seed !== undefined) raceOpts.seed = opts.seed;
   const race = createMultiFieldSession(raceOpts);
 

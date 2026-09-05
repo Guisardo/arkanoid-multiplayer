@@ -87,6 +87,8 @@ export interface MultiFieldOptions {
   playerCount: number;
   config: MatchConfig;
   playerNames?: string[] | undefined;
+  /** Compact per-session skin indices, one per player (ticket 44). */
+  skinIndices?: readonly number[] | undefined;
   /** Seed for random level selection (deterministic). */
   seed?: number | undefined;
 }
@@ -94,6 +96,7 @@ export interface MultiFieldOptions {
 export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSession {
   const { playerCount, config } = opts;
   const names = opts.playerNames ?? Array.from({ length: playerCount }, (_, i) => `Player ${String(i + 1)}`);
+  const skinIndices = opts.skinIndices ?? [];
 
   let round = pickRound(config, 1, opts.seed ?? 1);
   let rngState = (opts.seed ?? 1) >>> 0;
@@ -108,7 +111,12 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
 
   function makeSims(): RoundSim[] {
     return Array.from({ length: playerCount }, (_, i) =>
-      createRoundSim(level, { lives: 5, score: 0, playerName: names[i] ?? undefined }),
+      createRoundSim(level, {
+        lives: 5,
+        score: 0,
+        playerName: names[i] ?? undefined,
+        skinIndex: skinIndices[i] ?? 0,
+      }),
     );
   }
 
@@ -241,7 +249,12 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
   function resetField(i: number): void {
     // 0 lives → current level resets with fresh layout and restored lives.
     const score = sims[i]?.snapshot().players[0]?.score ?? 0;
-    sims[i] = createRoundSim(level, { lives: 5, score, playerName: names[i] ?? undefined });
+    sims[i] = createRoundSim(level, {
+      lives: 5,
+      score,
+      playerName: names[i] ?? undefined,
+      skinIndex: skinIndices[i] ?? 0,
+    });
   }
 }
 

@@ -52,6 +52,8 @@ export interface AssistSessionOptions {
   /** Last round of the range (inclusive); team win at its clear. */
   endRound: number;
   playerNames?: string[] | undefined;
+  /** Compact per-session skin indices, one per player (ticket 44). */
+  skinIndices?: readonly number[] | undefined;
   seed?: number | undefined;
   tuning?: AssistTuning | undefined;
 }
@@ -95,6 +97,7 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
   const tuning = opts.tuning ?? DEFAULT_ASSIST_TUNING;
   const names =
     opts.playerNames ?? Array.from({ length: playerCount }, (_, i) => `Player ${String(i + 1)}`);
+  const skinIndices = opts.skinIndices ?? [];
 
   let round = startRound;
   let level: LevelData = getLevel(round);
@@ -102,7 +105,12 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
   let tick = 0;
 
   const sims: RoundSim[] = Array.from({ length: playerCount }, (_, i) =>
-    createRoundSim(level, { lives: 5, score: 0, playerName: names[i] ?? undefined }),
+    createRoundSim(level, {
+      lives: 5,
+      score: 0,
+      playerName: names[i] ?? undefined,
+      skinIndex: skinIndices[i] ?? 0,
+    }),
   );
   const meters = new Array<number>(playerCount).fill(0);
   const targets = new Array<number>(playerCount).fill(-1);
@@ -223,7 +231,12 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
     level = getLevel(round);
     for (const i of liveIndices) {
       const score = sims[i]?.snapshot().players[0]?.score ?? 0;
-      sims[i] = createRoundSim(level, { lives: 5, score, playerName: names[i] ?? undefined });
+      sims[i] = createRoundSim(level, {
+        lives: 5,
+        score,
+        playerName: names[i] ?? undefined,
+        skinIndex: skinIndices[i] ?? 0,
+      });
       lastEventTick[i] = -1;
     }
   }

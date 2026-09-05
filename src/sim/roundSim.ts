@@ -62,6 +62,8 @@ export interface RoundSimOptions {
   lives: number;
   score: number;
   playerName?: string | undefined;
+  /** Compact per-session skin index (ticket 44; 0 = default). */
+  skinIndex?: number | undefined;
 }
 
 export interface RoundSim {
@@ -608,7 +610,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           {
             player: 0,
             name: opts.playerName ?? "Player 1",
-            skinIndex: 0,
+            skinIndex: opts.skinIndex ?? 0,
             paddle: { x: paddle.x, y: paddle.y, w: paddle.w, h: paddle.h, edge: paddle.edge },
             lives,
             score,

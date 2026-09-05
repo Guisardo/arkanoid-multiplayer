@@ -91,6 +91,8 @@ export interface SharedFieldOptions {
   ballModel: SharedBallModel;
   playerCount: 2 | 3 | 4;
   playerNames?: string[];
+  /** Compact per-session skin indices, one per player (ticket 44). */
+  skinIndices?: readonly number[];
 }
 
 /** Edge assignment for placement B (spec: 2P bottom+right, 3P +left, 4P +top). */
@@ -109,6 +111,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
   const { playerCount, placement, ballModel } = opts;
   const names =
     opts.playerNames ?? Array.from({ length: playerCount }, (_, i) => `Player ${String(i + 1)}`);
+  const skinIndices = opts.skinIndices ?? [];
 
   const bricks = parseGrid(level.grid, level.silverHitOverride, level.round);
   // Boss round (ticket 49): classic Doh fight = empty arena — the gold
@@ -578,7 +581,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         players: paddles.map((p, i) => ({
           player: i,
           name: names[i] ?? `Player ${String(i + 1)}`,
-          skinIndex: i,
+          skinIndex: skinIndices[i] ?? i,
           paddle: { x: p.x, y: p.y, w: p.w, h: p.h, edge: p.edge },
           lives,
           score,
