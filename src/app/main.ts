@@ -11,6 +11,9 @@ import { MpFlow } from "app/mpFlow";
 import { openHostRoom, connectViaSignalingGuest, type RtcConnection } from "signaling/rtc";
 import { Storage } from "persistence/storage";
 import { loadSettings } from "ui/settings";
+import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
+import { GamepadAdapter, type GamepadState } from "input/gamepad";
+import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 const appHostElement = document.getElementById("app");
 if (appHostElement === null) throw new Error("missing #app host");
@@ -66,6 +69,81 @@ function openVersusBots(): void {
 
 interface GuestEntry {
   conn: RtcConnection;
+}
+
+/**
+ * Multiplayer local input (ticket 46): keyboard + gamepad adapters per
+ * local sim player, wired into the flow's per-tick sample seam. Bindings
+ * load from Settings (rebinds, ticket 41); paddle movement only — fire/
+ * cycle edges ride the same frames, pause/quit coordination is ticket 48.
+ */
+function makeLocalInput() {
+  const controls = loadSettings(new Storage()).controls;
+  // One keyboard adapter per local player (edges must not be consumed by
+  // another player's sample); a single listener fans events to all of them.
+  const keyboards = [0, 1, 2, 3].map((i) =>
+    new KeyboardAdapter({ player: i }, [controls.keyboard[i] ?? (i === 0 ? KEYSET_1 : KEYSET_2)]),
+  );
+  const gamepads = new Map<number, GamepadAdapter>();
+  const kd = (e: KeyboardEvent): void => {
+    for (const k of keyboards) k.keyDown(e.code);
+  };
+  const ku = (e: KeyboardEvent): void => {
+    for (const k of keyboards) k.keyUp(e.code);
+  };
+  globalThis.addEventListener("keydown", kd);
+  globalThis.addEventListener("keyup", ku);
+  const poll = (player: number): GamepadAdapter => {
+    let pad = gamepads.get(player);
+    if (pad === undefined) {
+      pad = new GamepadAdapter({ player });
+      pad.setBindings(controls.gamepad);
+      gamepads.set(player, pad);
+    }
+    const pads: readonly (Gamepad | null)[] =
+      typeof navigator !== "undefined" ? navigator.getGamepads() : [];
+    const gp = pads.length > 0 ? pads[0] : undefined;
+    if (gp === null || gp === undefined) {
+      pad.reset();
+      return pad;
+    }
+    const b = (i: number): boolean => gp.buttons[i]?.pressed === true;
+    const state: GamepadState = {
+      stickX: gp.axes[0] ?? 0,
+      stickY: gp.axes[1] ?? 0,
+      dpadLeft: b(14),
+      dpadRight: b(15),
+      buttons: {
+        a: b(0), b: b(1), x: b(2), y: b(3),
+        lb: b(4), rb: b(5), rt: b(7), lt: b(6),
+        start: b(9),
+      },
+    };
+    pad.feedState(state);
+    return pad;
+  };
+  return {
+    /** Per-tick sample: keyboard frame, gamepad overrides on activity. */
+    sample(player: number, tick: number) {
+      const kb = keyboards[player] ?? keyboards[0];
+      const kf = kb === undefined ? null : kb.sampleFrame(tick);
+      const frame: InputFrame = kf === null || kf.player === player
+        ? (kf ?? { player, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS })
+        : { ...kf, player };
+      const pad = poll(player);
+      const gf = pad.sampleFrame(tick);
+      if (gf.axisX !== 0 || gf.launch || gf.actions.cycleForward || gf.actions.cycleBack) {
+        return gf.player === player ? gf : { ...gf, player };
+      }
+      return frame.axisX !== 0 || frame.launch || frame.actions.cycleForward
+        ? frame
+        : { ...frame, player };
+    },
+    dispose(): void {
+      globalThis.removeEventListener("keydown", kd);
+      globalThis.removeEventListener("keyup", ku);
+    },
+  };
 }
 
 function openMultiplayer(joinCode?: string): void {
@@ -138,7 +216,10 @@ function startHostFlow(code: string): void {
       };
     },
     onLobbyState: (state) => { hostLobbyUI.sync(state); },
+    sampleLocal: (player, tick) => hostInput.sample(player, tick),
   });
+
+  const hostInput = makeLocalInput();
 
   const hostLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
@@ -211,7 +292,10 @@ function startGuestFlow(code: string): void {
       return { isHost: false, guestIndex: 0, channels };
     },
     onLobbyState: (state) => { guestLobbyUI.sync(state); },
+    sampleLocal: (player, tick) => guestInput.sample(player, tick),
   });
+
+  const guestInput = makeLocalInput();
 
   const guestLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
