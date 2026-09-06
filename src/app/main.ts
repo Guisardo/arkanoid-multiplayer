@@ -7,7 +7,7 @@ import { loadSkinSprites } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen } from "ui/versusBotsScreen";
 import { detectLocale, type Locale } from "ui/strings";
-import { MpFlow } from "app/mpFlow";
+import { MpFlow, type MpConnectResult } from "app/mpFlow";
 import { openHostRoom, connectViaSignalingGuest, type RtcConnection } from "signaling/rtc";
 import { Storage } from "persistence/storage";
 import { loadSettings } from "ui/settings";
@@ -261,37 +261,21 @@ function wireGuestChannels(flow: MpFlow, guestIndex: number, conn: RtcConnection
 }
 
 function startGuestFlow(code: string): void {
-  const flow = new MpFlow({
+  const flow: MpFlow = new MpFlow({
     host: appHost,
     locale,
-    connect: async () => {
+    connect: async (): Promise<MpConnectResult> => {
       const conn = await connectViaSignalingGuest(code);
-      const channels = {
-        hostToGuest: () => undefined,
-        guestToHost: (buffer: ArrayBuffer) => {
-          if (conn.gameChannel.readyState === "open") conn.gameChannel.send(buffer);
-        },
-        hostControl: () => undefined,
-        guestControl: (json: string) => {
-          if (conn.controlChannel.readyState === "open") conn.controlChannel.send(json);
-        },
-        onGuestDropped: (cb: (guestIndex: number) => void) => {
-          conn.gameChannel.addEventListener("close", () => { cb(0); });
-          conn.controlChannel.addEventListener("close", () => { cb(0); });
-        },
-        onHostGone: (cb: () => void) => {
-          conn.controlChannel.addEventListener("close", () => { cb(); });
-          conn.gameChannel.addEventListener("close", () => { cb(); });
-        },
-      };
-      conn.gameChannel.addEventListener("message", (ev: MessageEvent<ArrayBuffer>) => {
-        const data: ArrayBuffer = ev.data;
-        if (data instanceof ArrayBuffer) flow.binaryFromWire(0, data);
-      });
-      conn.controlChannel.addEventListener("message", (ev: MessageEvent<string>) => {
-        if (typeof ev.data === "string") flow.controlFromWire(0, ev.data);
-      });
-      return { isHost: false, guestIndex: 0, channels };
+      return wireGuestConn(flow, conn);
+    },
+    // Ticket 47: mid-match drop → one rejoin attempt with the same code.
+    reconnect: async (): Promise<MpConnectResult | null> => {
+      try {
+        const conn = await connectViaSignalingGuest(code);
+        return wireGuestConn(flow, conn);
+      } catch {
+        return null;
+      }
     },
     onLobbyState: (state) => { guestLobbyUI.sync(state); },
     sampleLocal: (player, tick) => guestInput.sample(player, tick),
@@ -319,6 +303,39 @@ function startGuestFlow(code: string): void {
   void flow.start().then(() => {
     flow.guestHello(playerName, settings.appearance.skinId);
   });
+}
+
+/**
+ * Ticket 47: wire a guest WebRTC connection into the flow (initial connect
+ * and rejoin reuse it — a rejoin gets fresh channels, same flow).
+ */
+function wireGuestConn(flow: MpFlow, conn: RtcConnection): MpConnectResult {
+  const channels = {
+    hostToGuest: () => undefined,
+    guestToHost: (buffer: ArrayBuffer) => {
+      if (conn.gameChannel.readyState === "open") conn.gameChannel.send(buffer);
+    },
+    hostControl: () => undefined,
+    guestControl: (json: string) => {
+      if (conn.controlChannel.readyState === "open") conn.controlChannel.send(json);
+    },
+    onGuestDropped: (cb: (guestIndex: number) => void) => {
+      conn.gameChannel.addEventListener("close", () => { cb(0); });
+      conn.controlChannel.addEventListener("close", () => { cb(0); });
+    },
+    onHostGone: (cb: () => void) => {
+      conn.controlChannel.addEventListener("close", () => { cb(); });
+      conn.gameChannel.addEventListener("close", () => { cb(); });
+    },
+  };
+  conn.gameChannel.addEventListener("message", (ev: MessageEvent<ArrayBuffer>) => {
+    const data: ArrayBuffer = ev.data;
+    if (data instanceof ArrayBuffer) flow.binaryFromWire(0, data);
+  });
+  conn.controlChannel.addEventListener("message", (ev: MessageEvent<string>) => {
+    if (typeof ev.data === "string") flow.controlFromWire(0, ev.data);
+  });
+  return { isHost: false, guestIndex: 0, channels };
 }
 
 boot();

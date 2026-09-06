@@ -51,6 +51,12 @@ export interface HostLobbySession {
   startCountdown(): void;
   /** Kick a guest device: removes its players + notifies it. */
   kickGuest(guestIndex: number): void;
+  /**
+   * Rebind a dropped guest's players to its new channel index (rejoin,
+   * ticket 47): the lobby keeps the players (held slot) — only the
+   * device routing moves.
+   */
+  rebindGuest(oldGuestIndex: number, newGuestIndex: number): void;
 }
 
 /** Map guestIndex → the LobbyPlayer.id used in state (id = guestIndex + 100). */
@@ -187,6 +193,14 @@ export function createHostLobbySession(
     kickGuest(guestIndex) {
       send(guestIndex, { type: "kick", reason: "lobby" });
       this.guestClosed(guestIndex);
+    },
+    rebindGuest(oldGuestIndex, newGuestIndex) {
+      // Ticket 47: held slot rejoins on a new channel — move the device
+      // routing, keep the players (guestClosed would remove them).
+      const players = guestPlayers.get(oldGuestIndex);
+      if (players === undefined) return;
+      guestPlayers.delete(oldGuestIndex);
+      guestPlayers.set(newGuestIndex, players);
     },
   };
 }

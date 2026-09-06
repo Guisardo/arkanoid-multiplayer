@@ -16,6 +16,7 @@ import {
 import { deserializeSnapshot } from "net/serializer";
 import { createInterpolator, type Interpolator } from "net/interpolate";
 import { createPredictor, type Predictor, type PredictBoundsKind } from "net/predict";
+import { createGuestSilenceMonitor, type GuestBlindState } from "net/heartbeat";
 import { unpackMulti } from "app/hostGame";
 import { unpackProgress } from "app/hostProgress";
 
@@ -42,6 +43,8 @@ export interface GuestGameCallbacks {
   onProgress?(rows: ProgressRow[]): void;
   /** Malformed binary on the game channel — protocol error, clean end. */
   onProtocolError?(reason: string): void;
+  /** Blind-state change (ticket 47): banner on blind, fatal on over. */
+  onBlindState?(state: GuestBlindState): void;
 }
 
 export interface GuestGameSession {
@@ -57,9 +60,15 @@ export interface GuestGameSession {
   resyncFromSnapshot(snap: Snapshot): void;
   /** Progress rows derived from the latest snapshot. */
   progressRows(): ProgressRow[];
+  /** Advance blind-state detection (call ~1 Hz; ticket 47). */
+  heartbeatTick(nowMs: number): GuestBlindState;
+  /** Control channel closed — session over immediately (ticket 47). */
+  controlClosed(): GuestBlindState;
   readonly snapshotHz: 30 | 60;
   /** Last protocol error (drives clean session end). */
   readonly protocolError: string | null;
+  /** Current blind state (live / blind banner / over). */
+  readonly blindState: GuestBlindState;
   dispose(): void;
 }
 
@@ -95,6 +104,8 @@ export function createGuestGameSession(
   }
   let protocolError: string | null = null;
   let lastProgressEmit = 0;
+  // Ticket 47: host-silence monitor — banner at ~1 s, session-over at ~12 s.
+  const silence = createGuestSilenceMonitor(nowMs());
 
   // ---- Ticket 46: local-paddle prediction ----
   const boundsKind: PredictBoundsKind =
@@ -189,6 +200,8 @@ export function createGuestGameSession(
     hostBinary(buffer) {
       if (protocolError !== null) return;
       try {
+        // Any host traffic = live (ticket 47 blind-state reset).
+        silence.fed(nowMs());
         const view = new DataView(buffer);
         const kind = view.getUint8(0);
         if (kind === 2) {
@@ -269,8 +282,24 @@ export function createGuestGameSession(
     progressRows() {
       return [...progressRows];
     },
+    heartbeatTick(now) {
+      const prev = silence.state;
+      const next = silence.tick(now);
+      if (next !== prev) callbacks.onBlindState?.(next);
+      return next;
+    },
+    controlClosed() {
+      const next = silence.controlClosed();
+      callbacks.onBlindState?.(next);
+      return next;
+    },
+    get blindState() {
+      return silence.state;
+    },
     resyncFromSnapshot(snap) {
       for (const pred of predictors) pred.reset(snap);
+      // A resync means we were blind — the monitor resets on next feed.
+      silence.fed(nowMs());
     },
     dispose() {
       history.length = 0;

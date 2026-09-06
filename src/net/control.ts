@@ -21,6 +21,9 @@ export const CONTROL_TYPES = [
   "pong", // either: heartbeat echo
   "kick", // host → guest: removed (lobby or mid-session)
   "bye", // either: clean close (quit at end screens)
+  "rejoin", // guest → host: re-entering with original player id (ticket 47)
+  "rejoin-ok", // host → guest: held slot validated, channels rebound
+  "rejoin-refused", // host → guest: no held slot (unknown/expired/live)
 ] as const;
 
 export type ControlType = (typeof CONTROL_TYPES)[number];
@@ -108,6 +111,24 @@ export interface ByeMsg {
   type: "bye";
 }
 
+/** Guest → host: re-entering with the original player id (ticket 47). */
+export interface RejoinMsg {
+  type: "rejoin";
+  playerId: number;
+}
+
+/** Host → guest: held slot validated, guest index rebound. */
+export interface RejoinOkMsg {
+  type: "rejoin-ok";
+  guestIndex: number;
+}
+
+/** Host → guest: no held slot for this player id. */
+export interface RejoinRefusedMsg {
+  type: "rejoin-refused";
+  reason: "unknownPlayer" | "expired" | "alreadyLive";
+}
+
 export type ControlMsg =
   | HelloMsg
   | HelloOkMsg
@@ -121,7 +142,10 @@ export type ControlMsg =
   | PingMsg
   | PongMsg
   | KickMsg
-  | ByeMsg;
+  | ByeMsg
+  | RejoinMsg
+  | RejoinOkMsg
+  | RejoinRefusedMsg;
 
 export type ParseResult =
   | { ok: true; msg: ControlMsg }
@@ -290,6 +314,23 @@ export function parseControl(raw: string): ParseResult {
     }
     case "bye":
       return { ok: true, msg: { type: "bye" } };
+    case "rejoin": {
+      const playerId = num(parsed.playerId);
+      if (playerId === null) return { ok: false, error: "protocol" };
+      return { ok: true, msg: { type: "rejoin", playerId } };
+    }
+    case "rejoin-ok": {
+      const guestIndex = num(parsed.guestIndex);
+      if (guestIndex === null) return { ok: false, error: "protocol" };
+      return { ok: true, msg: { type: "rejoin-ok", guestIndex } };
+    }
+    case "rejoin-refused": {
+      const reason = str(parsed.reason);
+      if (reason !== "unknownPlayer" && reason !== "expired" && reason !== "alreadyLive") {
+        return { ok: false, error: "protocol" };
+      }
+      return { ok: true, msg: { type: "rejoin-refused", reason } };
+    }
     default:
       return { ok: false, error: "protocol" };
   }

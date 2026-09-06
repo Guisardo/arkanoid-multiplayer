@@ -143,7 +143,8 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   // Boss tail (ticket 49): u8 present + (f32 x, f32 y, u8 hp, u8 phase, u8 dead) + u8 projCount + projCount × f32×4
   const boss = snap.boss ?? null;
   const bossProjectiles = snap.bossProjectiles ?? [];
-  const bossTail = boss !== null ? 5 + 15 + 1 + bossProjectiles.length * 16 : 0;
+  // Boss tail (ticket 49): u8 present-flag always written (absent = u8(0)).
+  const bossTail = 1 + (boss !== null ? 5 + 15 + bossProjectiles.length * 16 : 0);
   const size =
     14 +
     players.length * 30 +

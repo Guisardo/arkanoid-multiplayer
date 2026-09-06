@@ -64,7 +64,10 @@ const lastRoom = { room: null as FakeRoom | null };
 const fakeRooms: FakeRoom[] = [];
 const guestConnections = new Map<number, { gameChannel: FakeDataChannel; controlChannel: FakeDataChannel }>();
 /** Every MpFlow the mocked constructor built (host + guest flows). */
-const constructedFlows: { sampleLocal?: (player: number, tick: number) => unknown }[] = [];
+const constructedFlows: {
+  sampleLocal?: (player: number, tick: number) => unknown;
+  reconnect?: () => Promise<unknown>;
+}[] = [];
 function applyMocks(): void {
   vi.doMock("app/soloSession", () => ({
     startSoloSession: () => soloStart(),
@@ -118,9 +121,18 @@ function applyMocks(): void {
       dispose = vi.fn();
       /** Captured sampleLocal seam (ticket 46 input path). */
       sampleLocal: ((player: number, tick: number) => unknown) | undefined;
-      constructor(opts: { sampleLocal?: (player: number, tick: number) => unknown }) {
+      /** Captured reconnect seam (ticket 47 rejoin path). */
+      reconnect: (() => Promise<unknown>) | undefined;
+      constructor(opts: {
+        sampleLocal?: (player: number, tick: number) => unknown;
+        reconnect?: () => Promise<unknown>;
+      }) {
         this.sampleLocal = opts.sampleLocal;
-        constructedFlows.push({ ...(opts.sampleLocal !== undefined ? { sampleLocal: opts.sampleLocal } : {}) });
+        this.reconnect = opts.reconnect;
+        constructedFlows.push({
+          ...(opts.sampleLocal !== undefined ? { sampleLocal: opts.sampleLocal } : {}),
+          ...(opts.reconnect !== undefined ? { reconnect: opts.reconnect } : {}),
+        });
       }
     },
   }));
@@ -304,5 +316,71 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     const frame = seam?.(0, 0) as { player: number; axisX: number } | undefined;
     expect(frame?.axisX).toBe(-1);
     globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "ArrowLeft" }));
+  });
+
+  it("guest flow: reconnect seam re-wires fresh channels (ticket 47 rejoin)", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    const reconnect = constructedFlows[0]?.reconnect;
+    expect(reconnect).toBeDefined();
+    if (reconnect === undefined) return;
+    // The reconnect seam re-enters the room: fresh channels wired with
+    // message listeners + send guards (wireGuestConn runs again).
+    const result = (await reconnect()) as {
+      isHost: boolean;
+      guestIndex: number;
+      channels: {
+        guestToHost: (buffer: ArrayBuffer) => void;
+        guestControl: (json: string) => void;
+        onGuestDropped: (cb: (guestIndex: number) => void) => void;
+        onHostGone: (cb: () => void) => void;
+      };
+    };
+    expect(result.isHost).toBe(false);
+    expect(result.guestIndex).toBe(0);
+    // Sends on the fresh channels land on the wire (no throw, open state).
+    expect(() => {
+      result.channels.guestToHost(new ArrayBuffer(4));
+    }).not.toThrow();
+    expect(() => {
+      result.channels.guestControl(JSON.stringify({ type: "ping", atMs: 1 }));
+    }).not.toThrow();
+    // Drop + host-gone hooks register without firing (close events only).
+    let dropped = false;
+    let hostGone = false;
+    result.channels.onGuestDropped(() => {
+      dropped = true;
+    });
+    result.channels.onHostGone(() => {
+      hostGone = true;
+    });    expect(dropped).toBe(false);
+    expect(hostGone).toBe(false);
+  });
+
+  it("guest flow: reconnect failure returns null (room gone)", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    const reconnect = constructedFlows[0]?.reconnect;
+    expect(reconnect).toBeDefined();
+    if (reconnect === undefined) return;
+    // Make the signaling re-entry fail: connectViaSignalingGuest rejects.
+    const rtc = await vi.importMock("signaling/rtc") as {
+      connectViaSignalingGuest: ReturnType<typeof vi.fn>;
+    };
+    rtc.connectViaSignalingGuest.mockRejectedValueOnce(new Error("room gone"));
+    const result = await reconnect();
+    expect(result).toBeNull();
   });
 });

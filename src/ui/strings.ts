@@ -118,6 +118,8 @@ const enUS = {
   "mp.hostLeft": "Host left — session ended",
   "mp.remoteProgress": "Remote players",
   "mp.reconnecting": "Connection lost…",
+  "mp.rejoinFailed": "Rejoin failed — session slot no longer held",
+  "mp.throttled": "Host under load — slow-motion",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -230,6 +232,8 @@ const es419: Record<StringKey, string> = {
   "mp.hostLeft": "El host salió — sesión terminada",
   "mp.remoteProgress": "Jugadores remotos",
   "mp.reconnecting": "Conexión perdida…",
+  "mp.rejoinFailed": "Reingreso fallido — el cupo ya no se retiene",
+  "mp.throttled": "Host sobrecargado — cámara lenta",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {
