@@ -58,6 +58,12 @@ export interface MpFlowOptions {
   /** Callbacks the UI (main.ts) hooks for screens + local input wiring. */
   onLobbyState?(state: LobbyState): void;
   onCountdown?(seconds: number): void;
+  /**
+   * Per-tick local input source (ticket 46): called once per sim tick per
+   * local player, in player order. Production wires keyboard/mouse/
+   * gamepad/touch adapters here; null = no frame this tick (idle).
+   */
+  sampleLocal?(player: number, tick: number): InputFrame | null;
 }
 
 export type MpPhase = "idle" | "lobby" | "countdown" | "inGame" | "betweenMatches" | "dead";
@@ -83,6 +89,9 @@ export class MpFlow {
   private lobbyState: LobbyState | null = null;
   private matchPlayers: string[] = [];
   private matchMode: LobbyMode | null = null;
+  /** Sim players local to this device (host or guest), set at match start. */
+  private matchLocalPlayers: number[] = [];
+  private matchTick = 0;
 
   constructor(opts: MpFlowOptions) {
     this.hostEl = opts.host;
@@ -176,7 +185,15 @@ export class MpFlow {
 
   private maybeGuestGameStart(json: string): void {
     try {
-      const parsed = JSON.parse(json) as { type?: string; localPlayers?: number[]; players?: { name: string; skinIndex: number }[]; themeId?: string; mode?: LobbyMode; snapshotHz?: 30 | 60 };
+      const parsed = JSON.parse(json) as {
+        type?: string;
+        localPlayers?: number[];
+        players?: { name: string; skinIndex: number }[];
+        themeId?: string;
+        mode?: LobbyMode;
+        snapshotHz?: 30 | 60;
+        delayTicks?: number;
+      };
       if (parsed.type !== "game-start" || this.isHost) return;
       const mode = parsed.mode ?? "race";
       const localPlayers = parsed.localPlayers ?? [];
@@ -184,6 +201,7 @@ export class MpFlow {
       const skinIndices = (parsed.players ?? []).map((p) => p.skinIndex);
       const allPlayers = names.map((_, i) => i);
       const remotePlayers = allPlayers.filter((p) => !localPlayers.includes(p));
+      const delayTicks = typeof parsed.delayTicks === "number" ? parsed.delayTicks : 4;
       this.beginGuestMatch(
         mode,
         localPlayers,
@@ -191,6 +209,7 @@ export class MpFlow {
         skinIndices,
         parsed.themeId ?? DEFAULT_THEME_ID,
         remotePlayers,
+        delayTicks,
       );
     } catch {
       // Non-JSON or wrong shape: control parser already handles protocol.
@@ -250,6 +269,8 @@ export class MpFlow {
     );
     this.matchPlayers = players.map((p) => p.name);
     this.matchMode = state.config.mode;
+    this.matchLocalPlayers = hostLocal;
+    this.matchTick = 0;
     this.phase = "inGame";
 
     // Tell every guest the match started (control channel).
@@ -284,6 +305,7 @@ export class MpFlow {
     if (game === null) return;
     const loop = createAccumulatorLoop({
       tick: () => {
+        this.sampleLocalFrames();
         game.tick(this.pendingLocal.splice(0));
       },
       render: () => {
@@ -430,6 +452,7 @@ export class MpFlow {
     skinIndices: number[],
     themeId: string,
     remotePlayers: number[],
+    delayTicks = 4,
   ): void {
     this.guestGame = createGuestGameSession(
       {
@@ -437,6 +460,11 @@ export class MpFlow {
         localPlayers,
         remotePlayers,
         names,
+        // Ticket 46: local-paddle prediction needs the mode's clamp set,
+        // the input delay D, and the shared-field slice width.
+        mode,
+        delayTicks: mode === "sharedField" || mode === "parallelAssist" ? 0 : delayTicks,
+        playerCount: names.length,
       },
       (buf) => this.channels?.guestToHost(buf),
       {
@@ -445,6 +473,8 @@ export class MpFlow {
       },
     );
     this.matchMode = mode;
+    this.matchLocalPlayers = localPlayers;
+    this.matchTick = 0;
     this.phase = "inGame";
     void createAppShell(this.hostEl, {}).then((shell) => {
       if (this.phase !== "inGame") {
@@ -462,7 +492,10 @@ export class MpFlow {
     if (guestGame === null) return;
     const loop = createAccumulatorLoop({
       tick: () => {
-        // Frames were collected via guestLocalFrame; send the batch now.
+        // Collect this tick's local frames (sample seam + legacy
+        // localFrame callers), then send + advance prediction — the
+        // predictor sees the frame on the tick it was made.
+        this.sampleLocalFrames();
         guestGame.sendTick();
       },
       render: () => {
@@ -472,6 +505,18 @@ export class MpFlow {
     });
     loop.start();
     this.loop = loop;
+  }
+
+  /** Sample local input once per tick for every local player (46). */
+  private sampleLocalFrames(): void {
+    if (this.opts.sampleLocal === undefined) return;
+    for (const player of this.matchLocalPlayers) {
+      const frame = this.opts.sampleLocal(player, this.matchTick);
+      if (frame === null) continue;
+      if (this.isHost) this.pendingLocal.push(frame);
+      else this.guestGame?.collect(frame);
+    }
+    this.matchTick++;
   }
 
   /** Feed a local player's input frame (host: into pending; guest: collect). */

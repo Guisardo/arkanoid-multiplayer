@@ -213,13 +213,54 @@ export function createHostGameSession(
   const playerOf = new Map<number, number>();
   for (const p of opts.players) playerOf.set(p.player, p.guestIndex);
 
-  // Input stall decay (spec §9): last axis per player; if a guest sends
-  // nothing for >10 ticks, decay its players' axes to 0.
+  // Input stall decay (spec §9, ticket 46): a guest that stops sending has
+  // its players' axes HELD at the last value for ≤10 missing ticks, then
+  // DECAYED to 0 (~0.7× per tick — a stalled paddle stops, it never ghosts
+  // on at full axis). Held/decayed axes are injected DIRECTLY into the sim
+  // step (not the delay queue): synthetic queue frames would collide with
+  // the guest's own frame-tick timeline and the guard would drop real
+  // input as duplicates. A due frame resets the miss counter.
   const STALL_HOLD = 10;
-  const lastFrameTick = new Map<number, number>();
-  const lastAxis = new Map<number, InputFrame>();
+  const STALL_DECAY = 0.7;
+  const STALL_FLOOR = 0.05;
+  const guestPlayerIds = opts.players.filter((p) => p.guestIndex >= 0).map((p) => p.player);
+  const missCount = new Map<number, number>();
+  const lastAxis = new Map<number, number>();
   let simTick = 0;
   let ended = false;
+
+  /** Held/decayed axes for guest players with no due frame this tick. */
+  function stallFrames(due: readonly InputFrame[]): InputFrame[] {
+    const out: InputFrame[] = [];
+    if (guestPlayerIds.length === 0) return out;
+    const seen = new Set(due.map((f) => f.player));
+    for (const p of guestPlayerIds) {
+      if (seen.has(p)) {
+        const f = due.find((x) => x.player === p);
+        if (f !== undefined) lastAxis.set(p, f.axisX);
+        missCount.set(p, 0);
+        continue;
+      }
+      const misses = (missCount.get(p) ?? 0) + 1;
+      missCount.set(p, misses);
+      const held = lastAxis.get(p) ?? 0;
+      if (held === 0) continue; // nothing to hold — idle stays idle
+      if (misses <= STALL_HOLD) {
+        out.push({ player: p, tick: simTick, axisX: held, axisY: 0, launch: false, actions: EMPTY_ACTIONS });
+      } else {
+        const decayed = held * STALL_DECAY ** (misses - STALL_HOLD);
+        out.push({
+          player: p,
+          tick: simTick,
+          axisX: Math.abs(decayed) < STALL_FLOOR ? 0 : decayed,
+          axisY: 0,
+          launch: false,
+          actions: EMPTY_ACTIONS,
+        });
+      }
+    }
+    return out;
+  }
 
   function playerForGuestChannel(guestIndex: number, player: number): number {
     // The codec does not carry player; the channel maps to device players.
@@ -229,28 +270,6 @@ export function createHostGameSession(
     // guests sets player = local index (0/1). Map device-local → sim player.
     const players = guestPlayers.get(guestIndex) ?? [];
     return players[player] ?? players[0] ?? 0;
-  }
-
-  function stalledFrames(hostTick: number): InputFrame[] {
-    const out: InputFrame[] = [];
-    for (const p of opts.players) {
-      if (p.guestIndex < 0) continue; // host-local frames come via tick().
-      const last = lastFrameTick.get(p.player);
-      if (last === undefined) continue;
-      const gap = hostTick - last;
-      if (gap >= STALL_HOLD) {
-        // Decay: emit a zero-axis frame so the paddle stops.
-        out.push({
-          player: p.player,
-          tick: hostTick,
-          axisX: 0,
-          axisY: 0,
-          launch: false,
-          actions: EMPTY_ACTIONS,
-        });
-      }
-    }
-    return out;
   }
 
   let lastBroadcastTick = -1;
@@ -320,10 +339,11 @@ export function createHostGameSession(
       if (ended) return;
       // Host-local frames enter the same queue (network hop skipped).
       for (const f of localFrames) queue.push(f);
-      // Guest stall decay emits stop-frames for silent players.
-      for (const f of stalledFrames(simTick)) queue.push(f);
       const due = queue.due(simTick);
-      sim.step(due);
+      // Guest stall decay: held/decayed axes for silent players, injected
+      // beside the due frames (never through the queue — see stallFrames).
+      const withStall = [...due, ...stallFrames(due)];
+      sim.step(withStall);
       simTick++;
       // Input acks: snapshot inputAcks already carry per-player acked ticks
       // via the delay queue's delivery; the serializer ships them.
@@ -359,11 +379,7 @@ export function createHostGameSession(
         player: playerForGuestChannel(guestIndex, f.player),
       }));
       const { accepted } = guardGuestFrames(guard, mapped, simTick);
-      for (const f of accepted) {
-        queue.push(f);
-        lastFrameTick.set(f.player, simTick);
-        lastAxis.set(f.player, f);
-      }
+      for (const f of accepted) queue.push(f);
     },
     guestDropped(guestIndex) {
       guestPlayers.delete(guestIndex);

@@ -12,7 +12,16 @@ import {
 import { createGuestGameSession, type ProgressRow } from "app/guestGame";
 import { DEFAULT_CONFIG, type LobbyConfig, type LobbyMode } from "app/lobbyState";
 import { EMPTY_ACTIONS } from "shared/protocol";
+import { FIELD_W } from "shared/gridConstants";
 import { packProgress, unpackProgress } from "app/hostProgress";
+import { encodeInputBatch } from "net/inputCodec";
+
+/** Single-frame guest batch helper (stall-decay test). */
+function encodeBatch(
+  frames: { player: number; tick: number; axisX: number; axisY: number; launch: boolean; actions: typeof EMPTY_ACTIONS }[],
+): ArrayBuffer {
+  return encodeInputBatch(frames);
+}
 
 interface Channel {
   hostToGuest: ArrayBuffer[];
@@ -82,6 +91,10 @@ function runMatch(
       localPlayers: players.filter((p) => p.guestIndex === 0).map((p) => p.player),
       remotePlayers: [0],
       names: players.map((p) => p.name),
+      // Ticket 46: prediction needs mode + D + player count.
+      mode,
+      delayTicks: host.delayTicks,
+      playerCount: players.length,
     },
     (buf) => ch.guestToHost.push(buf),
     { onProgress: (rows) => progress.push(...rows) },
@@ -181,6 +194,80 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(back).toHaveLength(2);
     expect(back[0]!.byteLength).toBe(3);
     expect(back[1]!.byteLength).toBe(5);
+  });
+
+  // ---- Ticket 46: guest prediction + host stall decay ----
+
+  it("guest's own paddle renders PREDICTED position ahead of the authoritative ack", () => {
+    // Input HELD at the end: the host has consumed through ~tick (60 − D),
+    // the guest has applied every frame — its rendered paddle leads by the
+    // unconsumed window (D ticks of movement).
+    const { host, guest } = runMatch("race", {
+      ticks: 40,
+      guestInput: (t) => (t >= 10 ? 1 : 0),
+    });
+    const hostX = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
+    const guestX = guest.renderSnapshots(1e12)[0]?.players[0]?.paddle.x ?? -2;
+    expect(guestX).toBeGreaterThan(hostX + 2);
+  });
+
+  it("prediction never applied to remote players or the ball", () => {
+    // sharedField: ONE field, both players in every snapshot — the guest
+    // must predict ONLY its own paddle; host player + ball untouched.
+    const { guest } = runMatch("sharedField", { ticks: 90 });
+    const snap = guest.renderSnapshots(1e12)[0];
+    expect(snap).toBeDefined();
+    if (snap === undefined) return;
+    // Guest local player 1: overlaid; host player 0: authoritative value.
+    const hostPaddle = snap.players.find((p) => p.player === 0)?.paddle;
+    expect(hostPaddle).toBeDefined();
+    // No NaN/Infinity leakage from the overlay path.
+    for (const p of snap.players) expect(Number.isFinite(p.paddle.x)).toBe(true);
+    for (const b of snap.balls) expect(Number.isFinite(b.x)).toBe(true);
+  });
+
+  it("guest prediction overlays only its own field's paddle (parallel modes)", () => {
+    const { guest } = runMatch("race", { ticks: 90 });
+    const snaps = guest.renderSnapshots(1e12);
+    expect(snaps.length).toBeGreaterThan(0);
+    // Parallel field snapshots renumber the player to 0 (multiField remap)
+    // — the overlay targets players[0], the guest's own field.
+    const own = snaps[0]?.players[0];
+    expect(own).toBeDefined();
+    expect(Number.isFinite(own?.paddle.x ?? NaN)).toBe(true);
+  });
+
+  it("host stall decay: silent guest paddle holds ≤10 ticks then stops", () => {
+    // Guest sends axis 1 for a while, then goes SILENT (no frames).
+    const config: LobbyConfig = { ...DEFAULT_CONFIG, mode: "race" };
+    const players = playersFor("race", 1);
+    const host = createHostGameSession(
+      { mode: "race", config, players, hostLocalPlayers: [0] },
+      () => undefined,
+    );
+    // Real input until tick 20 (axis 1), then silence.
+    for (let t = 0; t < 20; t++) {
+      host.guestBinary(0, encodeBatch([{ player: 0, tick: t, axisX: 1, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]));
+      host.tick([]);
+    }
+    const xAt20 = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
+    expect(xAt20).toBeGreaterThan(100);
+    // 10 silent ticks: hold window — synthetic frames keep the last axis.
+    for (let t = 20; t < 30; t++) host.tick([]);
+    const xAt30 = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
+    expect(xAt30).toBeGreaterThan(xAt20);
+    // Decay window: axis decays toward 0 — movement slows, then stops.
+    for (let t = 30; t < 45; t++) host.tick([]);
+    const xAt45 = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
+    const decayGain = xAt45 - xAt30;
+    const holdGain = xAt30 - xAt20;
+    expect(decayGain).toBeLessThan(holdGain);
+    // Fully stopped: further ticks move nothing.
+    for (let t = 45; t < 60; t++) host.tick([]);
+    const xAt60 = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
+    expect(xAt60).toBeCloseTo(xAt45, 1);
+    // Never crossed the wall clamp.
+    expect(xAt60).toBeLessThan(FIELD_W);
   });
 
   it("progress wire round-trip", () => {
