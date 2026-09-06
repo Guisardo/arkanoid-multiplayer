@@ -41,6 +41,7 @@ export function createKeepAlive(deps: KeepAliveDeps = {}): KeepAlive {
   let stopVisibility: (() => void) | null = null;
   let held = false;
   let ticking = false;
+  let visible = true;
 
   return {
     get wakeLockHeld() {
@@ -61,15 +62,19 @@ export function createKeepAlive(deps: KeepAliveDeps = {}): KeepAlive {
         });
       if (deps.setInterval !== undefined) {
         stopTick = deps.setInterval(BACKGROUND_TICK_MS, () => {
-          // Worker-style tick: the main thread's loop consumes elapsed time
-          // on each callback; the accumulator cap bounds catch-up.
-          deps.onResync?.();
+          // Background tick: only while HIDDEN — the foreground rAF loop
+          // already drives the sim; resyncing on every tick would spam
+          // snapshots and defeat the guests' silence monitors.
+          if (!visible) deps.onResync?.();
         });
         ticking = true;
       }
       if (deps.onVisibilityChange !== undefined) {
-        stopVisibility = deps.onVisibilityChange((visible) => {
-          if (visible) deps.onResync?.();
+        stopVisibility = deps.onVisibilityChange((vis) => {
+          visible = vis;
+          // Pause-and-resync on return: the throttled gap may have drifted
+          // guests — ship fresh full snapshots.
+          if (vis) deps.onResync?.();
         });
       }
     },

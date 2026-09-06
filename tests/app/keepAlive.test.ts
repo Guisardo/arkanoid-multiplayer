@@ -67,10 +67,15 @@ describe("keep-alive (spec §10 host backgrounding)", () => {
     ka.stop();
   });
 
-  it("background tick fires the resync hook", () => {
+  it("background tick fires the resync hook only while hidden", () => {
     const deps = makeDeps();
     const ka = createKeepAlive(deps);
     ka.start();
+    // Foreground: the rAF loop drives the sim — no resync spam.
+    deps.lastIntervalCb?.();
+    expect(deps.resyncs.length).toBe(0);
+    // Hidden: the background tick keeps guests fed.
+    deps.lastVisibilityCb?.(false);
     deps.lastIntervalCb?.();
     expect(deps.resyncs.length).toBe(1);
     ka.stop();

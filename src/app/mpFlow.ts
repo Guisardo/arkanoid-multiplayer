@@ -477,8 +477,9 @@ export class MpFlow {
       // Rejoin expiry: 90 s past hold = removal (competitive loss / coop
       // slot gone, not revivable).
       for (const gi of this.rejoinRegistry.expire(now)) {
-        const playerIds = this.lobby?.playersOfGuest(gi) ?? [];
-        this.game?.removePlayers(playerIds);
+        const lobbyIds = this.lobby?.playersOfGuest(gi) ?? [];
+        const simPlayers = this.simPlayersOfLobbyIds(lobbyIds);
+        this.game?.removePlayers(simPlayers);
         this.lobby?.guestClosed(gi);
         const state = this.lobby?.state();
         if (state !== undefined) this.opts.onLobbyState?.(state);
@@ -801,14 +802,17 @@ export class MpFlow {
     if (this.isHost) {
       // Ticket 47: mid-match drop = hold the slot for the 90 s rejoin
       // window (paddle freezes — no input arrives; ball loss = life lost
-      // via the sim's own path). Lobby-phase drop = plain removal.
+      // via the sim's own path). The lobby KEEPS the player (held slot,
+      // visible as disconnected); expiry removes it. Lobby-phase drop =
+      // plain removal.
       const inMatch = this.phase === "inGame" || this.phase === "countdown";
       const playerIds = this.lobby?.playersOfGuest(guestIndex) ?? [];
       if (inMatch && playerIds.length > 0) {
         this.rejoinRegistry.hold(guestIndex, playerIds, performance.now());
+      } else {
+        this.lobby?.guestClosed(guestIndex);
       }
       this.watchdogs.delete(guestIndex);
-      this.lobby?.guestClosed(guestIndex);
       this.game?.guestDropped(guestIndex);
       const state = this.lobby?.state();
       if (state !== undefined) {
@@ -818,6 +822,18 @@ export class MpFlow {
     } else {
       this.hostGone();
     }
+  }
+
+  /** Lobby player ids (guestIndex+100 scheme) → sim player indices. */
+  private simPlayersOfLobbyIds(lobbyIds: number[]): number[] {
+    const state = this.lobby?.state();
+    const ordered = [...(state?.players ?? [])].sort((a, b) => a.id - b.id);
+    const out: number[] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const p = ordered[i];
+      if (p !== undefined && lobbyIds.includes(p.id)) out.push(i);
+    }
+    return out;
   }
 
   /**
@@ -835,7 +851,8 @@ export class MpFlow {
       return;
     }
     // Rebind: lobby players + game routing to the new channel index.
-    this.game?.rebindGuest(decision.guestIndex, newGuestIndex);
+    const simPlayers = this.simPlayersOfLobbyIds(decision.playerIds);
+    this.game?.rebindGuest(decision.guestIndex, newGuestIndex, simPlayers);
     this.lobby?.rebindGuest(decision.guestIndex, newGuestIndex);
     this.watchdogs.set(newGuestIndex, createHostWatchdog(performance.now()));
     this.channels?.hostControl(newGuestIndex, JSON.stringify({

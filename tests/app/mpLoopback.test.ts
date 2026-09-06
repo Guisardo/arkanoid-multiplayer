@@ -296,7 +296,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
       { mode: "race", config: { ...DEFAULT_CONFIG, mode: "race" }, players: playersFor("race", 1), hostLocalPlayers: [0] },
       (gi, buf) => { if (gi === 7) sent.push(buf); },
     );
-    probe.rebindGuest(0, 7);
+    probe.rebindGuest(0, 7, [1]);
     expect(sent.length).toBe(1);
     // The guest rebuilds from that full snapshot (prediction wiped via
     // resyncFromSnapshot — no throw, state consistent).

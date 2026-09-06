@@ -84,9 +84,11 @@ export interface HostGameSession {
   /**
    * Rebind a dropped guest's players to a new channel index (rejoin,
    * ticket 47): routing + input cutoff resume; a full snapshot ships to
-   * the new index immediately so the guest rebuilds.
+   * the new index immediately so the guest rebuilds. `simPlayers` = the
+   * sim indices of the rejoining players (the old routing was deleted at
+   * drop time).
    */
-  rebindGuest(oldGuestIndex: number, newGuestIndex: number): void;
+  rebindGuest(oldGuestIndex: number, newGuestIndex: number, simPlayers: number[]): void;
   /**
    * Remove players permanently (rejoin expiry / quit, ticket 47):
    * competitive = field eliminated (loss via the sim's own ball-loss
@@ -428,23 +430,24 @@ export function createHostGameSession(
       guestPlayers.delete(guestIndex);
       callbacks.onGuestDropped?.(guestIndex);
     },
-    rebindGuest(oldGuestIndex, newGuestIndex) {
-      const players = guestPlayers.get(oldGuestIndex);
-      if (players === undefined) return;
+    rebindGuest(oldGuestIndex, newGuestIndex, simPlayers) {
+      if (simPlayers.length === 0) return;
       guestPlayers.delete(oldGuestIndex);
-      guestPlayers.set(newGuestIndex, players);
+      guestPlayers.set(newGuestIndex, simPlayers);
       for (const p of opts.players) {
-        if (p.guestIndex === oldGuestIndex) p.guestIndex = newGuestIndex;
+        if (simPlayers.includes(p.player)) p.guestIndex = newGuestIndex;
       }
       for (const [player, gi] of playerOf) {
-        if (gi === oldGuestIndex) playerOf.set(player, newGuestIndex);
+        if (gi === oldGuestIndex && simPlayers.includes(player)) {
+          playerOf.set(player, newGuestIndex);
+        }
       }
       // Fresh full snapshot to the new channel: the guest rebuilds from it
       // (prediction history wiped guest-side via resyncFromSnapshot).
       const snaps = sim.snapshots();
       if (opts.mode === "race" || opts.mode === "attack" || opts.mode === "parallelAssist") {
         const bufs: ArrayBuffer[] = [];
-        for (const p of players) {
+        for (const p of simPlayers) {
           const snap = snaps[p];
           if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
         }
