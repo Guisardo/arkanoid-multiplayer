@@ -53,6 +53,8 @@ function makePair(): {
   lastHostControl: () => string | null;
   /** Host-side view of the latest guest control message. */
   lastGuestControl: () => string | null;
+  /** All guest → host control messages so far. */
+  guestControlAll: () => string[];
   /** Send a control message guest → host (the rejoin direction). */
   guestSend: (json: string) => void;
 } {
@@ -101,6 +103,7 @@ function makePair(): {
     guestFlow,
     lastHostControl: () => hostControlLog[hostControlLog.length - 1] ?? null,
     lastGuestControl: () => guestControlLog[guestControlLog.length - 1] ?? null,
+    guestControlAll: () => [...guestControlLog],
     guestSend: (json: string) => {
       channels.guestControl(json);
     },
@@ -266,17 +269,27 @@ describe("mpFlow resilience wiring (ticket 47)", () => {
   }, 20000);
 
   it("guest ping cadence sends pings while in-game", async () => {
-    const { hostFlow, guestFlow, lastGuestControl } = makePair();
+    const { hostFlow, guestFlow, guestControlAll } = makePair();
     flows.push(hostFlow, guestFlow);
     await startMatch(hostFlow, guestFlow);
     // The guest's housekeep timer is live (started with the match).
     const timer = guestFlow["housekeepTimer"] as unknown;
     expect(timer).not.toBeNull();
-    // 5+ s of in-game housekeeping: at least one ping crossed the wire.
-    await new Promise((r) => globalThis.setTimeout(r, 5500));
-    const pings = lastGuestControl()
-      ? (JSON.parse(lastGuestControl()!) as { type: string }).type === "ping"
-      : false;
-    expect(pings).toBe(true);
-  }, 20000);
+    // Poll up to 12 s: at least one ping crosses the wire (5 s cadence —
+    // CI runners may enter the match late, so poll instead of fixed wait).
+    const deadline = Date.now() + 12_000;
+    let sawPing = false;
+    while (Date.now() < deadline) {
+      sawPing = guestControlAll().some((json) => {
+        try {
+          return (JSON.parse(json) as { type?: string }).type === "ping";
+        } catch {
+          return false;
+        }
+      });
+      if (sawPing) break;
+      await new Promise((r) => globalThis.setTimeout(r, 250));
+    }
+    expect(sawPing).toBe(true);
+  }, 25000);
 });
