@@ -129,15 +129,23 @@ export class LandingScreen {
     const bots = menuBtn(opts.locale, "menu.versusBots");
     bots.addEventListener("click", () => { opts.onChoice("versusBots"); });
     const mp = menuBtn(opts.locale, "menu.multiplayer");
-    mp.addEventListener("click", () => { opts.onChoice("multiplayer"); });
+    // ?code= prefill rides the multiplayer choice as joinCode — the QR
+    // share link must land on the JOIN screen with the code filled, not
+    // on create.
+    mp.addEventListener("click", () => {
+      opts.onChoice("multiplayer", opts.prefillCode ?? undefined);
+    });
     panel.append(solo, bots, mp);
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
 
-    // QR prefill (?code=) jumps straight into join.
+    // QR prefill (?code=) jumps straight into join. Deferred to a
+    // microtask: the caller's `const landing = new LandingScreen(...)`
+    // must finish first — the onChoice handler closes this screen, and a
+    // synchronous click would hit the uninitialized binding (TDZ).
     if (opts.prefillCode !== null && opts.prefillCode !== undefined) {
-      mp.click();
+      void Promise.resolve().then(() => { mp.click(); });
     }
   }
 

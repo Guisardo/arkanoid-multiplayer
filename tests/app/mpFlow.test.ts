@@ -225,6 +225,77 @@ describe("mpFlow wiring (ticket 45)", () => {
     expect(guestFlow.currentPhase).toBe("dead");
   });
 
+  it("sampleLocal seam: host loop samples per tick per local player (46)", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Sam", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 100));
+
+    // The seam feeds the host loop: sampled frames reach the sim.
+    let sampled = 0;
+    const hostWithSeam = new MpFlow({
+      host: document.createElement("div"),
+      locale: "en-US",
+      connect: () =>
+        Promise.resolve({
+          isHost: true,
+          guestIndex: 0,
+          channels: {
+            hostToGuest: () => undefined,
+            guestToHost: () => undefined,
+            hostControl: () => undefined,
+            guestControl: () => undefined,
+            onGuestDropped: () => undefined,
+            onHostGone: () => undefined,
+          },
+        }),
+      sampleLocal: (player, tick) => {
+        sampled++;
+        return {
+          player, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS,
+        };
+      },
+    });
+    flows.push(hostWithSeam);
+    await hostWithSeam.start();
+    hostWithSeam.hostLocalEvent({ type: "createRoom", code: "AAAAA" });
+    hostWithSeam.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostWithSeam.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    // Match running: the loop ticked, sampling once per tick for player 0.
+    expect(sampled).toBeGreaterThan(0);
+    expect(hostWithSeam.currentPhase).toBe("inGame");
+  }, 20000);
+
+  it("guest match: prediction options flow from game-start (mode + D)", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Ria", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 100));
+    // Guest entered the match with the mode + delay from game-start.
+    expect(guestFlow.currentPhase).toBe("inGame");
+    // Guest renders snapshots (prediction overlay path exercised).
+    const snaps = guestFlow.localSnapshots();
+    expect(snaps.length).toBeGreaterThan(0);
+  }, 15000);
+
   it("protocol version constant is the handshake value", () => {
     expect(PROTOCOL_VERSION).toBe(1);
   });

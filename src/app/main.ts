@@ -101,7 +101,9 @@ function makeLocalInput() {
       gamepads.set(player, pad);
     }
     const pads: readonly (Gamepad | null)[] =
-      typeof navigator !== "undefined" ? navigator.getGamepads() : [];
+      typeof navigator !== "undefined" && typeof navigator.getGamepads === "function"
+        ? navigator.getGamepads()
+        : [];
     const gp = pads.length > 0 ? pads[0] : undefined;
     if (gp === null || gp === undefined) {
       pad.reset();

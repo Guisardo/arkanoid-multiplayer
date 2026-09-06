@@ -61,7 +61,7 @@ describe("LandingScreen", () => {
     screen.close();
   });
 
-  it("prefill code auto-opens multiplayer flow", () => {
+  it("prefill code auto-opens multiplayer flow (deferred a microtask)", async () => {
     const host = document.body;
     host.innerHTML = "";
     const choices: string[] = [];
@@ -73,7 +73,11 @@ describe("LandingScreen", () => {
         choices.push(`${c}:${code ?? ""}`);
       },
     });
-    expect(choices).toEqual(["multiplayer:"]);
+    // The auto-click is deferred so the caller's `const landing = ...`
+    // binding is initialized first (TDZ guard).
+    expect(choices).toEqual([]);
+    await Promise.resolve();
+    expect(choices).toEqual(["multiplayer:ABC23"]);
     screen.close();
   });
 });
