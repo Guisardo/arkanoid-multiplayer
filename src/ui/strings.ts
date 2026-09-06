@@ -120,6 +120,9 @@ const enUS = {
   "mp.reconnecting": "Connection lost…",
   "mp.rejoinFailed": "Rejoin failed — session slot no longer held",
   "mp.throttled": "Host under load — slow-motion",
+  "pause.pausedBy": "Paused by {name}",
+  "pause.resume": "Resume",
+  "pause.quitConfirm": "Quit match? You forfeit",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -234,6 +237,9 @@ const es419: Record<StringKey, string> = {
   "mp.reconnecting": "Conexión perdida…",
   "mp.rejoinFailed": "Reingreso fallido — el cupo ya no se retiene",
   "mp.throttled": "Host sobrecargado — cámara lenta",
+  "pause.pausedBy": "Pausado por {name}",
+  "pause.resume": "Continuar",
+  "pause.quitConfirm": "¿Abandonar la partida? Pierdes",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

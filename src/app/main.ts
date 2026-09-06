@@ -141,6 +141,21 @@ function makeLocalInput() {
         ? frame
         : { ...frame, player };
     },
+    /**
+     * Ticket 48: menu/pause edge (Esc / rebindable menu key / gamepad
+     * Start). Polled in render cadence by the flow owner — coop sends a
+     * pause request, competitive remote opens quit-confirm only.
+     */
+    consumeMenuEdge(): boolean {
+      let edge = false;
+      for (const k of keyboards) {
+        if (k.consumeMenuEvent() === "pause") edge = true;
+      }
+      for (const pad of gamepads.values()) {
+        if (pad.consumeMenuEvent() === "pause") edge = true;
+      }
+      return edge;
+    },
     dispose(): void {
       globalThis.removeEventListener("keydown", kd);
       globalThis.removeEventListener("keyup", ku);
@@ -222,6 +237,11 @@ function startHostFlow(code: string): void {
   });
 
   const hostInput = makeLocalInput();
+  // Ticket 48: menu/pause edges (Esc / gamepad Start) — polled at render
+  // cadence; the flow routes coop pause vs competitive quit-confirm.
+  const hostMenuPoll = globalThis.setInterval(() => {
+    if (hostInput.consumeMenuEdge()) flow.localPausePressed();
+  }, 100);
 
   const hostLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
@@ -230,6 +250,8 @@ function startHostFlow(code: string): void {
     onEvent: (event) => { flow.hostLocalEvent(event); },
     onStart: () => { flow.hostStartMatch(); },
     onQuit: () => {
+      globalThis.clearInterval(hostMenuPoll);
+      hostInput.dispose();
       hostLobbyUI.close();
       room.close();
       flow.dispose();
@@ -282,6 +304,10 @@ function startGuestFlow(code: string): void {
   });
 
   const guestInput = makeLocalInput();
+  // Ticket 48: menu/pause edges — same routing as the host side.
+  const guestMenuPoll = globalThis.setInterval(() => {
+    if (guestInput.consumeMenuEdge()) flow.localPausePressed();
+  }, 100);
 
   const guestLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
@@ -294,6 +320,8 @@ function startGuestFlow(code: string): void {
     },
     onStart: () => undefined,
     onQuit: () => {
+      globalThis.clearInterval(guestMenuPoll);
+      guestInput.dispose();
       guestLobbyUI.close();
       flow.dispose();
       boot();
