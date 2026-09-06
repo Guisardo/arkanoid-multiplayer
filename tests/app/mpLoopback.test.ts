@@ -12,10 +12,12 @@ import {
 import { createGuestGameSession, type ProgressRow } from "app/guestGame";
 import { DEFAULT_CONFIG, type LobbyConfig, type LobbyMode } from "app/lobbyState";
 import { EMPTY_ACTIONS } from "shared/protocol";
-import { FIELD_W } from "shared/gridConstants";
+import { FIELD_W, BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
 import { packProgress, unpackProgress } from "app/hostProgress";
 import { encodeInputBatch } from "net/inputCodec";
-import { deserializeSnapshot } from "net/serializer";
+import { deserializeSnapshot, serializeSnapshot } from "net/serializer";
+import { parseRejoinRefused } from "net/rejoin";
+import type { Snapshot } from "shared/protocol";
 
 /** Single-frame guest batch helper (stall-decay test). */
 function encodeBatch(
@@ -353,10 +355,94 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(ch.hostToGuest.length).toBeGreaterThan(before);
     expect(host.over).toBe(false);
   });
+
+  // ---- Ticket 47: guest blind-state + host rebind edges ----
+
+  it("guest blind-state: banner callback on silence, over on control close", () => {
+    const seen: string[] = [];
+    const start = performance.now();
+    const guest = createGuestGameSession(
+      {
+        snapshotHz: 30,
+        localPlayers: [1],
+        remotePlayers: [0],
+        names: ["HostP", "Guest0"],
+        mode: "race",
+        delayTicks: 4,
+        playerCount: 2,
+      },
+      () => undefined,
+      { onBlindState: (s) => seen.push(s) },
+    );
+    // Fed at t=0; silence crosses the banner at ~1 s, over at ~12 s.
+    guest.hostBinary(serializeOneSnapshot());
+    expect(guest.blindState).toBe("live");
+    guest.heartbeatTick(start + 2000);
+    expect(guest.blindState).toBe("blind");
+    expect(seen).toContain("blind");
+    guest.heartbeatTick(start + 20_000);
+    expect(guest.blindState).toBe("over");
+    expect(seen).toContain("over");
+    // Terminal: a late snapshot never resurrects the session.
+    guest.hostBinary(serializeOneSnapshot());
+    expect(guest.blindState).toBe("over");
+    // Control close also ends it (fresh session).
+    const guest2 = createGuestGameSession(
+      { snapshotHz: 30, localPlayers: [1], remotePlayers: [0], names: ["HostP", "Guest0"] },
+      () => undefined,
+      { onBlindState: (s) => seen.push(s) },
+    );
+    expect(guest2.controlClosed()).toBe("over");
+    expect(guest2.blindState).toBe("over");
+  });
+
+  it("host rebind on a single-field mode ships the one field (sharedField)", () => {
+    const sent: ArrayBuffer[] = [];
+    const host = createHostGameSession(
+      { mode: "sharedField", config: { ...DEFAULT_CONFIG, mode: "sharedField" }, players: playersFor("sharedField", 1), hostLocalPlayers: [0] },
+      (gi, buf) => { if (gi === 9) sent.push(buf); },
+    );
+    for (let t = 0; t < 10; t++) host.tick([]);
+    host.rebindGuest(0, 9, [1]);
+    expect(sent.length).toBe(1);
+    // Single-field snapshot carries both players.
+    const snap = deserializeFirst(sent);
+    expect(snap.players.length).toBe(2);
+  });
+
+  it("host rebind with no players is a no-op", () => {
+    const sent: ArrayBuffer[] = [];
+    const host = createHostGameSession(
+      { mode: "race", config: { ...DEFAULT_CONFIG, mode: "race" }, players: playersFor("race", 1), hostLocalPlayers: [0] },
+      (gi, buf) => { if (gi === 9) sent.push(buf); },
+    );
+    for (let t = 0; t < 10; t++) host.tick([]);
+    host.rebindGuest(0, 9, []);
+    expect(sent.length).toBe(0);
+  });
+
+  it("resyncGuest on single-field mode ships the field", () => {
+    const sent: ArrayBuffer[] = [];
+    const host = createHostGameSession(
+      { mode: "sharedField", config: { ...DEFAULT_CONFIG, mode: "sharedField" }, players: playersFor("sharedField", 1), hostLocalPlayers: [0] },
+      (gi, buf) => { if (gi === 0) sent.push(buf); },
+    );
+    for (let t = 0; t < 10; t++) host.tick([]);
+    sent.length = 0;
+    host.resyncGuest(0);
+    expect(sent.length).toBe(1);
+  });
+
+  it("rejoin-refused parses from the wire (guest fatal path)", () => {
+    const refused = parseRejoinRefused(JSON.stringify({ type: "rejoin-refused", reason: "expired" }));
+    expect(refused?.reason).toBe("expired");
+    expect(parseRejoinRefused(JSON.stringify({ type: "ping", atMs: 1 }))).toBeNull();
+    expect(parseRejoinRefused("not json")).toBeNull();
+  });
 });
 
 /** Decode the first snapshot-ish payload from a host send log. */
-function deserializeFirst(buffers: ArrayBuffer[]): ReturnType<typeof deserializeSnapshot> {
+function deserializeFirst(buffers: ArrayBuffer[]): Snapshot {
   for (const buf of buffers) {
     const view = new DataView(buf);
     const kind = view.getUint8(0);
@@ -369,4 +455,34 @@ function deserializeFirst(buffers: ArrayBuffer[]): ReturnType<typeof deserialize
     }
   }
   throw new Error("no snapshot in send log");
+}
+
+/** Minimal valid snapshot for guest-side feeds (blind-state tests). */
+function serializeOneSnapshot(): ArrayBuffer {
+  const snap: Snapshot = {
+    tick: 1,
+    phase: "serve",
+    round: 1,
+    players: [
+      {
+        player: 0,
+        name: "HostP",
+        skinIndex: 0,
+        paddle: { x: 104, y: 240, w: 24, h: 6, edge: "bottom" },
+        lives: 3,
+        score: 0,
+        meter: 0,
+        target: -1,
+        chain: 0,
+        state: "playing",
+        effects: {},
+      },
+    ],
+    balls: [],
+    capsules: [],
+    bricks: Array.from({ length: BRICK_COLS * BRICK_ROWS }, () => 0),
+    events: [],
+    inputAcks: [1],
+  };
+  return serializeSnapshot(snap);
 }
