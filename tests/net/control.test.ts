@@ -38,6 +38,12 @@ describe("control message parsing (spec §9 structural validation)", () => {
       { type: "pong", atMs: 123 },
       { type: "kick", reason: "lobby" },
       { type: "bye" },
+      { type: "pause-request", player: 2 },
+      { type: "pause-cancel", player: 2 },
+      { type: "resume", player: 1 },
+      { type: "paused", by: 2 },
+      { type: "resumed" },
+      { type: "quit-match", player: 0 },
     ];
     for (const msg of msgs) {
       const back = parseControl(encodeControl(msg));
@@ -88,6 +94,22 @@ describe("control message parsing (spec §9 structural validation)", () => {
 
   it("rejects hello-refused with unknown reason", () => {
     expect(parseControl('{"type":"hello-refused","reason":"because"}')).toMatchObject({ ok: false });
+  });
+
+  it("ticket 48: pause/quit messages validate the player index (0–3)", () => {
+    expect(parseControl('{"type":"pause-request","player":0}')).toMatchObject({ ok: true });
+    expect(parseControl('{"type":"pause-request","player":3}')).toMatchObject({ ok: true });
+    expect(parseControl('{"type":"pause-request","player":4}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"pause-request","player":-1}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"pause-request","player":1.5}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"pause-request","player":"1"}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"pause-request"}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"paused","by":2}')).toMatchObject({ ok: true });
+    expect(parseControl('{"type":"paused","by":9}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"paused"}')).toMatchObject({ ok: false });
+    expect(parseControl('{"type":"resumed"}')).toMatchObject({ ok: true });
+    expect(parseControl('{"type":"quit-match","player":0}')).toMatchObject({ ok: true });
+    expect(parseControl('{"type":"quit-match","player":7}')).toMatchObject({ ok: false });
   });
 
   it("fuzz: random JSON bodies never pass with wrong shapes", () => {

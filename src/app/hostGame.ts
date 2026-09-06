@@ -98,6 +98,14 @@ export interface HostGameSession {
   removePlayers(players: number[]): void;
   /** Ship a full snapshot to one guest NOW (rejoin resync, ticket 47). */
   resyncGuest(guestIndex: number): void;
+  /**
+   * Coop pause (ticket 48): freeze the sim for everyone. While paused,
+   * tick() advances NOTHING (no sim step, no queue drain, no stall decay)
+   * but snapshots keep broadcasting at cadence — guests stay fed (their
+   * silence monitors from ticket 47 must never trip on a legit pause) and
+   * everyone renders the frozen state.
+   */
+  setPaused(paused: boolean): void;
   /** Latest snapshots (host renders authoritative state). */
   snapshots(): Snapshot[];
   /** Broadcast cadence — callers tick this at the rate. */
@@ -297,6 +305,9 @@ export function createHostGameSession(
 
   let lastBroadcastTick = -1;
   let lastProgressTick = -1;
+  // Coop pause (ticket 48): frozen tick — no sim advance, broadcasts live.
+  let paused = false;
+  let pauseTickCount = 0;
 
   function progressRowsFor(guestIndex: number, snapshots: readonly Snapshot[]): ArrayBuffer {
     // Remote players of this guest = everyone not on this guest / not host-local
@@ -380,6 +391,16 @@ export function createHostGameSession(
     },
     tick(localFrames) {
       if (ended) return;
+      // Ticket 48: paused = frozen for everyone. Local frames are dropped
+      // (the host's own players idle too); guest frames are dropped in
+      // guestBinary below. Broadcasts continue so guests stay fed.
+      if (paused) {
+        pauseTickCount++;
+        if (pauseTickCount % (60 / snapshotHz) === 0) {
+          broadcast(sim.snapshots());
+        }
+        return;
+      }
       // Host-local frames enter the same queue (network hop skipped).
       for (const f of localFrames) queue.push(f);
       const due = queue.due(simTick);
@@ -410,6 +431,9 @@ export function createHostGameSession(
       // Structural validation: decode may throw on malformed input — drop.
       const players = guestPlayers.get(guestIndex) ?? [];
       if (players.length === 0) return;
+      // Ticket 48: paused = input dropped (frozen for everyone — a paused
+      // guest's frames must never enter the delay queue).
+      if (paused) return;
       let frames: InputFrame[];
       try {
         frames = decodeInputBatch(buffer);
@@ -483,6 +507,15 @@ export function createHostGameSession(
       }
     },
     snapshots: () => sim.snapshots(),
+    setPaused(next) {
+      if (paused === next) return;
+      paused = next;
+      if (next) pauseTickCount = 0;
+      // Resume: the delay queue may hold pre-pause frames — the sim tick
+      // never advanced, so they are simply late; the guard dedupes by
+      // (player, tick) and the queue drops undeliverable ticks. Nothing
+      // else to do.
+    },
     dispose() {
       guestPlayers.clear();
     },

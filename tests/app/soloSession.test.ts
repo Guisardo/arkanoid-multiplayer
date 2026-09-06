@@ -136,6 +136,32 @@ describe("solo session wiring", () => {
     expect(overlays.length).toBeGreaterThan(0);
   });
 
+  it("ticket 48 regression: local pause freezes the whole device view", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    // Serve the ball, then pause via Esc.
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space" }));
+    s.loop.advance(1000 / 60);
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space" }));
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    // The settings overlay is up (the pause surface) and the loop is
+    // stopped — the whole device view is frozen. The overlay's close
+    // path restarts it; the sim continues from where it froze.
+    const overlays = [...document.querySelectorAll("div")].filter(
+      (d) => d.style.zIndex === "1000" && (d.textContent ?? "").includes("Settings"),
+    );
+    expect(overlays.length).toBeGreaterThan(0);
+    const frozen = s.latestSnapshot().tick;
+    // Close via the overlay's own close path (Esc handled by the route).
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThan(frozen);
+  });
+
   it("bot path: bot drives player 0 (keyboard ignored)", async () => {
     const s = await makeSession({ bot: { difficulty: "normal", seed: 7 } });
     sessions.push(s);

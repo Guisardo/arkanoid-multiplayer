@@ -24,6 +24,12 @@ export const CONTROL_TYPES = [
   "rejoin", // guest → host: re-entering with original player id (ticket 47)
   "rejoin-ok", // host → guest: held slot validated, channels rebound
   "rejoin-refused", // host → guest: no held slot (unknown/expired/live)
+  "pause-request", // guest → host: coop pause request (ticket 48)
+  "pause-cancel", // guest → host: the pauser cancels its own pause
+  "resume", // guest → host: any player resumes a paused coop match
+  "paused", // host → all: sim paused for everyone (carries the pauser)
+  "resumed", // host → all: sim resumed
+  "quit-match", // guest → host: quit from the overlay = removal (48)
 ] as const;
 
 export type ControlType = (typeof CONTROL_TYPES)[number];
@@ -129,6 +135,46 @@ export interface RejoinRefusedMsg {
   reason: "unknownPlayer" | "expired" | "alreadyLive";
 }
 
+/** Guest → host: coop pause request — any player, downed included (48). */
+export interface PauseRequestMsg {
+  type: "pause-request";
+  /** Sim player index of the requester. */
+  player: number;
+}
+
+/** Guest → host: the pauser cancels its own pause (48). */
+export interface PauseCancelMsg {
+  type: "pause-cancel";
+  /** Sim player index of the canceler (must equal the pauser). */
+  player: number;
+}
+
+/** Guest → host: any player resumes a paused coop match (48). */
+export interface ResumeMsg {
+  type: "resume";
+  /** Sim player index of the resumer. */
+  player: number;
+}
+
+/** Host → all: sim paused for everyone (48). */
+export interface PausedMsg {
+  type: "paused";
+  /** Sim player index who requested the pause ("Paused by [name]"). */
+  by: number;
+}
+
+/** Host → all: sim resumed (48). */
+export interface ResumedMsg {
+  type: "resumed";
+}
+
+/** Guest → host: quit from the overlay = removal, scored as loss (48). */
+export interface QuitMatchMsg {
+  type: "quit-match";
+  /** Sim player index quitting. */
+  player: number;
+}
+
 export type ControlMsg =
   | HelloMsg
   | HelloOkMsg
@@ -145,7 +191,13 @@ export type ControlMsg =
   | ByeMsg
   | RejoinMsg
   | RejoinOkMsg
-  | RejoinRefusedMsg;
+  | RejoinRefusedMsg
+  | PauseRequestMsg
+  | PauseCancelMsg
+  | ResumeMsg
+  | PausedMsg
+  | ResumedMsg
+  | QuitMatchMsg;
 
 export type ParseResult =
   | { ok: true; msg: ControlMsg }
@@ -331,6 +383,25 @@ export function parseControl(raw: string): ParseResult {
       }
       return { ok: true, msg: { type: "rejoin-refused", reason } };
     }
+    case "pause-request":
+    case "pause-cancel":
+    case "resume":
+    case "quit-match": {
+      const player = num(parsed.player);
+      if (player === null || !Number.isInteger(player) || player < 0 || player > 3) {
+        return { ok: false, error: "protocol" };
+      }
+      return { ok: true, msg: { type: parsed.type, player } as ControlMsg };
+    }
+    case "paused": {
+      const by = num(parsed.by);
+      if (by === null || !Number.isInteger(by) || by < 0 || by > 3) {
+        return { ok: false, error: "protocol" };
+      }
+      return { ok: true, msg: { type: "paused", by } };
+    }
+    case "resumed":
+      return { ok: true, msg: { type: "resumed" } };
     default:
       return { ok: false, error: "protocol" };
   }

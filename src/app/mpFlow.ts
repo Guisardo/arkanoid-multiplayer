@@ -26,6 +26,9 @@ import { createHostWatchdog, pingDue, type HostWatchdog } from "net/heartbeat";
 import { createRejoinRegistry, type RejoinRegistry } from "net/rejoin";
 import { createOverloadMonitor, type OverloadMonitor } from "app/overload";
 import { createKeepAlive, type KeepAlive } from "app/keepAlive";
+import { reducePause, pauseAllowedFor, UNPAUSED, type PauseState } from "app/pauseCoord";
+import { PauseOverlay } from "ui/pauseOverlay";
+import { QuitConfirm } from "ui/quitConfirm";
 import { assignSkinIndices } from "content/skinSync";
 import { DEFAULT_THEME_ID } from "content/themes";
 import type { LobbyState, LobbyMode } from "app/lobbyState";
@@ -122,6 +125,15 @@ export class MpFlow {
   private throttleBanner: HTMLElement | null = null;
   /** Guest: one rejoin attempt per mid-match death (ticket 47). */
   private rejoinAttempted = false;
+  // ---- Ticket 48: pause/quit coordination ----
+  /** Host: authoritative pause state (coop only — competitive never pauses). */
+  private pauseState: PauseState = UNPAUSED;
+  /** Coop pause overlay (both sides render it while paused). */
+  private pauseOverlay: PauseOverlay | null = null;
+  /** Competitive quit-confirm overlay (sim never pauses behind it). */
+  private quitConfirm: QuitConfirm | null = null;
+  /** Sim players local to this device, by device-local index (pause header). */
+  private matchNames: string[] = [];
 
   constructor(opts: MpFlowOptions) {
     this.hostEl = opts.host;
@@ -205,6 +217,22 @@ export class MpFlow {
       } catch {
         // Non-JSON: the lobby parser handles protocol errors.
       }
+      // Ticket 48: pause/quit ride the control channel — game-phase
+      // messages the lobby does not know. Route before the lobby.
+      try {
+        const peek = JSON.parse(json) as { type?: string; player?: number };
+        if (
+          peek.type === "pause-request" || peek.type === "pause-cancel" ||
+          peek.type === "resume" || peek.type === "quit-match"
+        ) {
+          if (typeof peek.player === "number") {
+            this.handlePauseQuit(guestIndex, peek.type, peek.player);
+            return;
+          }
+        }
+      } catch {
+        // Non-JSON: the lobby parser handles protocol errors.
+      }
       // Any guest traffic = alive for its watchdog.
       this.watchdogs.get(guestIndex)?.heard(performance.now());
       this.lobby?.guestMessage(guestIndex, json);
@@ -217,6 +245,8 @@ export class MpFlow {
       this.maybeGuestGameStart(json);
       // Ticket 47: rejoin handshake results.
       this.maybeGuestRejoinResult(json);
+      // Ticket 48: host pause/resume broadcasts.
+      this.maybeGuestPauseResult(json);
     }
   }
 
@@ -288,7 +318,192 @@ export class MpFlow {
     }
   }
 
-  // ---- Host device API ----
+  // ---- Ticket 48: pause/quit coordination ----
+
+  /**
+   * Host: apply a guest's pause/cancel/resume/quit. Pause is coop-only
+   * (competitive requests are ignored — the sim provably never pauses);
+   * quit = removal scored as loss (competitive) / slot gone (coop), no
+   * rejoin hold for a deliberate quit.
+   */
+  private handlePauseQuit(guestIndex: number, kind: string, player: number): void {
+    if (this.phase !== "inGame") return;
+    // Any guest traffic = alive for its watchdog.
+    this.watchdogs.get(guestIndex)?.heard(performance.now());
+    if (kind === "quit-match") {
+      this.removeQuitPlayer(player);
+      return;
+    }
+    if (!pauseAllowedFor(this.matchMode ?? "")) return; // competitive: never
+    const before = this.pauseState;
+    const next =
+      kind === "pause-request"
+        ? reducePause(before, { type: "request", player })
+        : kind === "pause-cancel"
+          ? reducePause(before, { type: "cancel", player })
+          : reducePause(before, { type: "resume", player });
+    if (next === before) return; // no-op (double request, non-pauser cancel)
+    this.pauseState = next;
+    this.game?.setPaused(next.paused);
+    if (next.paused) {
+      this.broadcastControl({ type: "paused", by: next.pausedBy ?? 0 });
+      this.showPauseOverlay(next.pausedBy ?? 0);
+    } else {
+      this.broadcastControl({ type: "resumed" });
+      this.hidePauseOverlay();
+    }
+  }
+
+  /** Host: quit = removal (no rejoin hold) + lobby cleanup. */
+  private removeQuitPlayer(player: number): void {
+    this.game?.removePlayers([player]);
+    // No rejoinRegistry.hold — a deliberate quit never re-enters. The
+    // lobby slot closes when the device leaves (guestClosed via bye /
+    // channel close); a quitting device with remaining players stays.
+    const state = this.lobby?.state();
+    if (state !== undefined) this.opts.onLobbyState?.(state);
+  }
+
+  /** Host: broadcast a control message to every live guest. */
+  private broadcastControl(msg: unknown): void {
+    for (const gi of this.gameGuests()) {
+      this.channels?.hostControl(gi, JSON.stringify(msg));
+    }
+  }
+
+  /** Guest: host pause/resume broadcasts → overlay + input gating. */
+  private maybeGuestPauseResult(json: string): void {
+    if (this.isHost) return;
+    try {
+      const parsed = JSON.parse(json) as { type?: string; by?: number };
+      if (parsed.type === "paused" && typeof parsed.by === "number") {
+        this.pauseState = { paused: true, pausedBy: parsed.by };
+        this.showPauseOverlay(parsed.by);
+      } else if (parsed.type === "resumed") {
+        this.pauseState = UNPAUSED;
+        this.hidePauseOverlay();
+      }
+    } catch {
+      // Non-JSON: ignored.
+    }
+  }
+
+  /** Render the coop pause overlay ("Paused by [name]"). */
+  private showPauseOverlay(pausedBy: number): void {
+    if (this.pauseOverlay !== null) return;
+    this.pauseOverlay = new PauseOverlay({
+      host: this.hostEl,
+      locale: this.locale,
+      pausedBy: this.matchNames[pausedBy] ?? `P${String(pausedBy + 1)}`,
+      onChoice: (choice) => {
+        if (choice === "resume") {
+          // Any player resumes; the pauser's own click = cancel (same
+          // wire result — unpause). Host-local: apply directly.
+          if (this.isHost) this.hostLocalResume();
+          else this.channels?.guestControl(JSON.stringify({
+            type: "resume",
+            player: this.matchLocalPlayers[0] ?? 0,
+          }));
+        } else {
+          // Quit from the pause overlay = same removal path.
+          if (this.isHost) this.hostLocalQuit();
+          else this.channels?.guestControl(JSON.stringify({
+            type: "quit-match",
+            player: this.matchLocalPlayers[0] ?? 0,
+          }));
+        }
+      },
+    });
+  }
+
+  private hidePauseOverlay(): void {
+    this.pauseOverlay?.close();
+    this.pauseOverlay = null;
+  }
+
+  /** Host-local pause request (host device's own Esc/Start). */
+  private hostLocalPause(): void {
+    if (this.phase !== "inGame") return;
+    if (!pauseAllowedFor(this.matchMode ?? "")) return;
+    const player = this.matchLocalPlayers[0] ?? 0;
+    const next = reducePause(this.pauseState, { type: "request", player });
+    if (next === this.pauseState) return;
+    this.pauseState = next;
+    this.game?.setPaused(true);
+    this.broadcastControl({ type: "paused", by: player });
+    this.showPauseOverlay(player);
+  }
+
+  /** Host-local resume/cancel. */
+  private hostLocalResume(): void {
+    if (this.phase !== "inGame") return;
+    const player = this.matchLocalPlayers[0] ?? 0;
+    const next = reducePause(this.pauseState, { type: "resume", player });
+    if (next === this.pauseState) return;
+    this.pauseState = next;
+    this.game?.setPaused(false);
+    this.broadcastControl({ type: "resumed" });
+    this.hidePauseOverlay();
+  }
+
+  /** Host-local quit from an overlay = removal of the host's players. */
+  private hostLocalQuit(): void {
+    if (this.phase !== "inGame") return;
+    this.game?.removePlayers(this.matchLocalPlayers);
+    this.hidePauseOverlay();
+    this.hideQuitConfirm();
+  }
+
+  /**
+   * Local pause/menu input (ticket 48): Esc/Start/gamepad-menu edge from
+   * the device. Coop → pause request (host-local applies directly,
+   * guest sends control). Competitive remote → quit-confirm overlay ONLY
+   * — the sim never pauses behind it.
+   */
+  localPausePressed(): void {
+    if (this.phase !== "inGame") return;
+    const coop = pauseAllowedFor(this.matchMode ?? "");
+    if (coop) {
+      if (this.isHost) this.hostLocalPause();
+      else {
+        this.channels?.guestControl(JSON.stringify({
+          type: "pause-request",
+          player: this.matchLocalPlayers[0] ?? 0,
+        }));
+      }
+      return;
+    }
+    // Competitive remote: quit-confirm only, sim keeps running.
+    if (this.quitConfirm !== null) return;
+    this.quitConfirm = new QuitConfirm({
+      host: this.hostEl,
+      locale: this.locale,
+      onChoice: (choice) => {
+        this.hideQuitConfirm();
+        if (choice === "quit") {
+          if (this.isHost) this.hostLocalQuit();
+          else {
+            this.channels?.guestControl(JSON.stringify({
+              type: "quit-match",
+              player: this.matchLocalPlayers[0] ?? 0,
+            }));
+          }
+        }
+      },
+    });
+  }
+
+  private hideQuitConfirm(): void {
+    this.quitConfirm?.close();
+    this.quitConfirm = null;
+  }
+
+  /** Test/e2e probe: current pause state. */
+  get pauseSnapshot(): PauseState {
+    return this.pauseState;
+  }
+
+
 
   /** Host local lobby action (UI dispatches through this). */
   hostLocalEvent(event: Parameters<HostLobbySession["localEvent"]>[0]): void {
@@ -340,9 +555,11 @@ export class MpFlow {
       { onMatchEnd: (end) => { this.hostMatchEnd(end); } },
     );
     this.matchPlayers = players.map((p) => p.name);
+    this.matchNames = players.map((p) => p.name);
     this.matchMode = state.config.mode;
     this.matchLocalPlayers = hostLocal;
     this.matchTick = 0;
+    this.pauseState = UNPAUSED;
     this.phase = "inGame";
 
     // Ticket 47: resilience machinery goes live with the match.
@@ -380,7 +597,9 @@ export class MpFlow {
     if (game === null) return;
     const loop = createAccumulatorLoop({
       tick: () => {
-        this.sampleLocalFrames();
+        // Ticket 48: paused = host-local input dropped too (frozen for
+        // everyone); hostGame.tick still runs its paused broadcast path.
+        if (!this.pauseState.paused) this.sampleLocalFrames();
         game.tick(this.pendingLocal.splice(0));
       },
       render: () => {
@@ -699,8 +918,10 @@ export class MpFlow {
       },
     );
     this.matchMode = mode;
+    this.matchNames = names;
     this.matchLocalPlayers = localPlayers;
     this.matchTick = 0;
+    this.pauseState = UNPAUSED;
     this.phase = "inGame";
     // Ticket 47: guest resilience — ping cadence + host-silence watch.
     this.lastPingMs = performance.now();
@@ -726,8 +947,12 @@ export class MpFlow {
         // Collect this tick's local frames (sample seam + legacy
         // localFrame callers), then send + advance prediction — the
         // predictor sees the frame on the tick it was made.
-        this.sampleLocalFrames();
-        guestGame.sendTick();
+        // Ticket 48: paused = no input leaves the device (the host drops
+        // it anyway; skipping keeps the wire quiet and prediction frozen).
+        if (!this.pauseState.paused) {
+          this.sampleLocalFrames();
+          guestGame.sendTick();
+        }
       },
       render: () => {
         const now = performance.now();
@@ -931,6 +1156,10 @@ export class MpFlow {
     this.watchdogs.clear();
     this.hideBanner();
     this.updateThrottleBanner(false);
+    // Ticket 48: overlays die with the match; pause state resets.
+    this.hidePauseOverlay();
+    this.hideQuitConfirm();
+    this.pauseState = UNPAUSED;
     this.game?.dispose();
     this.game = null;
     this.guestGame?.dispose();
