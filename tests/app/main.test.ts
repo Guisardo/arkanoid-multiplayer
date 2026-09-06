@@ -68,6 +68,8 @@ const constructedFlows: {
   sampleLocal?: (player: number, tick: number) => unknown;
   reconnect?: () => Promise<unknown>;
 }[] = [];
+/** localPausePressed calls captured by the mocked flow (ticket 48). */
+const pausePresses: { host: boolean }[] = [];
 function applyMocks(): void {
   vi.doMock("app/soloSession", () => ({
     startSoloSession: () => soloStart(),
@@ -119,6 +121,7 @@ function applyMocks(): void {
       binaryFromWire = vi.fn();
       controlFromWire = vi.fn();
       dispose = vi.fn();
+      localPausePressed = vi.fn();
       /** Captured sampleLocal seam (ticket 46 input path). */
       sampleLocal: ((player: number, tick: number) => unknown) | undefined;
       /** Captured reconnect seam (ticket 47 rejoin path). */
@@ -132,6 +135,11 @@ function applyMocks(): void {
         constructedFlows.push({
           ...(opts.sampleLocal !== undefined ? { sampleLocal: opts.sampleLocal } : {}),
           ...(opts.reconnect !== undefined ? { reconnect: opts.reconnect } : {}),
+        });
+        pausePresses.push({ host: false });
+        this.localPausePressed.mockImplementation(() => {
+          const entry = pausePresses[pausePresses.length - 1];
+          if (entry !== undefined) entry.host = true;
         });
       }
     },
@@ -165,6 +173,7 @@ afterEach(() => {
   lastRoom.room = null;
   guestConnections.clear();
   constructedFlows.length = 0;
+  pausePresses.length = 0;
   joinCodePrefill.value = null;
   vi.resetModules();
   vi.doUnmock("app/soloSession");
@@ -290,6 +299,17 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     expect(p1.player).toBe(1);
     expect(p1.axisX).toBe(1);
     globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD" }));
+  });
+
+  it("host flow: Esc menu edge routes to localPausePressed (ticket 48)", async () => {
+    await bootHostFlow();
+    // The menu-poll interval is live: an Esc edge fires within ~100 ms.
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    const flow = pausePresses[0];
+    expect(flow).toBeDefined();
+    expect(flow?.host).toBe(true);
+    globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "Escape" }));
   });
 
   it("guest flow: join with a valid code builds the guest flow with input seam", async () => {

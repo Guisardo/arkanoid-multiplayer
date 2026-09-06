@@ -115,6 +115,8 @@ function makePair() {
     hostControlAll: () => [...hostControlLog],
     guestControlAll: () => [...guestControlLog],
     wireSnapshots,
+    hostEl,
+    guestEl,
   };
 }
 
@@ -304,4 +306,83 @@ describe("mpFlow pause/quit wiring (ticket 48)", () => {
     expect(hostFlow.currentPhase).toBe("inGame");
     expect(guestFlow.currentPhase).toBe("inGame");
   }, 25000);
+
+  it("overlay clicks: guest Resume sends resume; guest Quit sends quit-match", async () => {
+    const { hostFlow, guestFlow, guestControlAll, wireSnapshots, guestEl } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await startMatch(hostFlow, guestFlow, "sharedField");
+    guestFlow.localPausePressed();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    expect(hostFlow.pauseSnapshot.paused).toBe(true);
+    // Click the GUEST's overlay Resume button (its own element tree).
+    const resumeBtn = [...guestEl.querySelectorAll("button")]
+      .find((b) => b.textContent === "Resume");
+    expect(resumeBtn).toBeDefined();
+    resumeBtn?.click();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    // The resume reached the host: unpaused for all.
+    expect(hostFlow.pauseSnapshot.paused).toBe(false);
+    expect(guestControlAll().some((j) => j.includes('"resume"'))).toBe(true);
+    // Pause again, then click Quit: quit-match goes out, removal applies.
+    guestFlow.localPausePressed();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    expect(hostFlow.pauseSnapshot.paused).toBe(true);
+    const quitBtn = [...guestEl.querySelectorAll("button")]
+      .find((b) => b.textContent === "Quit");
+    expect(quitBtn).toBeDefined();
+    quitBtn?.click();
+    await new Promise((r) => globalThis.setTimeout(r, 150));
+    expect(guestControlAll().some((j) => j.includes('"quit-match"'))).toBe(true);
+    const wire = wireSnapshots();
+    const last = wire[wire.length - 1];
+    expect(last?.players.some((p) => p.state === "removed")).toBe(true);
+  }, 20000);
+
+  it("competitive: overlay Quit confirms removal; Cancel keeps playing", async () => {
+    const { hostFlow, guestFlow, guestControlAll, wireSnapshots, guestEl } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await startMatch(hostFlow, guestFlow, "race");
+    guestFlow.localPausePressed();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    // Cancel first: overlay closes, no quit on the wire, sim kept running.
+    const cancelBtn = [...guestEl.querySelectorAll("button")]
+      .find((b) => b.textContent === "Back");
+    expect(cancelBtn).toBeDefined();
+    cancelBtn?.click();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    expect(guestControlAll().some((j) => j.includes('"quit-match"'))).toBe(false);
+    expect(guestFlow.pauseSnapshot.paused).toBe(false);
+    // Reopen + confirm Quit: quit-match goes out.
+    guestFlow.localPausePressed();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    const quitBtn = [...guestEl.querySelectorAll("button")]
+      .find((b) => b.textContent === "Quit");
+    expect(quitBtn).toBeDefined();
+    quitBtn?.click();
+    await new Promise((r) => globalThis.setTimeout(r, 150));
+    expect(guestControlAll().some((j) => j.includes('"quit-match"'))).toBe(true);
+    const wire = wireSnapshots();
+    const last = wire[wire.length - 1];
+    expect(last?.players.some((p) => p.state === "removed")).toBe(true);
+  }, 20000);
+
+  it("host-local quit from the pause overlay removes the host's players", async () => {
+    const { hostFlow, guestFlow, wireSnapshots, hostEl } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await startMatch(hostFlow, guestFlow, "sharedField");
+    hostFlow.localPausePressed();
+    await new Promise((r) => globalThis.setTimeout(r, 50));
+    expect(hostFlow.pauseSnapshot.paused).toBe(true);
+    // The host's overlay Quit click removes the host's own players.
+    const quitBtn = [...hostEl.querySelectorAll("button")]
+      .find((b) => b.textContent === "Quit");
+    expect(quitBtn).toBeDefined();
+    quitBtn?.click();
+    await new Promise((r) => globalThis.setTimeout(r, 150));
+    const wire = wireSnapshots();
+    const last = wire[wire.length - 1];
+    expect(last?.players.some((p) => p.state === "removed")).toBe(true);
+    // Overlay closed by the quit path.
+    expect(hostEl.textContent ?? "").not.toContain("Paused by");
+  }, 20000);
 });
