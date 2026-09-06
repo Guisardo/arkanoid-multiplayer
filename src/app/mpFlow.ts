@@ -22,6 +22,10 @@ import {
 } from "app/hostGame";
 import { createGuestGameSession, type GuestGameSession, type ProgressRow } from "app/guestGame";
 import { createAccumulatorLoop, type AccumulatorLoop } from "app/loop";
+import { createHostWatchdog, pingDue, type HostWatchdog } from "net/heartbeat";
+import { createRejoinRegistry, type RejoinRegistry } from "net/rejoin";
+import { createOverloadMonitor, type OverloadMonitor } from "app/overload";
+import { createKeepAlive, type KeepAlive } from "app/keepAlive";
 import { assignSkinIndices } from "content/skinSync";
 import { DEFAULT_THEME_ID } from "content/themes";
 import type { LobbyState, LobbyMode } from "app/lobbyState";
@@ -55,6 +59,13 @@ export interface MpFlowOptions {
   host: HTMLElement;
   locale: Locale;
   connect: () => Promise<MpConnectResult>;
+  /**
+   * Ticket 47: guest rejoin — re-enter the room with the same code after a
+   * mid-match drop. Returns the new channels or null when the room is gone.
+   * When provided, a mid-match host-silence death attempts ONE rejoin
+   * (join-with-original-player-id) before giving up.
+   */
+  reconnect?: () => Promise<MpConnectResult | null>;
   /** Callbacks the UI (main.ts) hooks for screens + local input wiring. */
   onLobbyState?(state: LobbyState): void;
   onCountdown?(seconds: number): void;
@@ -92,6 +103,25 @@ export class MpFlow {
   /** Sim players local to this device (host or guest), set at match start. */
   private matchLocalPlayers: number[] = [];
   private matchTick = 0;
+  // ---- Ticket 47: resilience state ----
+  /** Host: per-guest disconnect watchdogs (heartbeat + close, whichever first). */
+  private watchdogs = new Map<number, HostWatchdog>();
+  /** Host: held rejoin slots (90 s window). */
+  private rejoinRegistry: RejoinRegistry = createRejoinRegistry();
+  /** Host: overload → slow-motion monitor. */
+  private overload: OverloadMonitor = createOverloadMonitor();
+  /** Host: wake lock + background tick + visibility resync. */
+  private keepAlive: KeepAlive | null = null;
+  /** 1 Hz housekeeping timer (watchdog ticks, rejoin expiry, ping). */
+  private housekeepTimer: ReturnType<typeof setInterval> | null = null;
+  /** Guest: last ping sent at (5 s cadence). */
+  private lastPingMs = 0;
+  /** Guest: reconnect banner element (blind state). */
+  private banner: HTMLElement | null = null;
+  /** Throttle warning banner (slow-motion engaged). */
+  private throttleBanner: HTMLElement | null = null;
+  /** Guest: one rejoin attempt per mid-match death (ticket 47). */
+  private rejoinAttempted = false;
 
   constructor(opts: MpFlowOptions) {
     this.hostEl = opts.host;
@@ -164,6 +194,19 @@ export class MpFlow {
 
   controlFromWire(guestIndex: number, json: string): void {
     if (this.isHost) {
+      // Ticket 47: rejoin arrives on the NEW channel index — route before
+      // the lobby (the lobby doesn't know the new index yet).
+      try {
+        const peek = JSON.parse(json) as { type?: string; playerId?: number };
+        if (peek.type === "rejoin" && typeof peek.playerId === "number") {
+          this.handleRejoin(guestIndex, peek.playerId);
+          return;
+        }
+      } catch {
+        // Non-JSON: the lobby parser handles protocol errors.
+      }
+      // Any guest traffic = alive for its watchdog.
+      this.watchdogs.get(guestIndex)?.heard(performance.now());
       this.lobby?.guestMessage(guestIndex, json);
     } else {
       const before = this.guestLobby?.state();
@@ -172,6 +215,8 @@ export class MpFlow {
       if (before !== after) this.lobbyState = after ?? null;
       // Game-start arrives as control too: check phase transitions.
       this.maybeGuestGameStart(json);
+      // Ticket 47: rejoin handshake results.
+      this.maybeGuestRejoinResult(json);
     }
   }
 
@@ -213,6 +258,33 @@ export class MpFlow {
       );
     } catch {
       // Non-JSON or wrong shape: control parser already handles protocol.
+    }
+  }
+
+  /**
+   * Ticket 47: guest-side rejoin handshake results. rejoin-ok → the next
+   * game-channel snapshot rebuilds prediction (resyncFromSnapshot rides
+   * hostBinary's multi path — the guest session is recreated on game-start
+   * only, so a mid-match rejoin re-enters through the same flow: the host
+   * ships a full snapshot immediately after rejoin-ok). rejoin-refused →
+   * fatal (slot gone/expired — nothing to re-enter).
+   */
+  private maybeGuestRejoinResult(json: string): void {
+    try {
+      const parsed = JSON.parse(json) as { type?: string; reason?: string };
+      if (parsed.type === "rejoin-refused") {
+        this.fatal(t(this.locale, "mp.rejoinFailed"));
+        return;
+      }
+      if (parsed.type === "rejoin-ok") {
+        // The host ships the full snapshot on the game channel right after
+        // rejoin-ok; the guest session's resyncFromSnapshot wipes prediction
+        // history when it lands (hostBinary → multi path). Nothing else to
+        // do here — the banner clears on the next snapshot feed.
+        this.hideBanner();
+      }
+    } catch {
+      // Non-JSON: ignored.
     }
   }
 
@@ -273,6 +345,9 @@ export class MpFlow {
     this.matchTick = 0;
     this.phase = "inGame";
 
+    // Ticket 47: resilience machinery goes live with the match.
+    this.startResilience(players.filter((p) => p.guestIndex >= 0).map((p) => p.guestIndex));
+
     // Tell every guest the match started (control channel).
     for (const p of players) {
       if (p.guestIndex < 0) continue;
@@ -309,6 +384,11 @@ export class MpFlow {
         game.tick(this.pendingLocal.splice(0));
       },
       render: () => {
+        // Ticket 47: overload observation — the loop's catch-up cap biting
+        // frame after frame engages slow-motion; the banner follows.
+        const scale = this.overload.observe(loop.lastFrameCapped);
+        loop.setTimeScale(scale);
+        this.updateThrottleBanner(this.overload.state.degraded);
         const snaps = game.snapshots();
         const local: Snapshot[] = [];
         for (let i = 0; i < snaps.length; i++) {
@@ -325,6 +405,146 @@ export class MpFlow {
   }
 
   private localFieldFilter: number[] = [];
+
+  /**
+   * Ticket 47: per-match resilience — host watchdogs per guest, 1 Hz
+   * housekeeping (watchdog ticks + rejoin expiry + guest ping), wake lock
+   * + background tick + visibility pause-and-resync.
+   */
+  private startResilience(guestIndices: number[]): void {
+    const now = performance.now();
+    for (const gi of guestIndices) {
+      this.watchdogs.set(gi, createHostWatchdog(now));
+    }
+    this.rejoinRegistry = createRejoinRegistry();
+    this.overload = createOverloadMonitor();
+    this.keepAlive = createKeepAlive({
+      requestWakeLock: async () => {
+        const nav: { wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> } } =
+          globalThis.navigator;
+        try {
+          const api = nav.wakeLock;
+          if (api === undefined) return null;
+          return await api.request("screen");
+        } catch {
+          return null;
+        }
+      },
+      onVisibilityChange: (cb) => {
+        const handler = (): void => {
+          cb(document.visibilityState === "visible");
+        };
+        document.addEventListener("visibilitychange", handler);
+        return () => {
+          document.removeEventListener("visibilitychange", handler);
+        };
+      },
+      setInterval: (ms, cb) => {
+        const handle = globalThis.setInterval(cb, ms);
+        return () => {
+          globalThis.clearInterval(handle);
+        };
+      },
+      onResync: () => {
+        // Pause-and-resync on visibility return / background tick: ship a
+        // full snapshot to every guest so nobody drifts through the gap.
+        if (this.phase === "inGame") {
+          for (const gi of this.gameGuests()) this.game?.resyncGuest(gi);
+        }
+      },
+    });
+    this.keepAlive.start();
+    this.housekeepTimer = globalThis.setInterval(() => {
+      this.housekeep();
+    }, 1000);
+  }
+
+  /** Live guest indices the game session still routes to. */
+  private gameGuests(): number[] {
+    const out: number[] = [];
+    for (const gi of this.watchdogs.keys()) out.push(gi);
+    return out;
+  }
+
+  /** 1 Hz: watchdog ticks, rejoin-window expiry, guest ping cadence. */
+  private housekeep(): void {
+    const now = performance.now();
+    if (this.isHost) {
+      // Watchdogs: silence ≥ threshold = drop (whichever-first with close).
+      for (const [gi, wd] of this.watchdogs) {
+        if (wd.tick(now)) this.guestDropped(gi);
+      }
+      // Rejoin expiry: 90 s past hold = removal (competitive loss / coop
+      // slot gone, not revivable).
+      for (const gi of this.rejoinRegistry.expire(now)) {
+        const playerIds = this.lobby?.playersOfGuest(gi) ?? [];
+        this.game?.removePlayers(playerIds);
+        this.lobby?.guestClosed(gi);
+        const state = this.lobby?.state();
+        if (state !== undefined) this.opts.onLobbyState?.(state);
+      }
+    } else if (this.phase === "inGame") {
+      // Guest: ping the host every 5 s; watch host silence.
+      if (pingDue(this.lastPingMs, now)) {
+        this.lastPingMs = now;
+        this.channels?.guestControl(JSON.stringify({ type: "ping", atMs: Date.now() }));
+      }
+      const blind = this.guestGame?.heartbeatTick(now) ?? "live";
+      if (blind === "blind") this.showBanner(t(this.locale, "mp.reconnecting"));
+      if (blind === "over") this.hostGone();
+    }
+  }
+
+  /** Reconnect banner (guest blind state, ticket 47). */
+  private showBanner(message: string): void {
+    if (this.banner !== null) return;
+    const div = document.createElement("div");
+    div.className = "ld-root";
+    div.style.position = "absolute";
+    div.style.top = "0";
+    div.style.left = "0";
+    div.style.right = "0";
+    div.style.zIndex = "10";
+    const panel = document.createElement("div");
+    panel.className = "ld-panel";
+    const text = document.createElement("h2");
+    text.className = "ld-title";
+    text.textContent = message;
+    panel.appendChild(text);
+    div.appendChild(panel);
+    this.hostEl.appendChild(div);
+    this.banner = div;
+  }
+
+  private hideBanner(): void {
+    this.banner?.remove();
+    this.banner = null;
+  }
+
+  /** Throttle warning banner (host slow-motion engaged, ticket 47). */
+  private updateThrottleBanner(degraded: boolean): void {
+    if (degraded && this.throttleBanner === null) {
+      const div = document.createElement("div");
+      div.className = "ld-root";
+      div.style.position = "absolute";
+      div.style.bottom = "0";
+      div.style.left = "0";
+      div.style.right = "0";
+      div.style.zIndex = "10";
+      const panel = document.createElement("div");
+      panel.className = "ld-panel";
+      const text = document.createElement("h2");
+      text.className = "ld-title";
+      text.textContent = t(this.locale, "mp.throttled");
+      panel.appendChild(text);
+      div.appendChild(panel);
+      this.hostEl.appendChild(div);
+      this.throttleBanner = div;
+    } else if (!degraded && this.throttleBanner !== null) {
+      this.throttleBanner.remove();
+      this.throttleBanner = null;
+    }
+  }
 
   private mountRender(
     mode: LobbyMode,
@@ -470,12 +690,22 @@ export class MpFlow {
       {
         onProgress: (rows) => this.strip?.update(rows),
         onProtocolError: () => { this.fatal(t(this.locale, "mp.connectionCorrupted")); },
+        onBlindState: (state) => {
+          if (state === "blind") this.showBanner(t(this.locale, "mp.reconnecting"));
+          else if (state === "over") { this.hideBanner(); this.hostGone(); }
+          else this.hideBanner();
+        },
       },
     );
     this.matchMode = mode;
     this.matchLocalPlayers = localPlayers;
     this.matchTick = 0;
     this.phase = "inGame";
+    // Ticket 47: guest resilience — ping cadence + host-silence watch.
+    this.lastPingMs = performance.now();
+    this.housekeepTimer = globalThis.setInterval(() => {
+      this.housekeep();
+    }, 1000);
     void createAppShell(this.hostEl, {}).then((shell) => {
       if (this.phase !== "inGame") {
         shell.dispose();
@@ -569,6 +799,15 @@ export class MpFlow {
 
   private guestDropped(guestIndex: number): void {
     if (this.isHost) {
+      // Ticket 47: mid-match drop = hold the slot for the 90 s rejoin
+      // window (paddle freezes — no input arrives; ball loss = life lost
+      // via the sim's own path). Lobby-phase drop = plain removal.
+      const inMatch = this.phase === "inGame" || this.phase === "countdown";
+      const playerIds = this.lobby?.playersOfGuest(guestIndex) ?? [];
+      if (inMatch && playerIds.length > 0) {
+        this.rejoinRegistry.hold(guestIndex, playerIds, performance.now());
+      }
+      this.watchdogs.delete(guestIndex);
       this.lobby?.guestClosed(guestIndex);
       this.game?.guestDropped(guestIndex);
       const state = this.lobby?.state();
@@ -581,7 +820,58 @@ export class MpFlow {
     }
   }
 
+  /**
+   * Ticket 47: a rejoining guest's control message arrived on its NEW
+   * channel index. Validate the held slot, rebind routing, ship a full
+   * snapshot (guest wipes prediction history from it).
+   */
+  private handleRejoin(newGuestIndex: number, playerId: number): void {
+    const decision = this.rejoinRegistry.rejoin(playerId, performance.now());
+    if (!decision.ok) {
+      this.channels?.hostControl(newGuestIndex, JSON.stringify({
+        type: "rejoin-refused",
+        reason: decision.reason,
+      }));
+      return;
+    }
+    // Rebind: lobby players + game routing to the new channel index.
+    this.game?.rebindGuest(decision.guestIndex, newGuestIndex);
+    this.lobby?.rebindGuest(decision.guestIndex, newGuestIndex);
+    this.watchdogs.set(newGuestIndex, createHostWatchdog(performance.now()));
+    this.channels?.hostControl(newGuestIndex, JSON.stringify({
+      type: "rejoin-ok",
+      guestIndex: newGuestIndex,
+    }));
+    // Full snapshot rides the game channel (rebindGuest ships it).
+  }
+
   private hostGone(): void {
+    // Ticket 47: mid-match guest death attempts ONE rejoin before the
+    // fatal screen — the host holds the slot for 90 s.
+    if (
+      !this.isHost && this.phase === "inGame" && this.opts.reconnect !== undefined &&
+      !this.rejoinAttempted
+    ) {
+      this.rejoinAttempted = true;
+      this.showBanner(t(this.locale, "mp.reconnecting"));
+      void this.opts.reconnect().then((result) => {
+        if (result === null || this.phase !== "inGame") {
+          this.hideBanner();
+          this.fatal(t(this.locale, "mp.hostLeft"));
+          return;
+        }
+        // New channels live: send rejoin with the original player id.
+        this.channels = result.channels;
+        this.channels.onGuestDropped(() => { this.hostGone(); });
+        this.channels.onHostGone(() => { this.hostGone(); });
+        const pid = this.guestLobby?.playerId();
+        if (pid !== null) {
+          this.channels.guestControl(JSON.stringify({ type: "rejoin", playerId: pid }));
+        }
+        // Banner clears when the first snapshot lands (blind-state live).
+      });
+      return;
+    }
     this.fatal(t(this.locale, "mp.hostLeft"));
   }
 
@@ -614,6 +904,16 @@ export class MpFlow {
   private teardownGameLoops(): void {
     this.loop?.stop();
     this.loop = null;
+    // Ticket 47: resilience machinery dies with the match.
+    if (this.housekeepTimer !== null) {
+      globalThis.clearInterval(this.housekeepTimer);
+      this.housekeepTimer = null;
+    }
+    this.keepAlive?.stop();
+    this.keepAlive = null;
+    this.watchdogs.clear();
+    this.hideBanner();
+    this.updateThrottleBanner(false);
     this.game?.dispose();
     this.game = null;
     this.guestGame?.dispose();

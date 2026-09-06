@@ -81,6 +81,21 @@ export interface HostGameSession {
   guestBinary(guestIndex: number, buffer: ArrayBuffer): void;
   /** Mark a guest gone (channel closed / heartbeat dead). */
   guestDropped(guestIndex: number): void;
+  /**
+   * Rebind a dropped guest's players to a new channel index (rejoin,
+   * ticket 47): routing + input cutoff resume; a full snapshot ships to
+   * the new index immediately so the guest rebuilds.
+   */
+  rebindGuest(oldGuestIndex: number, newGuestIndex: number): void;
+  /**
+   * Remove players permanently (rejoin expiry / quit, ticket 47):
+   * competitive = field eliminated (loss via the sim's own ball-loss
+   * path — frozen paddle), coop = slot gone (state "removed", not
+   * revivable). Input cutoff + routing drop immediately.
+   */
+  removePlayers(players: number[]): void;
+  /** Ship a full snapshot to one guest NOW (rejoin resync, ticket 47). */
+  resyncGuest(guestIndex: number): void;
   /** Latest snapshots (host renders authoritative state). */
   snapshots(): Snapshot[];
   /** Broadcast cadence — callers tick this at the rate. */
@@ -228,6 +243,11 @@ export function createHostGameSession(
   const lastAxis = new Map<number, number>();
   let simTick = 0;
   let ended = false;
+  // Removed players (ticket 47): input cutoff + snapshot state overlay.
+  // The sim keeps its own state (frozen paddle → ball-loss path); the
+  // overlay marks the slot "removed" on the wire so guests render the
+  // removal, and stall frames stop for them.
+  const removedPlayers = new Set<number>();
 
   /** Held/decayed axes for guest players with no due frame this tick. */
   function stallFrames(due: readonly InputFrame[]): InputFrame[] {
@@ -235,6 +255,7 @@ export function createHostGameSession(
     if (guestPlayerIds.length === 0) return out;
     const seen = new Set(due.map((f) => f.player));
     for (const p of guestPlayerIds) {
+      if (removedPlayers.has(p)) continue; // removed: no synthetic input
       if (seen.has(p)) {
         const f = due.find((x) => x.player === p);
         if (f !== undefined) lastAxis.set(p, f.axisX);
@@ -308,15 +329,35 @@ export function createHostGameSession(
         const bufs: ArrayBuffer[] = [];
         for (const p of players) {
           const snap = snapshots[p];
-          if (snap !== undefined) bufs.push(serializeSnapshot(snap));
+          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
         }
         sendGame(guestIndex, packMulti(bufs));
       } else {
         // Single-field modes (duel/sharedField): everyone gets the field.
         const snap = snapshots[0];
-        if (snap !== undefined) sendGame(guestIndex, serializeSnapshot(snap));
+        if (snap !== undefined) sendGame(guestIndex, serializeSnapshot(overlayRemoved(snap)));
       }
     }
+  }
+
+  /**
+   * Snapshot overlay: removed players carry state "removed" on the wire.
+   * Parallel modes renumber each field's player to 0 (multiField remap) —
+   * `fieldIndex` = the sim player who owns the field. Single-field modes
+   * carry global ids — overlay every removed player directly.
+   */
+  function overlayRemoved(snap: Snapshot, fieldIndex?: number): Snapshot {
+    if (removedPlayers.size === 0) return snap;
+    if (fieldIndex !== undefined) {
+      if (!removedPlayers.has(fieldIndex)) return snap;
+      const players = snap.players.map((p) => ({ ...p, state: "removed" as const }));
+      return { ...snap, players };
+    }
+    if (!snap.players.some((p) => removedPlayers.has(p.player))) return snap;
+    const players = snap.players.map((p) =>
+      removedPlayers.has(p.player) ? { ...p, state: "removed" as const } : p,
+    );
+    return { ...snap, players };
   }
 
   function broadcastProgress(snapshots: readonly Snapshot[]): void {
@@ -374,16 +415,69 @@ export function createHostGameSession(
         return; // Malformed binary input: dropped, never a crash.
       }
       // Map device-local player indices (0/1) → sim player indices.
-      const mapped = frames.map((f) => ({
-        ...f,
-        player: playerForGuestChannel(guestIndex, f.player),
-      }));
+      const mapped = frames
+        .map((f) => ({
+          ...f,
+          player: playerForGuestChannel(guestIndex, f.player),
+        }))
+        .filter((f) => !removedPlayers.has(f.player));
       const { accepted } = guardGuestFrames(guard, mapped, simTick);
       for (const f of accepted) queue.push(f);
     },
     guestDropped(guestIndex) {
       guestPlayers.delete(guestIndex);
       callbacks.onGuestDropped?.(guestIndex);
+    },
+    rebindGuest(oldGuestIndex, newGuestIndex) {
+      const players = guestPlayers.get(oldGuestIndex);
+      if (players === undefined) return;
+      guestPlayers.delete(oldGuestIndex);
+      guestPlayers.set(newGuestIndex, players);
+      for (const p of opts.players) {
+        if (p.guestIndex === oldGuestIndex) p.guestIndex = newGuestIndex;
+      }
+      for (const [player, gi] of playerOf) {
+        if (gi === oldGuestIndex) playerOf.set(player, newGuestIndex);
+      }
+      // Fresh full snapshot to the new channel: the guest rebuilds from it
+      // (prediction history wiped guest-side via resyncFromSnapshot).
+      const snaps = sim.snapshots();
+      if (opts.mode === "race" || opts.mode === "attack" || opts.mode === "parallelAssist") {
+        const bufs: ArrayBuffer[] = [];
+        for (const p of players) {
+          const snap = snaps[p];
+          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
+        }
+        sendGame(newGuestIndex, packMulti(bufs));
+      } else {
+        const snap = snaps[0];
+        if (snap !== undefined) sendGame(newGuestIndex, serializeSnapshot(overlayRemoved(snap)));
+      }
+    },
+    removePlayers(players) {
+      for (const p of players) {
+        removedPlayers.add(p);
+        missCount.delete(p);
+        lastAxis.delete(p);
+      }
+      // Input cutoff + wire overlay only — routing stays so the removed
+      // player's device (if still connected) keeps receiving snapshots
+      // showing the removal. Device departure is guestDropped's job.
+    },
+    resyncGuest(guestIndex) {
+      const snaps = sim.snapshots();
+      if (opts.mode === "race" || opts.mode === "attack" || opts.mode === "parallelAssist") {
+        const players = guestPlayers.get(guestIndex) ?? [];
+        const bufs: ArrayBuffer[] = [];
+        for (const p of players) {
+          const snap = snaps[p];
+          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
+        }
+        if (bufs.length > 0) sendGame(guestIndex, packMulti(bufs));
+      } else {
+        const snap = snaps[0];
+        if (snap !== undefined) sendGame(guestIndex, serializeSnapshot(overlayRemoved(snap)));
+      }
     },
     snapshots: () => sim.snapshots(),
     dispose() {

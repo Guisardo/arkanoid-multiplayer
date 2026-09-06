@@ -7,6 +7,10 @@ export interface AccumulatorLoop {
   stop(): void;
   /** Test hook: advance wall-clock by ms, running ticks + renders. */
   advance(ms: number): void;
+  /** Update the sim time scale (ticket 47 slow-motion, live). */
+  setTimeScale(scale: number): void;
+  /** True when the last frame hit the catch-up cap (overload signal). */
+  readonly lastFrameCapped: boolean;
   readonly ticksRun: number;
   readonly rendersRun: number;
 }
@@ -18,11 +22,19 @@ export interface LoopOptions {
   render(): void;
   /** Max catch-up ticks per frame (host overload cap, spec §9). */
   maxCatchUpTicks?: number;
+  /**
+   * Sim time scale (ticket 47 slow-motion): 1 = full speed; < 1 = the sim
+   * advances slower than wall-clock (sustained overload degradation).
+   * Render cadence is untouched — only tick accumulation scales.
+   */
+  timeScale?: number;
 }
 
 export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
   const tickMs = 1000 / SIM_HZ;
   const maxCatchUp = opts.maxCatchUpTicks ?? 5;
+  let timeScale = opts.timeScale ?? 1;
+  let cappedThisFrame = false;
   let accumulator = 0;
   let last = 0;
   let initialized = false;
@@ -34,10 +46,15 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
   let lastAdvanceWall = 0;
 
   function runTicks(deltaMs: number): void {
-    accumulator += deltaMs;
+    // Slow-motion (ticket 47): scale the elapsed time the sim consumes —
+    // render cadence untouched, sim falls behind wall-clock deliberately.
+    accumulator += deltaMs * timeScale;
     // Catch-up cap: sustained overload → slow-motion, never spiral (spec §9).
     if (accumulator > maxCatchUp * tickMs) {
       accumulator = maxCatchUp * tickMs;
+      cappedThisFrame = true;
+    } else {
+      cappedThisFrame = false;
     }
     // Epsilon guards FP drift: 60 frames × (1000/60) must yield 60 ticks.
     const epsilon = 1e-6;
@@ -66,6 +83,12 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
     },
     get rendersRun() {
       return rendersRun;
+    },
+    get lastFrameCapped() {
+      return cappedThisFrame;
+    },
+    setTimeScale(scale) {
+      timeScale = Math.max(0.1, Math.min(1, scale));
     },
     start() {
       if (running) return;

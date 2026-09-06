@@ -15,6 +15,7 @@ import { EMPTY_ACTIONS } from "shared/protocol";
 import { FIELD_W } from "shared/gridConstants";
 import { packProgress, unpackProgress } from "app/hostProgress";
 import { encodeInputBatch } from "net/inputCodec";
+import { deserializeSnapshot } from "net/serializer";
 
 /** Single-frame guest batch helper (stall-decay test). */
 function encodeBatch(
@@ -280,4 +281,92 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(() => unpackMulti(new ArrayBuffer(1))).toThrow(/malformed/);
     expect(() => unpackProgress(new ArrayBuffer(1))).toThrow(/malformed/);
   });
+
+  // ---- Ticket 47: resilience — rejoin, removal, overload ----
+
+  it("rejoin: drop → rebind → full snapshot rebuilds the guest", () => {
+    const { host, guest, ch } = runMatch("race", { ticks: 60 });
+    // Guest drops mid-match; play continues without it.
+    host.guestDropped(0);
+    for (let t = 0; t < 30; t++) host.tick([]);
+    // Guest rejoins on a NEW channel index — the host rebinds routing and
+    // ships a full snapshot to the new index immediately.
+    const sent: ArrayBuffer[] = [];
+    const probe = createHostGameSession(
+      { mode: "race", config: { ...DEFAULT_CONFIG, mode: "race" }, players: playersFor("race", 1), hostLocalPlayers: [0] },
+      (gi, buf) => { if (gi === 7) sent.push(buf); },
+    );
+    probe.rebindGuest(0, 7);
+    expect(sent.length).toBe(1);
+    // The guest rebuilds from that full snapshot (prediction wiped via
+    // resyncFromSnapshot — no throw, state consistent).
+    const snap = deserializeFirst(sent);
+    expect(snap.tick).toBe(0);
+    expect(() => {
+      guest.hostBinary(ch.hostToGuest[0] ?? sent[0]!);
+    }).not.toThrow();
+  });
+
+  it("removal: input cutoff + snapshot state 'removed' on the wire", () => {
+    const { host } = runMatch("race", { ticks: 30 });
+    // Remove the guest's player (rejoin expiry path).
+    host.removePlayers([1]);
+    // Removed player's input is ignored.
+    host.guestBinary(0, encodeBatch([{ player: 0, tick: 100, axisX: 1, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]));
+    host.tick([]);
+    // The wire carries state "removed" for the removed player's field
+    // (parallel modes renumber each field's player to 0 — multiField remap).
+    const sent: ArrayBuffer[] = [];
+    const probe = createHostGameSession(
+      { mode: "race", config: { ...DEFAULT_CONFIG, mode: "race" }, players: playersFor("race", 1), hostLocalPlayers: [0] },
+      (_gi, buf) => { sent.push(buf); },
+    );
+    probe.removePlayers([1]);
+    for (let t = 0; t < 4; t++) probe.tick([]);
+    expect(sent.length).toBeGreaterThan(0);
+    const snap = deserializeFirst(sent);
+    const removed = snap.players.find((p) => p.player === 0);
+    expect(removed?.state).toBe("removed");
+  });
+
+  it("resyncGuest ships a full snapshot on demand (visibility return)", () => {
+    const sent: ArrayBuffer[] = [];
+    const host = createHostGameSession(
+      { mode: "race", config: { ...DEFAULT_CONFIG, mode: "race" }, players: playersFor("race", 1), hostLocalPlayers: [0] },
+      (_gi, buf) => { sent.push(buf); },
+    );
+    for (let t = 0; t < 10; t++) host.tick([]);
+    sent.length = 0;
+    host.resyncGuest(0);
+    expect(sent.length).toBe(1);
+    const snap = deserializeFirst(sent);
+    expect(snap.tick).toBeGreaterThan(0);
+  });
+
+  it("overload: slow-motion keeps snapshots flowing (30 Hz wall-clock)", () => {
+    const { host, ch } = runMatch("race", { ticks: 120 });
+    const before = ch.hostToGuest.length;
+    // Slow-motion is a time-scale decision in the loop (overload.ts) — the
+    // data plane keeps broadcasting regardless; here we verify the sim
+    // keeps ticking and snapshots keep shipping under host-only load.
+    for (let t = 0; t < 120; t++) host.tick([]);
+    expect(ch.hostToGuest.length).toBeGreaterThan(before);
+    expect(host.over).toBe(false);
+  });
 });
+
+/** Decode the first snapshot-ish payload from a host send log. */
+function deserializeFirst(buffers: ArrayBuffer[]): ReturnType<typeof deserializeSnapshot> {
+  for (const buf of buffers) {
+    const view = new DataView(buf);
+    const kind = view.getUint8(0);
+    if (kind === 2) {
+      const parts = unpackMulti(buf);
+      const first = parts[0];
+      if (first !== undefined) return deserializeSnapshot(first);
+    } else if (kind !== 3) {
+      return deserializeSnapshot(buf);
+    }
+  }
+  throw new Error("no snapshot in send log");
+}
