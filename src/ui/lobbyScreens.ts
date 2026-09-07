@@ -87,6 +87,8 @@ export interface LandingScreenOptions {
   /** Prefilled join code from ?code= (QR link) — jumps straight to join. */
   prefillCode?: string | null;
   onChoice: (choice: LandingChoice, joinCode?: string) => void;
+  /** Settings entry (spec §14: reachable from landing always). */
+  onSettings?: () => void;
 }
 
 const STYLE_ID = "arkanoid-landing-style";
@@ -136,6 +138,13 @@ export class LandingScreen {
       opts.onChoice("multiplayer", opts.prefillCode ?? undefined);
     });
     panel.append(solo, bots, mp);
+
+    // Settings (spec §14: reachable from landing always).
+    if (opts.onSettings !== undefined) {
+      const settingsBtn = menuBtn(opts.locale, "menu.settings");
+      settingsBtn.addEventListener("click", () => { opts.onSettings?.(); });
+      panel.appendChild(settingsBtn);
+    }
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
@@ -295,6 +304,8 @@ export interface LobbyScreenOptions {
   /** Host start pressed with a valid, all-ready state. */
   onStart: () => void;
   onQuit: () => void;
+  /** Settings entry (spec §14: reachable from lobby always). */
+  onSettings?: () => void;
 }
 
 export class LobbyScreen {
@@ -357,6 +368,13 @@ export class LobbyScreen {
       this.opts.onQuit();
     });
     panel.append(start, quit);
+
+    // Settings (spec §14: reachable from lobby always).
+    if (opts.onSettings !== undefined) {
+      const settingsBtn = menuBtn(opts.locale, "menu.settings");
+      settingsBtn.addEventListener("click", () => { this.opts.onSettings?.(); });
+      panel.appendChild(settingsBtn);
+    }
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);

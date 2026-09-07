@@ -6,11 +6,12 @@ import { startSoloSession } from "app/soloSession";
 import { loadSkinSprites } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen } from "ui/versusBotsScreen";
-import { detectLocale, type Locale } from "ui/strings";
+import { resolveLocale, t, type Locale } from "ui/strings";
 import { MpFlow, type MpConnectResult } from "app/mpFlow";
 import { openHostRoom, connectViaSignalingGuest, type RtcConnection } from "signaling/rtc";
 import { Storage } from "persistence/storage";
 import { loadSettings } from "ui/settings";
+import { showSettings } from "app/settingsRoute";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
@@ -19,10 +20,25 @@ const appHostElement = document.getElementById("app");
 if (appHostElement === null) throw new Error("missing #app host");
 const appHost: HTMLElement = appHostElement;
 
-const locale: Locale = detectLocale(globalThis.navigator.languages);
 const storage = new Storage();
 const settings = loadSettings(storage);
+// Settings override + auto-detect (spec §14): stored language wins.
+const locale: Locale = resolveLocale(
+  storage.loadAll().language,
+  globalThis.navigator.languages,
+);
 const playerName = storage.loadAll().name;
+
+// Document chrome follows the active locale (spec §14).
+if (typeof document !== "undefined") {
+  document.documentElement.lang = locale === "es-419" ? "es" : "en";
+  document.title = t(locale, "app.title");
+}
+
+/** Settings overlay from landing/lobby (spec §14: always reachable). */
+function openSettingsOverlay(): void {
+  showSettings(appHost, locale, storage);
+}
 
 function boot(): void {
   const prefill = codeFromUrl(globalThis.location.href);
@@ -30,6 +46,7 @@ function boot(): void {
     host: appHost,
     locale,
     prefillCode: prefill,
+    onSettings: openSettingsOverlay,
     onChoice: (choice, joinCode) => {
       landing.close();
       if (choice === "solo") {
@@ -247,6 +264,7 @@ function startHostFlow(code: string): void {
     host: appHost,
     locale,
     defaultSkinId: settings.appearance.skinId,
+    onSettings: openSettingsOverlay,
     onEvent: (event) => { flow.hostLocalEvent(event); },
     onStart: () => { flow.hostStartMatch(); },
     onQuit: () => {
@@ -313,6 +331,7 @@ function startGuestFlow(code: string): void {
     host: appHost,
     locale,
     defaultSkinId: settings.appearance.skinId,
+    onSettings: openSettingsOverlay,
     onEvent: (event) => {
       if (event.type === "setReady") flow.guestIntent({ kind: "ready", ready: event.ready });
       else if (event.type === "setPlayerName") flow.guestIntent({ kind: "name", name: event.name });

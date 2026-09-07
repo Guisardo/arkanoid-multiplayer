@@ -61,6 +61,27 @@ describe("LandingScreen", () => {
     screen.close();
   });
 
+  it("Settings entry renders + fires onSettings (spec §14: landing always)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    let opened = false;
+    const screen = new LandingScreen({
+      host,
+      locale: "en-US",
+      onSettings: () => {
+        opened = true;
+      },
+      onChoice: () => undefined,
+    });
+    const btns = [...screen.root.querySelectorAll("button")].map((b) => b.textContent);
+    expect(btns).toEqual(["Solo", "Versus bots", "Multiplayer", "Settings"]);
+    [...screen.root.querySelectorAll("button")]
+      .find((b) => b.textContent === "Settings")!
+      .click();
+    expect(opened).toBe(true);
+    screen.close();
+  });
+
   it("prefill code auto-opens multiplayer flow (deferred a microtask)", async () => {
     const host = document.body;
     host.innerHTML = "";
@@ -341,6 +362,29 @@ describe("LobbyScreen", () => {
     [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Quit")?.click();
     expect(started).toBe(1);
     expect(quit).toBe(1);
+    screen.close();
+  });
+
+  it("Settings button renders + fires onSettings (spec §14: lobby always)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    let opened = 0;
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => undefined,
+      onQuit: () => undefined,
+      onSettings: () => {
+        opened++;
+      },
+    });
+    const settingsBtn = [...screen.root.querySelectorAll("button")].find(
+      (b) => b.textContent === "Settings",
+    );
+    expect(settingsBtn).toBeDefined();
+    settingsBtn?.click();
+    expect(opened).toBe(1);
     screen.close();
   });
 });

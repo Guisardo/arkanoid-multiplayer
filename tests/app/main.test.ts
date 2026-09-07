@@ -167,6 +167,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.replaceChildren();
+  globalThis.localStorage.clear();
   botsScreenOpts.length = 0;
   soloStart.mockClear();
   fakeRooms.length = 0;
@@ -214,6 +215,29 @@ describe("main boot (ticket 45)", () => {
     expect(text).toContain("Solo");
     expect(text).toContain("Versus bots");
     expect(text).toContain("Multiplayer");
+  });
+
+  it("landing Settings entry opens the settings overlay (ticket 52)", async () => {
+    await importMain();
+    clickButton("Settings");
+    // The real SettingsScreen renders its title + language select.
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Controls");
+    expect(text).toContain("Language");
+    const select = document.querySelector("select[data-language-select]");
+    expect(select).toBeDefined();
+  });
+
+  it("stored language overrides navigator detection (ticket 52)", async () => {
+    // Pre-seed localStorage before the module boots.
+    globalThis.localStorage.setItem("settings.language", "es-419");
+    await importMain();
+    const text = document.body.textContent ?? "";
+    // Landing renders in Spanish: the three entries + Settings.
+    expect(text).toContain("Solo");
+    expect(text).toContain("Multijugador");
+    expect(text).toContain("Ajustes");
+    expect(text).not.toContain("Multiplayer");
   });
 
   it("Solo entry boots the solo session", async () => {

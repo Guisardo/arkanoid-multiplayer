@@ -6,7 +6,7 @@
 import type { ProgressRow } from "app/guestGame";
 import { ownerColor } from "shared/playerColors";
 import type { Locale } from "ui/strings";
-import { t } from "ui/strings";
+import { format, t } from "ui/strings";
 
 const STRIP_STYLE_ID = "arkanoid-remote-strip-style";
 
@@ -85,7 +85,10 @@ export class RemoteStrip {
 
       if (!this.compact) {
         const round = document.createElement("span");
-        round.textContent = `R${String(row.round)}/${String(row.maxRound)}`;
+        round.textContent = format(t(this.locale, "hud.roundOf"), {
+          round: row.round,
+          max: row.maxRound,
+        });
         el.appendChild(round);
         if (row.downed) {
           const down = document.createElement("span");

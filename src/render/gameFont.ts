@@ -7,7 +7,7 @@ export const GAME_FONT_CHARS =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" +
   " .,:;!?()[]{}<>/\\|@#$%^&*+-_=~\"'`´" +
   "áéíóúñü¿¡ÁÉÍÓÚÑÜ" +
-  "°§";
+  "°§…·—";
 
 let installed = false;
 
