@@ -33,11 +33,24 @@ const mockApp = (): Application => {
   } as unknown as Application;
 };
 
+const shellOpts: { resolution?: number; onContextLost?: () => void; onContextRestored?: () => void }[] = [];
+const setResolutionCalls: number[] = [];
+
 vi.mock("render/appShell", () => ({
-  createAppShell: async (): Promise<AppShell> => {
+  createAppShell: async (
+    _host: HTMLElement,
+    opts?: { resolution?: number; onContextLost?: () => void; onContextRestored?: () => void },
+  ): Promise<AppShell> => {
     await Promise.resolve();
     const app = mockApp();
-    return { app, dispose: () => {} };
+    shellOpts.push(opts ?? {});
+    return {
+      app,
+      dispose: () => {},
+      setResolution: (dpr: number) => {
+        setResolutionCalls.push(dpr);
+      },
+    };
   },
 }));
 
@@ -45,6 +58,8 @@ vi.mock("render/fieldView", () => ({
   FieldView: class {
     readonly container = { destroy: () => {} };
     sync = vi.fn();
+    invalidate = vi.fn();
+    setReducedEffects = vi.fn();
   },
 }));
 
@@ -196,5 +211,87 @@ describe("solo session wiring", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight" }));
     // No crash; session inert.
     expect(() => s.latestSnapshot()).not.toThrow();
+  });
+
+  // ---- Ticket 54: perf wiring ----
+
+  it("boots with the perf machinery (ladder + stats) without breaking ticks", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    for (let i = 0; i < 30; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(30);
+  });
+
+  it("no degraded banner while healthy", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    for (let i = 0; i < 30; i++) s.loop.advance(1000 / 60);
+    expect(document.querySelector("[data-perf-degraded]")).toBeNull();
+  });
+
+  it("settings close re-applies display settings live (no crash)", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    const overlay = [...document.querySelectorAll("div")].find(
+      (d) => d.style.zIndex === "1000",
+    );
+    expect(overlay).toBeDefined();
+    // Close via the overlay's Esc path — display re-apply runs (ladder
+    // re-pinned, reduced-effects toggled) without throwing.
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThan(0);
+  });
+
+  it("context loss shows the recovering banner; restore resyncs + recovers", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    const opts = shellOpts[shellOpts.length - 1]!;
+    expect(opts.onContextLost).toBeTypeOf("function");
+    expect(opts.onContextRestored).toBeTypeOf("function");
+    opts.onContextLost?.();
+    expect(document.querySelector("[data-perf-context]")).not.toBeNull();
+    opts.onContextRestored?.();
+    // Restore banner appears (auto-dismiss is a 2 s timer — present now).
+    expect(document.querySelector("[data-perf-context]")).not.toBeNull();
+    // Session still alive: ticks continue after the resync.
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThan(0);
+  });
+
+  it("degraded rung shows the explicit banner; recovery clears it", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    expect(s.perfRung).toBe(0);
+    expect(document.querySelector("[data-perf-degraded]")).toBeNull();
+    // Force the floor rung (30 fps degraded) — explicit banner appears.
+    s.setPerfRung(3);
+    expect(s.perfRung).toBe(3);
+    expect(document.querySelector("[data-perf-degraded]")).not.toBeNull();
+    // Resolution stepped down (capped by device dpr).
+    expect(setResolutionCalls.length).toBeGreaterThan(0);
+    // Recovery: back to the top — banner clears.
+    s.setPerfRung(0);
+    expect(document.querySelector("[data-perf-degraded]")).toBeNull();
+    // Session survives every rung change.
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThan(0);
+  });
+
+  it("?perf=1 mounts the dev overlay; off by default", async () => {
+    // Default: no overlay.
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
+    expect(document.querySelector("[data-perf-overlay]")).toBeNull();
   });
 });

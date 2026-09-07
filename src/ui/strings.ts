@@ -123,6 +123,9 @@ const enUS = {
   "pause.pausedBy": "Paused by {name}",
   "pause.resume": "Resume",
   "pause.quitConfirm": "Quit match? You forfeit",
+  "perf.degraded": "Reduced performance mode",
+  "perf.contextLost": "Graphics context lost — recovering…",
+  "perf.contextRestored": "Graphics recovered",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -240,6 +243,9 @@ const es419: Record<StringKey, string> = {
   "pause.pausedBy": "Pausado por {name}",
   "pause.resume": "Continuar",
   "pause.quitConfirm": "¿Abandonar la partida? Pierdes",
+  "perf.degraded": "Modo de rendimiento reducido",
+  "perf.contextLost": "Contexto gráfico perdido — recuperando…",
+  "perf.contextRestored": "Gráficos recuperados",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

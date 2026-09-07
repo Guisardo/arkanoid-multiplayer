@@ -31,7 +31,7 @@ vi.mock("render/appShell", () => ({
   createAppShell: async (): Promise<AppShell> => {
     await Promise.resolve();
     const app = mockApp();
-    return { app, dispose: () => {} };
+    return { app, dispose: () => {}, setResolution: () => {} };
   },
 }));
 

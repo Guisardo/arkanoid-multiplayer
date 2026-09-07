@@ -31,6 +31,12 @@ export interface FieldViewOptions {
   skinId?: string | undefined;
   /** Field theme UUID (host-chosen; default theme when absent/unknown). */
   themeId?: string | undefined;
+  /**
+   * Ticket 54: reduced-effects mode — skips the per-frame decorative
+   * layers (owner-glow rings, silver crack overlays, background tile
+   * sprite). Measurably fewer Graphics ops per frame.
+   */
+  reducedEffects?: boolean;
 }
 
 export class FieldView {
@@ -56,6 +62,8 @@ export class FieldView {
   private score = -1;
   private round = -1;
   private readonly nameText: BitmapText;
+  /** Ticket 54: reduced-effects mode (decorative layers skipped). */
+  private reducedEffects: boolean;
 
   constructor(opts: FieldViewOptions) {
     installGameFont();
@@ -65,6 +73,7 @@ export class FieldView {
     this.maxRound = opts.maxRound;
     this.skin = getSkinSafe(opts.skinId);
     this.theme = getTheme(opts.themeId ?? null) ?? DEFAULT_THEME;
+    this.reducedEffects = opts.reducedEffects ?? false;
 
     const s = this.layout.scale;
     // HUD strip above the field
@@ -89,9 +98,13 @@ export class FieldView {
 
     // Real CC0 sprites (Tiny Break-em paddles/balls, Pixel Space background)
     // layer over the procedural geometry. Null in node tests / load failure —
-    // geometry fallback stays the source of truth for readability.
+    // geometry fallback stays the source of truth for readability. Reduced
+    // effects (ticket 54) skips the background tile entirely.
     const bgTex = this.theme.background.sprite !== null ? spriteTexture(this.theme.background.sprite) : null;
-    this.bgSprite = bgTex !== null ? new TilingSprite({ texture: bgTex, width: FIELD_W, height: FIELD_H }) : null;
+    this.bgSprite =
+      bgTex !== null && !this.reducedEffects
+        ? new TilingSprite({ texture: bgTex, width: FIELD_W, height: FIELD_H })
+        : null;
     if (this.bgSprite !== null) {
       this.bgSprite.tint = 0x808080; // darkening pass (spec §13) over the tile
       this.fieldContainer.addChild(this.bgSprite);
@@ -137,12 +150,14 @@ export class FieldView {
     // gate — glow ring stays visible around whatever skin the ball wears;
     // never the sole ownership signal). Glow always renders on ballGfx;
     // the body is either the sprite (when loaded) or procedural geometry.
+    // Reduced effects (ticket 54): skip the glow ring layer — the ball
+    // body still carries the owner tint (readability gate preserved).
     this.ballGfx.clear();
     this.ballGfx.visible = true;
     if (this.ballSprite !== null) this.ballSprite.visible = false;
     for (const b of snap.balls) {
       const owner = b.owner === null ? null : ownerColor(b.owner);
-      if (owner !== null) {
+      if (owner !== null && !this.reducedEffects) {
         paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
       }
       if (this.ballSprite === null) {
@@ -201,8 +216,10 @@ export class FieldView {
       const x = col * 16 + 0.5;
       const y = 20 + row * 8 + 0.5;
       this.brickGfx.rect(x, y, 15, 7).fill(this.brickColor(cell));
-      // Silver hit-state crack overlay (procedural tint+crack, spec §13)
-      if (cellSilverHits(cell) !== null) {
+      // Silver hit-state crack overlay (procedural tint+crack, spec §13).
+      // Reduced effects (ticket 54): cracks skipped — hit state stays
+      // readable through the silver tint itself.
+      if (cellSilverHits(cell) !== null && !this.reducedEffects) {
         for (const seg of crackSegments(cell, set.crackStyle)) {
           this.brickGfx
             .moveTo(x + seg.x1, y + seg.y1)
@@ -218,6 +235,26 @@ export class FieldView {
     if (cell === 13) return set.goldColor;
     if (cell > 8 && cell < 13) return set.silverColor;
     return set.tierColors[cell] ?? 0xffffff;
+  }
+
+  /**
+   * Ticket 54: context-restore resync — drop every cached render state so
+   * the next sync() redraws the full scene from the snapshot (never from
+   * partial GPU state). Also used when reduced-effects toggles live.
+   */
+  invalidate(): void {
+    this.prevBricks = null;
+    this.lives = -1;
+    this.score = -1;
+    this.round = -1;
+  }
+
+  /** Ticket 54: live reduced-effects toggle (invalidates caches). */
+  setReducedEffects(reduced: boolean): void {
+    if (this.reducedEffects === reduced) return;
+    this.reducedEffects = reduced;
+    if (this.bgSprite !== null) this.bgSprite.visible = !reduced;
+    this.invalidate();
   }
 }
 

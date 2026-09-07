@@ -1,7 +1,19 @@
 import { SIM_HZ } from "shared/simRates";
 
+/** Per-frame timing sample the loop emits (sync is session-measured). */
+export interface LoopFrameSample {
+  /** Measured sim tick work this frame (sum of all ticks), ms. */
+  simMs: number;
+  /** Measured render callback work, ms. */
+  renderMs: number;
+  /** Full frame wall time (fps estimate), ms. */
+  frameMs: number;
+}
+
 // Fixed-timestep accumulator loop (spec §2, §12): sim at fixed 60 Hz, render at
 // rAF cadence. Lives in app/ (not sim/) — timing is wiring, sim stays pure.
+// Ticket 54: per-frame timing (sim/render split), onFrameStats hook, and
+// renderEvery (30 fps degraded rung — sim stays fixed 60 Hz regardless).
 export interface AccumulatorLoop {
   start(): void;
   stop(): void;
@@ -11,6 +23,8 @@ export interface AccumulatorLoop {
   setTimeScale(scale: number): void;
   /** True when the last frame hit the catch-up cap (overload signal). */
   readonly lastFrameCapped: boolean;
+  /** Render every Nth frame (2 = 30 fps degraded; sim untouched). */
+  setRenderEvery(n: number): void;
   readonly ticksRun: number;
   readonly rendersRun: number;
 }
@@ -28,6 +42,13 @@ export interface LoopOptions {
    * Render cadence is untouched — only tick accumulation scales.
    */
   timeScale?: number;
+  /**
+   * Ticket 54: per-frame stats hook. `simMs` = measured tick work this
+   * frame; `renderMs` = measured render callback work; `frameMs` = full
+   * frame wall time (fps estimate). The sync split is measured by the
+   * session (it owns the snapshot→scene call) and merged separately.
+   */
+  onFrameStats?(sample: LoopFrameSample): void;
 }
 
 export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
@@ -35,6 +56,8 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
   const maxCatchUp = opts.maxCatchUpTicks ?? 5;
   let timeScale = opts.timeScale ?? 1;
   let cappedThisFrame = false;
+  let renderEvery = 1;
+  let frameIndex = 0;
   let accumulator = 0;
   let last = 0;
   let initialized = false;
@@ -45,7 +68,7 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
   let rafHandle = 0;
   let lastAdvanceWall = 0;
 
-  function runTicks(deltaMs: number): void {
+  function runTicks(deltaMs: number): number {
     // Slow-motion (ticket 47): scale the elapsed time the sim consumes —
     // render cadence untouched, sim falls behind wall-clock deliberately.
     accumulator += deltaMs * timeScale;
@@ -58,6 +81,7 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
     }
     // Epsilon guards FP drift: 60 frames × (1000/60) must yield 60 ticks.
     const epsilon = 1e-6;
+    const t0 = opts.onFrameStats !== undefined ? performance.now() : 0;
     while (accumulator >= tickMs - epsilon) {
       opts.tick(tick);
       tick++;
@@ -65,15 +89,28 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
       accumulator -= tickMs;
       if (accumulator < 0) accumulator = 0;
     }
+    return opts.onFrameStats !== undefined ? performance.now() - t0 : 0;
   }
 
   function frame(now: number): void {
     if (!running) return;
     const delta = Math.min(now - last, 1000);
     last = now;
-    runTicks(delta);
-    opts.render();
-    rendersRun++;
+    const simMs = runTicks(delta);
+    const doRender = renderEvery <= 1 || frameIndex % renderEvery === 0;
+    let renderMs = 0;
+    if (doRender) {
+      const r0 = opts.onFrameStats !== undefined ? performance.now() : 0;
+      opts.render();
+      rendersRun++;
+      renderMs = opts.onFrameStats !== undefined ? performance.now() - r0 : 0;
+      frameIndex++;
+      if (opts.onFrameStats !== undefined) {
+        opts.onFrameStats({ simMs, renderMs, frameMs: delta });
+      }
+    } else {
+      frameIndex++;
+    }
     rafHandle = requestAnimationFrame(frame);
   }
 
@@ -89,6 +126,9 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
     },
     setTimeScale(scale) {
       timeScale = Math.max(0.1, Math.min(1, scale));
+    },
+    setRenderEvery(n) {
+      renderEvery = Math.max(1, Math.trunc(n));
     },
     start() {
       if (running) return;
@@ -110,9 +150,21 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
         return;
       }
       const delta = Math.min(now - last, 1000);
-      runTicks(delta);
-      opts.render();
-      rendersRun++;
+      const simMs = runTicks(delta);
+      const doRender = renderEvery <= 1 || frameIndex % renderEvery === 0;
+      let renderMs = 0;
+      if (doRender) {
+        const r0 = opts.onFrameStats !== undefined ? performance.now() : 0;
+        opts.render();
+        rendersRun++;
+        renderMs = opts.onFrameStats !== undefined ? performance.now() - r0 : 0;
+        frameIndex++;
+        if (opts.onFrameStats !== undefined) {
+          opts.onFrameStats({ simMs, renderMs, frameMs: delta });
+        }
+      } else {
+        frameIndex++;
+      }
       last = now;
     },
   };

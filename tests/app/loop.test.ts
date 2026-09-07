@@ -48,4 +48,77 @@ describe("accumulator loop", () => {
     expect(ticks.length).toBeGreaterThanOrEqual(58);
     expect(ticks.length).toBeLessThanOrEqual(ran + 1);
   });
+
+  // ---- Ticket 54: renderEvery + onFrameStats ----
+
+  it("30 fps degraded mode (renderEvery=2) keeps the sim at fixed 60 Hz", () => {
+    let tickCount = 0;
+    let renderCount = 0;
+    const loop = createAccumulatorLoop({ tick: () => tickCount++, render: () => renderCount++ });
+    loop.advance(0);
+    loop.setRenderEvery(2);
+    // rAF still fires ~60 Hz; the loop skips every other RENDER only.
+    for (let frame = 0; frame < 60; frame++) loop.advance(1000 / 60);
+    expect(tickCount).toBe(60);
+    expect(renderCount).toBe(30);
+  });
+
+  it("renderEvery=1 renders every frame (default)", () => {
+    let renderCount = 0;
+    const loop = createAccumulatorLoop({ tick: () => {}, render: () => renderCount++ });
+    loop.advance(0);
+    for (let frame = 0; frame < 10; frame++) loop.advance(1000 / 60);
+    expect(renderCount).toBe(10);
+  });
+
+  it("setRenderEvery clamps below 1 to 1", () => {
+    let renderCount = 0;
+    const loop = createAccumulatorLoop({ tick: () => {}, render: () => renderCount++ });
+    loop.advance(0);
+    loop.setRenderEvery(0);
+    for (let frame = 0; frame < 5; frame++) loop.advance(1000 / 60);
+    expect(renderCount).toBe(5);
+  });
+
+  it("onFrameStats reports sim/render split + frame wall time", () => {
+    const samples: Array<{ simMs: number; renderMs: number; frameMs: number }> = [];
+    const loop = createAccumulatorLoop({
+      tick: () => {},
+      render: () => {},
+      onFrameStats: (s) => samples.push({ ...s }),
+    });
+    loop.advance(0);
+    loop.advance(1000 / 60);
+    expect(samples.length).toBe(1);
+    expect(samples[0]!.frameMs).toBeCloseTo(1000 / 60, 5);
+    expect(samples[0]!.simMs).toBeGreaterThanOrEqual(0);
+    expect(samples[0]!.renderMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("onFrameStats fires only on rendered frames under renderEvery=2", () => {
+    const samples: number[] = [];
+    const loop = createAccumulatorLoop({
+      tick: () => {},
+      render: () => {},
+      onFrameStats: (s) => samples.push(s.frameMs),
+    });
+    loop.advance(0);
+    loop.setRenderEvery(2);
+    for (let frame = 0; frame < 6; frame++) loop.advance(1000 / 60);
+    // 6 frames, 3 rendered → 3 stat samples.
+    expect(samples.length).toBe(3);
+  });
+
+  it("timeScale + renderEvery compose: slow-motion sim, halved renders", () => {
+    let tickCount = 0;
+    let renderCount = 0;
+    const loop = createAccumulatorLoop({ tick: () => tickCount++, render: () => renderCount++ });
+    loop.advance(0);
+    loop.setTimeScale(0.5);
+    loop.setRenderEvery(2);
+    for (let frame = 0; frame < 60; frame++) loop.advance(1000 / 60);
+    // 1000 ms × 0.5 scale = 500 ms sim time = 30 ticks; 30 renders.
+    expect(tickCount).toBe(30);
+    expect(renderCount).toBe(30);
+  });
 });

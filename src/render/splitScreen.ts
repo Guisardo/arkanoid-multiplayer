@@ -17,6 +17,8 @@ export interface SplitScreenOptions {
   skinIds?: readonly string[];
   /** Host-chosen field theme UUID (ticket 44; default when absent). */
   themeId?: string;
+  /** Ticket 54: reduced-effects mode on every field. */
+  reducedEffects?: boolean;
 }
 
 export class SplitScreenView {
@@ -45,6 +47,7 @@ export class SplitScreenView {
         maxRound: this.opts.maxRound,
         skinId: this.opts.skinIds?.[i],
         themeId: this.opts.themeId,
+        reducedEffects: this.opts.reducedEffects ?? false,
       });
       this.views.push(view);
       this.container.addChild(view.container);
@@ -68,5 +71,15 @@ export class SplitScreenView {
 
   get fieldCount(): number {
     return this.views.length;
+  }
+
+  /** Ticket 54: context-restore resync — invalidate every field's caches. */
+  invalidate(): void {
+    for (const v of this.views) v.invalidate();
+  }
+
+  /** Ticket 54: live reduced-effects toggle on every field. */
+  setReducedEffects(reduced: boolean): void {
+    for (const v of this.views) v.setReducedEffects(reduced);
   }
 }
