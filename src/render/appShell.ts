@@ -1,7 +1,9 @@
 import { Application } from "pixi.js";
 
 // Spec §3 renderer config: antialias false, useContextAlpha false, one WebGL
-// context per device, webglcontextrestored = resync-from-snapshot (contract stub).
+// context per device, webglcontextrestored = resync-from-snapshot (ticket 54:
+// Pixi re-uploads GPU state automatically; the app-level listener lets the
+// session invalidate its scene caches and resync from the latest snapshot).
 export const RENDERER_CONFIG = {
   antialias: false,
   useContextAlpha: false as const,
@@ -13,11 +15,21 @@ export const RENDERER_CONFIG = {
 export interface AppShell {
   app: Application;
   dispose(): void;
+  /**
+   * Ticket 54: live renderer resolution change (dpr ladder). Pixi v8
+   * supports runtime `renderer.resolution = n` — it resizes the backing
+   * store and emits resolutionChange; textures are untouched.
+   */
+  setResolution(dpr: number): void;
 }
 
 export interface AppShellOptions {
   /** Resolution override (dpr mode from Settings; default 1). */
   resolution?: number;
+  /** Context-loss callback (app pauses + shows a banner). */
+  onContextLost?: () => void;
+  /** Context-restore callback (app invalidates caches + resyncs). */
+  onContextRestored?: () => void;
 }
 
 export async function createAppShell(
@@ -34,15 +46,23 @@ export async function createAppShell(
   });
   canvasHost.appendChild(app.canvas);
 
-  // Resync-from-snapshot contract: on context restore, the renderer must rebuild
-  // its scene entirely from the latest Snapshot (never from partial GPU state).
-  // Implementation lands with snapshot consumption; stub the handler now.
+  // Context loss/restore are native canvas DOM events (Pixi handles GPU
+  // re-upload itself; these listeners drive the app-level resync contract).
+  app.canvas.addEventListener("webglcontextlost", (e: Event) => {
+    e.preventDefault(); // enable restore
+    opts.onContextLost?.();
+  });
   app.canvas.addEventListener("webglcontextrestored", () => {
-    // TODO(54): resync-from-snapshot on context restore.
+    opts.onContextRestored?.();
   });
 
   return {
     app,
+    setResolution(dpr: number): void {
+      // Runtime resolution change (Pixi v8: setter resizes the backing
+      // store + emits resolutionChange; asset textures keep own _resolution).
+      app.renderer.resolution = dpr;
+    },
     dispose() {
       app.destroy(true, { children: true });
     },

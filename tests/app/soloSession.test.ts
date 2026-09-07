@@ -37,7 +37,11 @@ vi.mock("render/appShell", () => ({
   createAppShell: async (): Promise<AppShell> => {
     await Promise.resolve();
     const app = mockApp();
-    return { app, dispose: () => {} };
+    return {
+      app,
+      dispose: () => {},
+      setResolution: () => {},
+    };
   },
 }));
 
@@ -45,6 +49,8 @@ vi.mock("render/fieldView", () => ({
   FieldView: class {
     readonly container = { destroy: () => {} };
     sync = vi.fn();
+    invalidate = vi.fn();
+    setReducedEffects = vi.fn();
   },
 }));
 
@@ -196,5 +202,41 @@ describe("solo session wiring", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight" }));
     // No crash; session inert.
     expect(() => s.latestSnapshot()).not.toThrow();
+  });
+
+  // ---- Ticket 54: perf wiring ----
+
+  it("boots with the perf machinery (ladder + stats) without breaking ticks", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    for (let i = 0; i < 30; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(30);
+  });
+
+  it("no degraded banner while healthy", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    for (let i = 0; i < 30; i++) s.loop.advance(1000 / 60);
+    expect(document.querySelector("[data-perf-degraded]")).toBeNull();
+  });
+
+  it("settings close re-applies display settings live (no crash)", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    const overlay = [...document.querySelectorAll("div")].find(
+      (d) => d.style.zIndex === "1000",
+    );
+    expect(overlay).toBeDefined();
+    // Close via the overlay's Esc path — display re-apply runs (ladder
+    // re-pinned, reduced-effects toggled) without throwing.
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().tick).toBeGreaterThan(0);
   });
 });

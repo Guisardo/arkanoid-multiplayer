@@ -13,12 +13,15 @@ import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
 import { layoutField } from "render/layout";
-import { detectLocale, type Locale } from "ui/strings";
+import { detectLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
 import { Storage } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
+import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
+import { FrameStats, estimateTextureBytes, textureWithinBudget } from "app/frameStats";
+import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
 
 export interface SoloSessionOptions {
   locale?: Locale;
@@ -47,8 +50,22 @@ export async function startSoloSession(
   const { createAppShell } = await import("render/appShell");
   const storage = new Storage();
   const settings = loadSettings(storage);
+  // Ticket 54: perf ladder starts from the Settings dpr mode (auto = top
+  // rung); steps down under sustained slow frames, recovers lazily.
+  const ladder: PerfLadder = createPerfLadder(rungForDprMode(settings.display.dprMode));
+  const frameStats = new FrameStats();
+  const perfOn = perfFlagOn(globalThis.location.href);
   const shell: AppShell = await createAppShell(canvasHost, {
     resolution: effectiveDpr(settings.display.dprMode, globalThis.devicePixelRatio || 1),
+    onContextLost: () => {
+      showContextBanner(t(locale, "perf.contextLost"));
+    },
+    onContextRestored: () => {
+      // Resync-from-snapshot (spec §3): drop cached render state, redraw
+      // the whole scene from the latest snapshot on the next sync.
+      for (const v of views) v.invalidate();
+      showContextBanner(t(locale, "perf.contextRestored"));
+    },
   });
   const app = shell.app;
 
@@ -111,6 +128,7 @@ export async function startSoloSession(
       maxRound: 33,
       skinId: settings.appearance.skinId,
       themeId: settings.appearance.themeId,
+      reducedEffects: settings.display.reducedEffects,
     });
 
   const firstView = makeView();
@@ -238,9 +256,99 @@ export async function startSoloSession(
       const touchPause = touch !== null && touch.consumePause();
       if ((menuRequested() || touchPause) && !settingsScreen) openSettings();
       touchOverlay?.redraw();
+      const syncStart = performance.now();
       for (const v of views) v.sync(latest);
+      lastSyncMs = performance.now() - syncStart;
+    },
+    onFrameStats: (sample) => {
+      // Ticket 54: budgets + ladder. Frame time = sim + sync + render
+      // app work (frameMs wall time is the fps estimate).
+      frameStats.push(
+        { simMs: sample.simMs, syncMs: lastSyncMs, renderMs: sample.renderMs },
+        sample.frameMs,
+      );
+      const appWork = sample.simMs + lastSyncMs + sample.renderMs;
+      ladder.observe(appWork);
+      if (ladder.changed) applyLadderRung();
+      perfOverlay?.update({
+        stats: frameStats.view,
+        dpr: ladder.rung.dpr,
+        renderEvery: ladder.rung.renderEvery,
+        drawCalls: null,
+        textureMb: textureMbEstimate,
+      });
     },
   });
+
+  // Ticket 54: apply the current ladder rung (resolution + render cadence
+  // + degraded banner). Sim rate untouched — render-only degradation.
+  function applyLadderRung(): void {
+    const rung = ladder.rung;
+    const deviceDpr = globalThis.devicePixelRatio || 1;
+    shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    loop.setRenderEvery(rung.renderEvery);
+    updateDegradedBanner(rung.degraded);
+  }
+
+  let degradedBanner: HTMLDivElement | null = null;
+  function updateDegradedBanner(degraded: boolean): void {
+    if (degraded && degradedBanner === null) {
+      degradedBanner = document.createElement("div");
+      degradedBanner.dataset.perfDegraded = "";
+      degradedBanner.style.cssText =
+        "position:absolute;bottom:0;left:0;right:0;z-index:10;" +
+        "display:flex;justify-content:center;pointer-events:none;";
+      const chip = document.createElement("div");
+      chip.style.cssText =
+        "background:rgba(8,8,16,0.85);color:#fd4;padding:4px 14px;" +
+        "font-family:monospace;font-size:12px;";
+      chip.textContent = t(locale, "perf.degraded");
+      degradedBanner.appendChild(chip);
+      canvasHost.appendChild(degradedBanner);
+    } else if (!degraded && degradedBanner !== null) {
+      degradedBanner.remove();
+      degradedBanner = null;
+    }
+  }
+
+  let contextBanner: HTMLDivElement | null = null;
+  function showContextBanner(message: string): void {
+    contextBanner?.remove();
+    contextBanner = document.createElement("div");
+    contextBanner.dataset.perfContext = "";
+    contextBanner.style.cssText =
+      "position:absolute;top:0;left:0;right:0;z-index:11;" +
+      "display:flex;justify-content:center;pointer-events:none;";
+    const chip = document.createElement("div");
+    chip.style.cssText =
+      "background:rgba(8,8,16,0.85);color:#eee;padding:4px 14px;" +
+      "font-family:monospace;font-size:12px;";
+    chip.textContent = message;
+    contextBanner.appendChild(chip);
+    canvasHost.appendChild(contextBanner);
+    if (message === t(locale, "perf.contextRestored")) {
+      globalThis.setTimeout(() => {
+        contextBanner?.remove();
+        contextBanner = null;
+      }, 2000);
+    }
+  }
+
+  // Ticket 54: dev perf overlay behind ?perf=1.
+  const perfOverlay = perfOn ? new PerfOverlay(canvasHost) : null;
+  // Static texture estimate over the shipped sprite set (exact for it).
+  const textureMbEstimate =
+    estimateTextureBytes([
+      { w: 64, h: 16 }, { w: 64, h: 16 }, { w: 64, h: 16 }, // paddles
+      { w: 16, h: 16 }, { w: 16, h: 16 }, { w: 16, h: 16 }, // balls
+      { w: 64, h: 64 }, // background tile
+    ]) / (1024 * 1024);
+  if (!textureWithinBudget(textureMbEstimate * 1024 * 1024)) {
+    // Static asset set exceeds the 64 MB budget — impossible today (7
+    // tiny PNGs), but the check is the contract.
+    throw new Error("texture budget exceeded by shipped assets");
+  }
+  let lastSyncMs = 0;
 
   const onResize = (): void => {
     for (const v of views) v.container.destroy({ children: true });
@@ -280,6 +388,12 @@ export async function startSoloSession(
         applyStoredBindings();
         keyboard.flush();
         gamepad.flush();
+        // Ticket 54: Display changes apply live — dpr mode re-pins the
+        // ladder's start rung, reduced-effects toggles the field layers.
+        const display = loadSettings(storage).display;
+        ladder.setRung(rungForDprMode(display.dprMode));
+        applyLadderRung();
+        for (const v of views) v.setReducedEffects(display.reducedEffects);
         loop.start();
       },
     });
@@ -301,6 +415,9 @@ export async function startSoloSession(
       app.canvas.removeEventListener("pointermove", onPointerMove);
       app.canvas.removeEventListener("pointerdown", onPointerDown);
       settingsScreen?.close();
+      perfOverlay?.close();
+      degradedBanner?.remove();
+      contextBanner?.remove();
       shell.dispose();
     },
   };

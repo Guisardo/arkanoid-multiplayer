@@ -27,10 +27,15 @@ import { createRejoinRegistry, type RejoinRegistry } from "net/rejoin";
 import { createOverloadMonitor, type OverloadMonitor } from "app/overload";
 import { createKeepAlive, type KeepAlive } from "app/keepAlive";
 import { reducePause, pauseAllowedFor, UNPAUSED, type PauseState } from "app/pauseCoord";
+import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
+import { FrameStats } from "app/frameStats";
+import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
 import { PauseOverlay } from "ui/pauseOverlay";
 import { QuitConfirm } from "ui/quitConfirm";
 import { assignSkinIndices } from "content/skinSync";
 import { DEFAULT_THEME_ID } from "content/themes";
+import { Storage } from "persistence/storage";
+import { loadSettings, effectiveDpr } from "ui/settings";
 import type { LobbyState, LobbyMode } from "app/lobbyState";
 import type { Locale } from "ui/strings";
 import { t } from "ui/strings";
@@ -134,6 +139,19 @@ export class MpFlow {
   private quitConfirm: QuitConfirm | null = null;
   /** Sim players local to this device, by device-local index (pause header). */
   private matchNames: string[] = [];
+  // ---- Ticket 54: perf ladder + instrumentation ----
+  /** Render-only dpr/fps ladder (sim stays fixed 60 Hz). */
+  private ladder: PerfLadder = createPerfLadder(0);
+  /** Rolling frame-budget stats (sim/sync/render split). */
+  private frameStats = new FrameStats();
+  /** Dev perf overlay (?perf=1). */
+  private perfOverlay: PerfOverlay | null = null;
+  /** Last snapshot→scene sync duration (ms, measured in render). */
+  private lastSyncMs = 0;
+  /** Degraded-mode banner (explicit 30 fps rung). */
+  private degradedBanner: HTMLElement | null = null;
+  /** Context-loss/restore banner. */
+  private contextBanner: HTMLElement | null = null;
 
   constructor(opts: MpFlowOptions) {
     this.hostEl = opts.host;
@@ -581,7 +599,7 @@ export class MpFlow {
     }
 
     const remote = players.filter((p) => p.guestIndex !== -1).map((p) => p.player);
-    void createAppShell(this.hostEl, {}).then((shell) => {
+    void this.createShell().then((shell) => {
       if (this.phase !== "inGame") {
         shell.dispose();
         return;
@@ -590,6 +608,50 @@ export class MpFlow {
       this.mountRender(state.config.mode, hostLocal, remote, state.config.themeId, players.map((p) => p.skinIndex));
       this.startHostLoop();
     });
+  }
+
+  /**
+   * Ticket 54: shell factory — Settings dpr mode pins the ladder start,
+   * context loss/restore drive the resync-from-snapshot contract.
+   */
+  private createShell(): Promise<AppShell> {
+    const display = loadSettings(new Storage()).display;
+    this.ladder = createPerfLadder(rungForDprMode(display.dprMode));
+    const deviceDpr = globalThis.devicePixelRatio || 1;
+    return createAppShell(this.hostEl, {
+      resolution: Math.min(
+        this.ladder.rung.dpr,
+        effectiveDpr("auto", deviceDpr),
+      ),
+      onContextLost: () => {
+        this.showContextBanner(t(this.locale, "perf.contextLost"));
+      },
+      onContextRestored: () => {
+        // Resync-from-snapshot: invalidate every field's cached render
+        // state; the next sync redraws from the latest snapshot. Guests
+        // additionally rebuild prediction from the next full snapshot.
+        this.split?.invalidate();
+        if (!this.isHost) this.guestGame?.resyncFromSnapshot(this.guestLatest());
+        this.showContextBanner(t(this.locale, "perf.contextRestored"));
+      },
+    });
+  }
+
+  /** Guest: latest interpolated snapshot for resync (empty-safe). */
+  private guestLatest(): Snapshot {
+    return (
+      this.guestGame?.renderSnapshots(performance.now())[0] ?? {
+        tick: 0,
+        phase: "serve",
+        round: 1,
+        players: [],
+        balls: [],
+        capsules: [],
+        bricks: [],
+        events: [],
+        inputAcks: [],
+      }
+    );
   }
 
   private startHostLoop(): void {
@@ -608,6 +670,7 @@ export class MpFlow {
         const scale = this.overload.observe(loop.lastFrameCapped);
         loop.setTimeScale(scale);
         this.updateThrottleBanner(this.overload.state.degraded);
+        const syncStart = performance.now();
         const snaps = game.snapshots();
         const local: Snapshot[] = [];
         for (let i = 0; i < snaps.length; i++) {
@@ -617,10 +680,28 @@ export class MpFlow {
           }
         }
         this.split?.sync(local);
+        this.lastSyncMs = performance.now() - syncStart;
+      },
+      onFrameStats: (sample) => {
+        // Ticket 54: budgets + ladder (render-only; sim stays 60 Hz).
+        this.frameStats.push(
+          { simMs: sample.simMs, syncMs: this.lastSyncMs, renderMs: sample.renderMs },
+          sample.frameMs,
+        );
+        this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
+        if (this.ladder.changed) this.applyLadderRung();
+        this.perfOverlay?.update({
+          stats: this.frameStats.view,
+          dpr: this.ladder.rung.dpr,
+          renderEvery: this.ladder.rung.renderEvery,
+          drawCalls: null,
+          textureMb: null,
+        });
       },
     });
     loop.start();
     this.loop = loop;
+    this.mountPerfOverlay();
   }
 
   private localFieldFilter: number[] = [];
@@ -766,6 +847,80 @@ export class MpFlow {
     }
   }
 
+  // ---- Ticket 54: perf ladder + instrumentation ----
+
+  /** Apply the current ladder rung: resolution + render cadence + banner. */
+  private applyLadderRung(): void {
+    const rung = this.ladder.rung;
+    const deviceDpr = globalThis.devicePixelRatio || 1;
+    this.shell?.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    this.loop?.setRenderEvery(rung.renderEvery);
+    this.updateDegradedBanner(rung.degraded);
+  }
+
+  /** Explicit degraded-mode banner (30 fps rung — never a design target). */
+  private updateDegradedBanner(degraded: boolean): void {
+    if (degraded && this.degradedBanner === null) {
+      const div = document.createElement("div");
+      div.dataset.perfDegraded = "";
+      div.style.position = "absolute";
+      div.style.bottom = "0";
+      div.style.left = "0";
+      div.style.right = "0";
+      div.style.zIndex = "10";
+      div.style.display = "flex";
+      div.style.justifyContent = "center";
+      div.style.pointerEvents = "none";
+      const chip = document.createElement("div");
+      chip.style.cssText =
+        "background:rgba(8,8,16,0.85);color:#fd4;padding:4px 14px;" +
+        "font-family:monospace;font-size:12px;";
+      chip.textContent = t(this.locale, "perf.degraded");
+      div.appendChild(chip);
+      this.hostEl.appendChild(div);
+      this.degradedBanner = div;
+    } else if (!degraded && this.degradedBanner !== null) {
+      this.degradedBanner.remove();
+      this.degradedBanner = null;
+    }
+  }
+
+  /** Context-loss/restore banner (auto-dismiss on restore). */
+  private showContextBanner(message: string): void {
+    this.contextBanner?.remove();
+    const div = document.createElement("div");
+    div.dataset.perfContext = "";
+    div.style.position = "absolute";
+    div.style.top = "0";
+    div.style.left = "0";
+    div.style.right = "0";
+    div.style.zIndex = "11";
+    div.style.display = "flex";
+    div.style.justifyContent = "center";
+    div.style.pointerEvents = "none";
+    const chip = document.createElement("div");
+    chip.style.cssText =
+      "background:rgba(8,8,16,0.85);color:#eee;padding:4px 14px;" +
+      "font-family:monospace;font-size:12px;";
+    chip.textContent = message;
+    div.appendChild(chip);
+    this.hostEl.appendChild(div);
+    this.contextBanner = div;
+    if (message === t(this.locale, "perf.contextRestored")) {
+      globalThis.setTimeout(() => {
+        div.remove();
+        if (this.contextBanner === div) this.contextBanner = null;
+      }, 2000);
+    }
+  }
+
+  /** Dev perf overlay (?perf=1) — mounted with the match loops. */
+  private mountPerfOverlay(): void {
+    if (!perfFlagOn(globalThis.location.href)) return;
+    if (this.perfOverlay !== null) return;
+    this.perfOverlay = new PerfOverlay(this.hostEl);
+  }
+
   private mountRender(
     mode: LobbyMode,
     localPlayers: number[],
@@ -779,6 +934,7 @@ export class MpFlow {
     this.localFieldFilter = localPlayers;
     const single = mode === "duel" || mode === "sharedField";
     const fields = single ? [localPlayers[0] ?? 0] : localPlayers;
+    const reduced = loadSettings(new Storage()).display.reducedEffects;
     this.split = new SplitScreenView({
       viewport: { w: app.renderer.width, h: app.renderer.height },
       players: fields,
@@ -787,6 +943,7 @@ export class MpFlow {
       // Session skin indices → UUIDs for the FieldViews (ticket 44).
       skinIds: fields.map((p) => skinByIndex(skinIndices[p] ?? 0).id),
       themeId: themeId || DEFAULT_THEME_ID,
+      reducedEffects: reduced,
     });
     if (remotePlayers.length > 0) this.split.container.y = 28;
     app.stage.addChild(this.split.container);
@@ -928,7 +1085,7 @@ export class MpFlow {
     this.housekeepTimer = globalThis.setInterval(() => {
       this.housekeep();
     }, 1000);
-    void createAppShell(this.hostEl, {}).then((shell) => {
+    void this.createShell().then((shell) => {
       if (this.phase !== "inGame") {
         shell.dispose();
         return;
@@ -955,12 +1112,31 @@ export class MpFlow {
         }
       },
       render: () => {
+        const syncStart = performance.now();
         const now = performance.now();
         this.split?.sync(guestGame.renderSnapshots(now));
+        this.lastSyncMs = performance.now() - syncStart;
+      },
+      onFrameStats: (sample) => {
+        // Ticket 54: budgets + ladder (render-only; sim stays 60 Hz).
+        this.frameStats.push(
+          { simMs: sample.simMs, syncMs: this.lastSyncMs, renderMs: sample.renderMs },
+          sample.frameMs,
+        );
+        this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
+        if (this.ladder.changed) this.applyLadderRung();
+        this.perfOverlay?.update({
+          stats: this.frameStats.view,
+          dpr: this.ladder.rung.dpr,
+          renderEvery: this.ladder.rung.renderEvery,
+          drawCalls: null,
+          textureMb: null,
+        });
       },
     });
     loop.start();
     this.loop = loop;
+    this.mountPerfOverlay();
   }
 
   /** Sample local input once per tick for every local player (46). */
@@ -1156,6 +1332,12 @@ export class MpFlow {
     this.watchdogs.clear();
     this.hideBanner();
     this.updateThrottleBanner(false);
+    // Ticket 54: perf instrumentation dies with the match.
+    this.updateDegradedBanner(false);
+    this.contextBanner?.remove();
+    this.contextBanner = null;
+    this.perfOverlay?.close();
+    this.perfOverlay = null;
     // Ticket 48: overlays die with the match; pause state resets.
     this.hidePauseOverlay();
     this.hideQuitConfirm();

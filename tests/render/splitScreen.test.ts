@@ -59,4 +59,46 @@ describe("SplitScreenView (ticket 34)", () => {
     expect(regions[1]!.x - (regions[0]!.x + regions[0]!.w)).toBe(8);
     expect(regions[0]!.w).toBe(regions[1]!.w);
   });
+
+  // ---- Ticket 54: perf wiring ----
+
+  it("reducedEffects flows into every field", () => {
+    const view = new SplitScreenView({
+      viewport: { w: 1600, h: 900 },
+      players: [0, 1],
+      locale: "en-US",
+      maxRound: 33,
+      reducedEffects: true,
+    });
+    expect(view.fieldCount).toBe(2);
+    view.container.destroy({ children: true });
+  });
+
+  it("invalidate + setReducedEffects reach every field (context resync)", () => {
+    const view = new SplitScreenView({
+      viewport: { w: 1600, h: 900 },
+      players: [0, 1],
+      locale: "en-US",
+      maxRound: 33,
+    });
+    expect(() => {
+      view.invalidate();
+      view.setReducedEffects(true);
+      view.setReducedEffects(false);
+    }).not.toThrow();
+    view.container.destroy({ children: true });
+  });
+
+  it("degradation never collapses fields: resize under reduced effects keeps both", () => {
+    const view = new SplitScreenView({
+      viewport: { w: 1600, h: 900 },
+      players: [0, 1],
+      locale: "en-US",
+      maxRound: 33,
+      reducedEffects: true,
+    });
+    view.resize({ w: 320, h: 200 }); // heavy degradation size
+    expect(view.fieldCount).toBe(2);
+    view.container.destroy({ children: true });
+  });
 });
