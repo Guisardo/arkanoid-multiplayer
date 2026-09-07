@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { GAME_FONT_CHARS } from "render/gameFont";
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
+import { GAME_FONT_CHARS, GAME_FONT_NAME, installGameFont } from "render/gameFont";
 
 describe("BitmapText atlas charset (spec §14)", () => {
   it("covers Basic Latin letters and digits", () => {
@@ -23,5 +24,27 @@ describe("BitmapText atlas charset (spec §14)", () => {
   it("has no duplicate characters", () => {
     const set = new Set(GAME_FONT_CHARS.split(""));
     expect(set.size).toBe(GAME_FONT_CHARS.length);
+  });
+});
+
+describe("installGameFont (runtime atlas)", () => {
+  it("installs the BitmapFont once with the full charset (browser path)", async () => {
+    const installs: Array<Record<string, unknown>> = [];
+    const { BitmapFont, TextStyle } = await import("pixi.js");
+    const spy = vi.spyOn(BitmapFont, "install").mockImplementation((opts) => {
+      installs.push(opts as Record<string, unknown>);
+      return {} as never;
+    });
+    try {
+      installGameFont();
+      installGameFont(); // second call: no-op (installed flag)
+      expect(installs.length).toBe(1);
+      expect(installs[0]!.name).toBe(GAME_FONT_NAME);
+      expect(installs[0]!.chars).toBe(GAME_FONT_CHARS);
+      expect(installs[0]!.resolution).toBe(2);
+      expect(installs[0]!.style).toBeInstanceOf(TextStyle);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

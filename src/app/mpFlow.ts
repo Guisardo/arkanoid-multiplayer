@@ -521,6 +521,17 @@ export class MpFlow {
     return this.pauseState;
   }
 
+  /** Test/e2e probe: current perf ladder rung index (ticket 54). */
+  get perfRung(): number {
+    return this.ladder.state.rung;
+  }
+
+  /** Test/e2e probe: force a ladder rung (drives resolution + banner). */
+  setPerfRung(rung: number): void {
+    this.ladder.setRung(rung);
+    this.applyLadderRung();
+  }
+
 
 
   /** Host local lobby action (UI dispatches through this). */

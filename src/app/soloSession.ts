@@ -40,6 +40,10 @@ export interface SoloSession {
   latestSnapshot(): Snapshot;
   /** Open the settings overlay (pauses the loop while open). */
   openSettings(): void;
+  /** Test/e2e probe: current perf ladder rung index (ticket 54). */
+  readonly perfRung: number;
+  /** Test/e2e probe: force a ladder rung (drives resolution + banner). */
+  setPerfRung(rung: number): void;
 }
 
 export async function startSoloSession(
@@ -406,6 +410,13 @@ export async function startSoloSession(
     loop,
     latestSnapshot: () => latest,
     openSettings,
+    get perfRung(): number {
+      return ladder.state.rung;
+    },
+    setPerfRung(rung: number): void {
+      ladder.setRung(rung);
+      applyLadderRung();
+    },
     dispose() {
       loop.stop();
       globalThis.removeEventListener("keydown", kd);
