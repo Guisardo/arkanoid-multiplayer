@@ -2,6 +2,7 @@
 import type { Storage } from "persistence/storage";
 import { DEFAULT_SKIN_ID, getSkin } from "content/skins";
 import { DEFAULT_THEME_ID, getTheme } from "content/themes";
+import { isLocale, resolveLocale, type Locale } from "ui/strings";
 import {
   DEFAULT_GAMEPAD_BINDINGS,
   DEFAULT_KEYBOARD_BINDINGS,
@@ -38,11 +39,15 @@ export interface ControlsSettings {
   gamepad: GamepadBindingsMap;
 }
 
+/** Language preference: "auto" = follow the browser, else a locale id. */
+export type LanguageSetting = "auto" | Locale;
+
 export function loadSettings(storage: Storage): {
   audio: AudioSettings;
   display: DisplaySettings;
   appearance: AppearanceSettings;
   controls: ControlsSettings;
+  language: LanguageSetting;
 } {
   const all = storage.loadAll();
   return {
@@ -57,6 +62,7 @@ export function loadSettings(storage: Storage): {
       keyboard: parseKeyboardBindings(all.bindingsKeyboard),
       gamepad: parseGamepadBindings(all.bindingsGamepad),
     },
+    language: isLocale(all.language) ? all.language : "auto",
   };
 }
 
@@ -67,6 +73,7 @@ export function saveSettings(
     display?: Partial<DisplaySettings>;
     appearance?: Partial<AppearanceSettings>;
     controls?: Partial<ControlsSettings>;
+    language?: LanguageSetting;
   },
 ): void {
   const cur = loadSettings(storage);
@@ -75,6 +82,8 @@ export function saveSettings(
     display: { ...cur.display, ...partial.display },
     skin: partial.appearance?.skinId ?? cur.appearance.skinId,
     theme: partial.appearance?.themeId ?? cur.appearance.themeId,
+    // "auto" persists as empty string (null = never written in savePartial).
+    language: partial.language === undefined ? cur.language : partial.language === "auto" ? "" : partial.language,
   };
   if (partial.controls?.keyboard !== undefined) {
     patch.bindingsKeyboard = serializeKeyboardBindings(partial.controls.keyboard);
@@ -101,4 +110,15 @@ export function resetControls(storage: Storage): ControlsSettings {
 export function effectiveDpr(dprMode: DisplaySettings["dprMode"], deviceDpr: number): number {
   if (dprMode === "auto") return Math.min(deviceDpr, 2);
   return Math.min(Number(dprMode), 2);
+}
+
+/**
+ * Effective locale (spec §14): explicit setting wins; auto → navigator
+ * detection with en-US fallback. Pure — callers pass the language list.
+ */
+export function effectiveLocale(
+  language: LanguageSetting,
+  languages: readonly string[],
+): Locale {
+  return language === "auto" ? resolveLocale(null, languages) : language;
 }

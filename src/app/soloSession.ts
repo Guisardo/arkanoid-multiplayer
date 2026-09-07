@@ -13,7 +13,7 @@ import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
 import { layoutField } from "render/layout";
-import { detectLocale, t, type Locale } from "ui/strings";
+import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
 import { Storage } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
@@ -77,7 +77,8 @@ export async function startSoloSession(
     typeof globalThis.navigator !== "undefined"
       ? globalThis.navigator.languages
       : ["en"];
-  const locale: Locale = opts.locale ?? detectLocale(languages);
+  // Settings override + auto-detect (spec §14): stored language wins.
+  const locale: Locale = opts.locale ?? resolveLocale(storage.loadAll().language, languages);
   const level = getLevel(round);
   const sim: RoundSim = createRoundSim(level, {
     lives: opts.lives ?? 3,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allKeys, detectLocale, format, t } from "ui/strings";
+import { allKeys, detectLocale, format, resolveLocale, t } from "ui/strings";
 
 describe("i18n string tables", () => {
   it("every en-US key exists in es-419 and vice versa", () => {
@@ -31,5 +31,24 @@ describe("i18n string tables", () => {
     expect(detectLocale(["en-US"])).toBe("en-US");
     expect(detectLocale(["pt-BR"])).toBe("en-US");
     expect(detectLocale([])).toBe("en-US");
+  });
+
+  it("resolveLocale: stored override wins over detection (spec §14)", () => {
+    expect(resolveLocale("es-419", ["en-US"])).toBe("es-419");
+    expect(resolveLocale("en-US", ["es-MX", "es-AR"])).toBe("en-US");
+  });
+
+  it("resolveLocale: null/garbage stored falls back to detection then en-US", () => {
+    expect(resolveLocale(null, ["es-MX"])).toBe("es-419");
+    expect(resolveLocale("garbage", ["es-419", "en"])).toBe("es-419");
+    expect(resolveLocale("", ["pt-BR"])).toBe("en-US");
+    expect(resolveLocale(undefined, [])).toBe("en-US");
+  });
+
+  it("language option keys exist with endonym values (never localized)", () => {
+    expect(t("en-US", "settings.language.enUS")).toBe("English");
+    expect(t("es-419", "settings.language.enUS")).toBe("English");
+    expect(t("en-US", "settings.language.es419")).toBe("Español");
+    expect(t("es-419", "settings.language.es419")).toBe("Español");
   });
 });

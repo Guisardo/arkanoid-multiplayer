@@ -210,6 +210,37 @@ export class SettingsScreen {
     });
     fxRow.appendChild(fx);
     wrap.appendChild(fxRow);
+
+    // Language (spec §14): per-device override, persisted. Options are
+    // endonyms (English/Español) — never localized. Applied on reload:
+    // the locale is resolved once at boot.
+    const langRow = document.createElement("label");
+    langRow.textContent = t(this.opts.locale, "settings.language");
+    const langSelect = document.createElement("select");
+    langSelect.dataset.languageSelect = "";
+    for (const opt of ["auto", "en-US", "es-419"] as const) {
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = t(
+        this.opts.locale,
+        opt === "auto" ? "settings.language.auto" : opt === "en-US" ? "settings.language.enUS" : "settings.language.es419",
+      );
+      langSelect.appendChild(o);
+    }
+    langSelect.value = loadSettings(this.opts.storage).language;
+    langSelect.addEventListener("change", () => {
+      saveSettings(this.opts.storage, { language: langSelect.value as "auto" | "en-US" | "es-419" });
+      this.emitChange();
+      // Apply = reload (locale is boot-resolved). Guarded: jsdom tests
+      // stub location.reload — a real reload never runs test code after.
+      try {
+        globalThis.location.reload();
+      } catch {
+        // jsdom "not implemented" — persistence already applied.
+      }
+    });
+    langRow.appendChild(langSelect);
+    wrap.appendChild(langRow);
     return wrap;
   }
 

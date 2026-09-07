@@ -280,3 +280,53 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     screen.close();
   });
 });
+
+describe("SettingsScreen Language row (ticket 52)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("renders the language select with Auto + endonym options", () => {
+    const screen = openScreen(new Storage(fakeBackend()));
+    const select = screen.root.querySelector<HTMLSelectElement>("select[data-language-select]");
+    expect(select).toBeDefined();
+    const opts = [...(select?.options ?? [])].map((o) => o.textContent);
+    expect(opts).toContain("Auto");
+    expect(opts).toContain("English");
+    expect(opts).toContain("Español");
+    // Endonyms never localized: same in both locales.
+    expect(select?.value).toBe("auto");
+    screen.close();
+  });
+
+  it("changing the language persists it (auto → es-419)", () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const select = screen.root.querySelector<HTMLSelectElement>("select[data-language-select]");
+    select!.value = "es-419";
+    select!.dispatchEvent(new Event("change"));
+    expect(loadSettings(storage).language).toBe("es-419");
+    screen.close();
+  });
+
+  it("switching back to auto persists empty (detect on next boot)", () => {
+    const storage = new Storage(fakeBackend());
+    storage.savePartial({ language: "es-419" });
+    const screen = openScreen(storage);
+    const select = screen.root.querySelector<HTMLSelectElement>("select[data-language-select]");
+    expect(select?.value).toBe("es-419");
+    select!.value = "auto";
+    select!.dispatchEvent(new Event("change"));
+    expect(loadSettings(storage).language).toBe("auto");
+    screen.close();
+  });
+
+  it("garbage stored language renders as auto (corrupt fallback)", () => {
+    const backend = fakeBackend();
+    backend.setItem("settings.language", "klingon");
+    const screen = openScreen(new Storage(backend));
+    const select = screen.root.querySelector<HTMLSelectElement>("select[data-language-select]");
+    expect(select?.value).toBe("auto");
+    screen.close();
+  });
+});

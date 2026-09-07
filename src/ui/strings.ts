@@ -51,6 +51,9 @@ const enUS = {
   "settings.dpr.auto": "Auto",
   "settings.reducedEffects": "Reduced effects",
   "settings.language": "Language",
+  "settings.language.auto": "Auto",
+  "settings.language.enUS": "English",
+  "settings.language.es419": "Español",
   "settings.name": "Name",
   "settings.skin": "Skin",
   "settings.theme": "Theme",
@@ -171,6 +174,9 @@ const es419: Record<StringKey, string> = {
   "settings.dpr.auto": "Auto",
   "settings.reducedEffects": "Efectos reducidos",
   "settings.language": "Idioma",
+  "settings.language.auto": "Auto",
+  "settings.language.enUS": "English",
+  "settings.language.es419": "Español",
   "settings.name": "Nombre",
   "settings.skin": "Skin",
   "settings.theme": "Tema",
@@ -279,4 +285,20 @@ export function detectLocale(languages: readonly string[]): Locale {
     if (lower.startsWith("en")) return "en-US";
   }
   return DEFAULT_LOCALE;
+}
+
+/** Type guard: a stored string is a known locale id. */
+export function isLocale(value: string | null | undefined): value is Locale {
+  return value === "en-US" || value === "es-419";
+}
+
+/**
+ * Settings override + auto-detect (spec §14): a valid stored language wins;
+ * anything else (null/garbage) falls back to navigator detection, then en-US.
+ */
+export function resolveLocale(
+  stored: string | null | undefined,
+  languages: readonly string[],
+): Locale {
+  return isLocale(stored) ? stored : detectLocale(languages);
 }
