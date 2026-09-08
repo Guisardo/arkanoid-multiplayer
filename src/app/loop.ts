@@ -133,7 +133,10 @@ export function createAccumulatorLoop(opts: LoopOptions): AccumulatorLoop {
     start() {
       if (running) return;
       running = true;
-      last = performance.now();
+      // Advance-mode sessions (tests/e2e probes) keep the advance clock —
+      // resetting to wall-clock performance.now() would poison the next
+      // advance's delta (advance time starts at 0).
+      last = initialized ? lastAdvanceWall : performance.now();
       rafHandle = requestAnimationFrame(frame);
     },
     stop() {

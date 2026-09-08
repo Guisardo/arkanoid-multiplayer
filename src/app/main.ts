@@ -8,12 +8,24 @@ import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobb
 import { VersusBotsConfigScreen } from "ui/versusBotsScreen";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import { MpFlow, type MpConnectResult } from "app/mpFlow";
-import { openHostRoom, connectViaSignalingGuest, type RtcConnection } from "signaling/rtc";
+import {
+  openHostRoom,
+  connectViaSignalingGuest,
+  connectViaCopyPasteHost,
+  connectViaCopyPasteGuest,
+  type RtcConnection,
+} from "signaling/rtc";
+import { CopyPasteHostScreen, CopyPasteGuestScreen } from "ui/copyPasteScreens";
 import { Storage } from "persistence/storage";
 import { loadSettings } from "ui/settings";
 import { showSettings } from "app/settingsRoute";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
+import { MouseAdapter } from "input/mouse";
+import { TouchAdapter } from "input/touch";
+import { TouchOverlay } from "render/touchOverlay";
+import { detectDeviceClass } from "app/mobileLayout";
+import { layoutField } from "render/layout";
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 const appHostElement = document.getElementById("app");
@@ -51,7 +63,7 @@ function boot(): void {
       landing.close();
       if (choice === "solo") {
         void loadSkinSprites()
-          .then(() => startSoloSession(appHost))
+          .then(() => startSoloSession(appHost, 1, { onQuit: boot }))
           .then((session) => {
             globalThis.__arkanoid = session;
           });
@@ -73,6 +85,7 @@ function openVersusBots(): void {
       screen.root.remove();
       void startSoloSession(appHost, 1, {
         bot: { difficulty: config.difficulty, seed: 1 },
+        onQuit: boot,
       }).then((session) => {
         globalThis.__arkanoid = session;
       });
@@ -89,12 +102,13 @@ interface GuestEntry {
 }
 
 /**
- * Multiplayer local input (ticket 46): keyboard + gamepad adapters per
- * local sim player, wired into the flow's per-tick sample seam. Bindings
- * load from Settings (rebinds, ticket 41); paddle movement only — fire/
- * cycle edges ride the same frames, pause/quit coordination is ticket 48.
+ * Multiplayer local input (tickets 46 + 53/N2): keyboard + gamepad + mouse
+ * + touch adapters per local sim player, wired into the flow's per-tick
+ * sample seam. Bindings load from Settings (rebinds, ticket 41). Mouse
+ * chases the pointer inside the player's own field region (binary ±1,
+ * parity with keyboard); touch = virtual stick + cluster overlay.
  */
-function makeLocalInput() {
+function makeLocalInput(flow: MpFlow) {
   const controls = loadSettings(new Storage()).controls;
   // One keyboard adapter per local player (edges must not be consumed by
   // another player's sample); a single listener fans events to all of them.
@@ -102,6 +116,10 @@ function makeLocalInput() {
     new KeyboardAdapter({ player: i }, [controls.keyboard[i] ?? (i === 0 ? KEYSET_1 : KEYSET_2)]),
   );
   const gamepads = new Map<number, GamepadAdapter>();
+  // N2: mouse per local player; touch per local player (mobile ≤2).
+  const mice = new Map<number, MouseAdapter>();
+  const touches = new Map<number, TouchAdapter>();
+  const touchOverlays = new Map<number, TouchOverlay>();
   const kd = (e: KeyboardEvent): void => {
     for (const k of keyboards) k.keyDown(e.code);
   };
@@ -110,6 +128,101 @@ function makeLocalInput() {
   };
   globalThis.addEventListener("keydown", kd);
   globalThis.addEventListener("keyup", ku);
+
+  const coarse =
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(pointer: coarse)").matches;
+  const ua: string =
+    typeof globalThis.navigator !== "undefined" ? globalThis.navigator.userAgent : "";
+  const device = detectDeviceClass(coarse, ua);
+
+  /** Ensure adapters + overlay exist for a local player (match start). */
+  const ensurePlayer = (player: number): void => {
+    if (!mice.has(player)) mice.set(player, new MouseAdapter({ player }));
+    if (device.touch && !touches.has(player)) {
+      const adapter = new TouchAdapter({
+        player,
+        mode: "solo",
+        layout: { stick: { x: 80, y: 0 }, buttons: {}, buttonRadius: 24 },
+      });
+      touches.set(player, adapter);
+      const app = flow.renderApp;
+      const region = flow.localRegion(player);
+      if (app !== null && region !== null) {
+        const overlay = new TouchOverlay(adapter, region, "solo");
+        app.stage.addChild(overlay.container);
+        touchOverlays.set(player, overlay);
+      }
+    }
+  };
+
+  /** Pointer events on the canvas → mouse/touch adapters (region-routed). */
+  const onPointerMove = (e: PointerEvent): void => {
+    const app = flow.renderApp;
+    if (app === null) return;
+    const rect = app.canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    if (e.pointerType === "touch") {
+      for (const [player, adapter] of touches) {
+        const region = flow.localRegion(player);
+        if (region === null) continue;
+        adapter.pointerMove(e.pointerId, px - region.x, py - region.y);
+      }
+      return;
+    }
+    // Mouse: route to the field the pointer is inside (paddle chase).
+    for (const [player, mouse] of mice) {
+      const region = flow.localRegion(player);
+      if (region === null) continue;
+      if (px >= region.x && px < region.x + region.w && py >= region.y && py < region.y + region.h) {
+        const layout = layoutField(region);
+        const fieldX = (px - layout.field.x) / layout.scale;
+        const snap = flow.localSnapshots()[mice.size > 1 ? flow.localPlayers.indexOf(player) : 0];
+        const paddleX = snap?.players.find((p) => p.player === player)?.paddle.x ?? 104;
+        mouse.feedPointer(fieldX, paddleX);
+      }
+    }
+  };
+  const onPointerDown = (e: PointerEvent): void => {
+    const app = flow.renderApp;
+    if (app === null) return;
+    if (e.pointerType === "touch") {
+      const rect = app.canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      for (const [player, adapter] of touches) {
+        const region = flow.localRegion(player);
+        if (region === null) continue;
+        adapter.pointerDown(e.pointerId, px - region.x, py - region.y);
+      }
+      return;
+    }
+    if (e.button === 0) for (const mouse of mice.values()) mouse.feedClick();
+  };
+  const onPointerUp = (e: PointerEvent): void => {
+    if (e.pointerType === "touch") {
+      for (const adapter of touches.values()) adapter.pointerUp(e.pointerId);
+    }
+  };
+
+  const bindPointerEvents = (): void => {
+    const app = flow.renderApp;
+    if (app === null) return;
+    app.canvas.addEventListener("pointermove", onPointerMove);
+    app.canvas.addEventListener("pointerdown", onPointerDown);
+    app.canvas.addEventListener("pointerup", onPointerUp);
+    app.canvas.addEventListener("pointercancel", onPointerUp);
+  };
+  const unbindPointerEvents = (): void => {
+    const app = flow.renderApp;
+    if (app === null) return;
+    app.canvas.removeEventListener("pointermove", onPointerMove);
+    app.canvas.removeEventListener("pointerdown", onPointerDown);
+    app.canvas.removeEventListener("pointerup", onPointerUp);
+    app.canvas.removeEventListener("pointercancel", onPointerUp);
+  };
+
   const poll = (player: number): GamepadAdapter => {
     let pad = gamepads.get(player);
     if (pad === undefined) {
@@ -142,7 +255,16 @@ function makeLocalInput() {
     return pad;
   };
   return {
-    /** Per-tick sample: keyboard frame, gamepad overrides on activity. */
+    /** Match started: create adapters + overlays + bind pointer events. */
+    matchStart(): void {
+      for (const player of flow.localPlayers) ensurePlayer(player);
+      bindPointerEvents();
+    },
+    /** Per-render overlay refresh (stick knob + held buttons). */
+    renderTick(): void {
+      for (const overlay of touchOverlays.values()) overlay.redraw();
+    },
+    /** Per-tick sample: last active device wins (touch > mouse > gamepad > keyboard). */
     sample(player: number, tick: number) {
       const kb = keyboards[player] ?? keyboards[0];
       const kf = kb === undefined ? null : kb.sampleFrame(tick);
@@ -151,12 +273,35 @@ function makeLocalInput() {
         : { ...kf, player };
       const pad = poll(player);
       const gf = pad.sampleFrame(tick);
-      if (gf.axisX !== 0 || gf.launch || gf.actions.cycleForward || gf.actions.cycleBack) {
-        return gf.player === player ? gf : { ...gf, player };
-      }
-      return frame.axisX !== 0 || frame.launch || frame.actions.cycleForward
-        ? frame
-        : { ...frame, player };
+      const mouse = mice.get(player);
+      const mf = mouse !== undefined ? mouse.sampleFrame(tick) : null;
+      const touch = touches.get(player);
+      const tf = touch !== undefined ? touch.sampleFrame(tick) : null;
+      const pick: InputFrame =
+        tf !== null && tf.axisX !== 0 ? tf :
+        mf !== null && mf.axisX !== 0 ? mf :
+        gf.axisX !== 0 ? gf : frame;
+      const edges =
+        (tf !== null && (tf.launch || tf.actions.cycleForward)) ||
+        (mf !== null && (mf.launch || mf.actions.cycleForward)) ||
+        gf.launch || gf.actions.cycleForward ||
+        kf?.launch === true || frame.launch;
+      if (!edges) return pick.player === player ? pick : { ...pick, player };
+      return {
+        ...pick,
+        player,
+        launch: (tf !== null && tf.launch) || (mf !== null && mf.launch) || gf.launch || frame.launch,
+        actions: {
+          cycleForward: (tf !== null && tf.actions.cycleForward) || (mf !== null && mf.actions.cycleForward) || gf.actions.cycleForward || frame.actions.cycleForward,
+          cycleBack: (tf !== null && tf.actions.cycleBack) || (mf !== null && mf.actions.cycleBack) || gf.actions.cycleBack || frame.actions.cycleBack,
+          fire: [
+            (tf !== null && tf.actions.fire[0]) || (mf !== null && mf.actions.fire[0]) || gf.actions.fire[0] || frame.actions.fire[0],
+            (tf !== null && tf.actions.fire[1]) || (mf !== null && mf.actions.fire[1]) || gf.actions.fire[1] || frame.actions.fire[1],
+            (tf !== null && tf.actions.fire[2]) || (mf !== null && mf.actions.fire[2]) || gf.actions.fire[2] || frame.actions.fire[2],
+            (tf !== null && tf.actions.fire[3]) || (mf !== null && mf.actions.fire[3]) || gf.actions.fire[3] || frame.actions.fire[3],
+          ] as [boolean, boolean, boolean, boolean],
+        },
+      };
     },
     /**
      * Ticket 48: menu/pause edge (Esc / rebindable menu key / gamepad
@@ -176,6 +321,9 @@ function makeLocalInput() {
     dispose(): void {
       globalThis.removeEventListener("keydown", kd);
       globalThis.removeEventListener("keyup", ku);
+      unbindPointerEvents();
+      for (const overlay of touchOverlays.values()) overlay.container.destroy({ children: true });
+      touchOverlays.clear();
     },
   };
 }
@@ -206,22 +354,47 @@ function openMultiplayer(joinCode?: string): void {
 
 function startHostFlow(code: string): void {
   const guests = new Map<number, GuestEntry>();
-  const room = openHostRoom({
-    code,
-    connectGuest: (guestIndex, conn) => {
-      guests.set(guestIndex, { conn });
-      wireGuestChannels(flow, guestIndex, conn);
-    },
-  });
-  room.onEvent((ev) => {
-    if (ev.type === "host-left") flow.hostGoneFromOutside();
-  });
+  let room: ReturnType<typeof openHostRoom> | null = null;
+  let copyPasteScreen: CopyPasteHostScreen | null = null;
 
   const flow = new MpFlow({
     host: appHost,
     locale,
     connect: async () => {
-      await room.ready();
+      try {
+        room = openHostRoom({
+          code,
+          connectGuest: (guestIndex, conn) => {
+            guests.set(guestIndex, { conn });
+            wireGuestChannels(flow, guestIndex, conn);
+          },
+        });
+        room.onEvent((ev) => {
+          if (ev.type === "host-left") flow.hostGoneFromOutside();
+        });
+        await room.ready();
+      } catch {
+        // Spec §9 fallback: signaling unavailable → copy-paste connect.
+        // One guest, guest index 0 — the manual exchange is single-peer.
+        room = null;
+        let answerResolve: (code: string) => void = () => undefined;
+        const answerReceived = new Promise<string>((resolve) => {
+          answerResolve = resolve;
+        });
+        const hostFlow = await connectViaCopyPasteHost(answerReceived);
+        copyPasteScreen = new CopyPasteHostScreen({
+          host: appHost,
+          locale,
+          offerCode: hostFlow.offerCode,
+          onAnswer: answerResolve,
+          onCancel: () => { globalThis.location.reload(); },
+        });
+        const conn = await hostFlow.connection;
+        copyPasteScreen.close();
+        copyPasteScreen = null;
+        guests.set(0, { conn });
+        wireGuestChannels(flow, 0, conn);
+      }
       return {
         isHost: true,
         guestIndex: 0,
@@ -241,7 +414,7 @@ function startHostFlow(code: string): void {
           },
           guestControl: () => undefined,
           onGuestDropped: (cb) => {
-            room.onEvent((ev) => {
+            room?.onEvent((ev) => {
               if (ev.type === "guest-left") cb(ev.guestIndex);
             });
           },
@@ -253,10 +426,18 @@ function startHostFlow(code: string): void {
     sampleLocal: (player, tick) => hostInput.sample(player, tick),
   });
 
-  const hostInput = makeLocalInput();
+  const hostInput = makeLocalInput(flow);
   // Ticket 48: menu/pause edges (Esc / gamepad Start) — polled at render
   // cadence; the flow routes coop pause vs competitive quit-confirm.
+  // N2: matchStart wires mouse/touch once fields exist; renderTick
+  // refreshes the touch overlays.
+  let hostInputStarted = false;
   const hostMenuPoll = globalThis.setInterval(() => {
+    if (flow.currentPhase === "inGame" && !hostInputStarted) {
+      hostInputStarted = true;
+      hostInput.matchStart();
+    }
+    if (hostInputStarted) hostInput.renderTick();
     if (hostInput.consumeMenuEdge()) flow.localPausePressed();
   }, 100);
 
@@ -271,7 +452,8 @@ function startHostFlow(code: string): void {
       globalThis.clearInterval(hostMenuPoll);
       hostInput.dispose();
       hostLobbyUI.close();
-      room.close();
+      copyPasteScreen?.close();
+      room?.close();
       flow.dispose();
       boot();
     },
@@ -301,14 +483,52 @@ function wireGuestChannels(flow: MpFlow, guestIndex: number, conn: RtcConnection
 }
 
 function startGuestFlow(code: string): void {
+  let copyPasteScreen: CopyPasteGuestScreen | null = null;
+
+  /** Signaling first; spec §9 fallback = copy-paste when the WS is down. */
+  const connectGuest = async (): Promise<RtcConnection> => {
+    try {
+      return await connectViaSignalingGuest(code);
+    } catch {
+      let offerResolve: (c: string) => void = () => undefined;
+      const offerReceived = new Promise<string>((resolve) => {
+        offerResolve = resolve;
+      });
+      const screen = new CopyPasteGuestScreen({
+        host: appHost,
+        locale,
+        answerCode: "", // filled below once the answer exists
+        onOffer: offerResolve,
+        onCancel: () => { globalThis.location.reload(); },
+      });
+      copyPasteScreen = screen;
+      const offer = await offerReceived;
+      const guestFlow = await connectViaCopyPasteGuest(offer);
+      // Re-render the screen with the real answer code (same DOM slot).
+      copyPasteScreen.close();
+      copyPasteScreen = new CopyPasteGuestScreen({
+        host: appHost,
+        locale,
+        answerCode: guestFlow.answerCode,
+        onOffer: () => undefined,
+        onCancel: () => { globalThis.location.reload(); },
+      });
+      const conn = await guestFlow.connection;
+      copyPasteScreen.close();
+      copyPasteScreen = null;
+      return conn;
+    }
+  };
+
   const flow: MpFlow = new MpFlow({
     host: appHost,
     locale,
     connect: async (): Promise<MpConnectResult> => {
-      const conn = await connectViaSignalingGuest(code);
+      const conn = await connectGuest();
       return wireGuestConn(flow, conn);
     },
     // Ticket 47: mid-match drop → one rejoin attempt with the same code.
+    // Copy-paste sessions have no signaling to rejoin through — null.
     reconnect: async (): Promise<MpConnectResult | null> => {
       try {
         const conn = await connectViaSignalingGuest(code);
@@ -321,9 +541,16 @@ function startGuestFlow(code: string): void {
     sampleLocal: (player, tick) => guestInput.sample(player, tick),
   });
 
-  const guestInput = makeLocalInput();
+  const guestInput = makeLocalInput(flow);
   // Ticket 48: menu/pause edges — same routing as the host side.
+  // N2: same matchStart/renderTick wiring.
+  let guestInputStarted = false;
   const guestMenuPoll = globalThis.setInterval(() => {
+    if (flow.currentPhase === "inGame" && !guestInputStarted) {
+      guestInputStarted = true;
+      guestInput.matchStart();
+    }
+    if (guestInputStarted) guestInput.renderTick();
     if (guestInput.consumeMenuEdge()) flow.localPausePressed();
   }, 100);
 
@@ -342,6 +569,7 @@ function startGuestFlow(code: string): void {
       globalThis.clearInterval(guestMenuPoll);
       guestInput.dispose();
       guestLobbyUI.close();
+      copyPasteScreen?.close();
       flow.dispose();
       boot();
     },

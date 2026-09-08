@@ -11,6 +11,8 @@ export function showSettings(
   callbacks: {
     onChange?: (audio: AudioSettings, display: DisplaySettings, appearance: AppearanceSettings) => void;
     onClose?: () => void;
+    /** Spec §14: in-session settings = Audio/Display only. */
+    sections?: readonly ("controls" | "audio" | "display" | "appearance")[];
   } = {},
 ): SettingsScreen {
   const screen = new SettingsScreen({
@@ -19,6 +21,7 @@ export function showSettings(
     storage,
     onChange: callbacks.onChange ?? undefined,
     onClose: callbacks.onClose ?? undefined,
+    ...(callbacks.sections !== undefined ? { sections: callbacks.sections } : {}),
   });
   screen.open();
   return screen;

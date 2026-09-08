@@ -82,6 +82,9 @@ export function createSoloEpisode(opts: SoloEpisodeOptions): SoloEpisode {
         round++;
         sim = makeSim();
       } else if (snap.phase === "gameOver") {
+        // Sync the run's score from the sim before recording — Continue
+        // applies −60% to the score actually reached (ticket 36/53 e2e).
+        score = snap.players[0]?.score ?? score;
         record();
         phase = "gameOver";
       }

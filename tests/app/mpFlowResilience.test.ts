@@ -292,4 +292,27 @@ describe("mpFlow resilience wiring (ticket 47)", () => {
     }
     expect(sawPing).toBe(true);
   }, 25000);
+
+  it("host gone outside a match → fatal banner; Back reloads", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    // Lobby only — no match running (no rejoin window applies).
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Solo", "classic");
+    await Promise.resolve();
+    expect(guestFlow.currentPhase).toBe("lobby");
+    // Transport reports the host gone → fatal (session over) banner.
+    guestFlow.hostGoneFromOutside();
+    expect(guestFlow.currentPhase).toBe("dead");
+    const banner = [...document.querySelectorAll(".ld-title")]
+      .find((b) => (b.textContent ?? "").includes("Host left"));
+    expect(banner).toBeDefined();
+    // Back click → location.reload (jsdom logs "not implemented" and
+    // continues — the click path itself is the contract under test).
+    const back = [...document.querySelectorAll("button")]
+      .find((b) => b.textContent === "Back");
+    expect(back).toBeDefined();
+    expect(() => back!.click()).not.toThrow();
+  }, 20000);
 });

@@ -52,6 +52,12 @@ export interface SettingsScreenOptions {
     | ((audio: AudioSettings, display: DisplaySettings, appearance: AppearanceSettings) => void)
     | undefined;
   onClose?: (() => void) | undefined;
+  /**
+   * Sections to show (spec §14: in-session settings = Audio/Display only —
+   * Controls/Appearance rebind mid-match would desync the session). Defaults
+   * to all four.
+   */
+  sections?: readonly ("controls" | "audio" | "display" | "appearance")[];
 }
 
 export class SettingsScreen {
@@ -121,16 +127,17 @@ export class SettingsScreen {
     panel.appendChild(title);
 
     const cur = loadSettings(this.opts.storage);
-    for (const section of ["settings.controls", "settings.audio", "settings.display", "settings.appearance"] as const) {
+    const sections = this.opts.sections ?? ["controls", "audio", "display", "appearance"];
+    for (const section of sections) {
       const h = document.createElement("h3");
-      h.textContent = t(this.opts.locale, section);
+      h.textContent = t(this.opts.locale, `settings.${section}` as StringKey);
       h.style.margin = "8px 0 4px";
       panel.appendChild(h);
-      if (section === "settings.controls") {
+      if (section === "controls") {
         this.controlsPanel = this.buildControls();
         panel.appendChild(this.controlsPanel);
-      } else if (section === "settings.audio") panel.appendChild(this.buildAudio(cur.audio));
-      else if (section === "settings.display") panel.appendChild(this.buildDisplay(cur.display));
+      } else if (section === "audio") panel.appendChild(this.buildAudio(cur.audio));
+      else if (section === "display") panel.appendChild(this.buildDisplay(cur.display));
       else panel.appendChild(this.buildAppearance(cur.appearance));
     }
 

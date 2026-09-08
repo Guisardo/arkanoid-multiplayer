@@ -39,6 +39,58 @@ describe("SplitScreenView (ticket 34)", () => {
     view.container.destroy({ children: true });
   });
 
+  // ---- Ticket 53 (N2): regionOf — mouse/touch overlay anchor ----
+
+  it("regionOf maps each player to its N-across region", () => {
+    const view = new SplitScreenView({
+      viewport: { w: 1600, h: 900 },
+      players: [0, 1, 2, 3],
+      locale: "en-US",
+      maxRound: 33,
+    });
+    const r0 = view.regionOf(0);
+    const r1 = view.regionOf(1);
+    const r3 = view.regionOf(3);
+    expect(r0).toEqual({ x: 0, y: 0, w: 394, h: 900 });
+    expect(r1).toEqual({ x: 402, y: 0, w: 394, h: 900 });
+    expect(r3).toEqual({ x: 1206, y: 0, w: 394, h: 900 });
+    // Unknown player → null.
+    expect(view.regionOf(9)).toBeNull();
+    view.container.destroy({ children: true });
+  });
+
+  it("regionOf follows resize (regions recomputed)", () => {
+    const view = new SplitScreenView({
+      viewport: { w: 800, h: 600 },
+      players: [0, 1],
+      locale: "en-US",
+      maxRound: 33,
+    });
+    const before = view.regionOf(1);
+    expect(before).toEqual({ x: 404, y: 0, w: 396, h: 600 });
+    view.resize({ w: 400, h: 300 });
+    const after = view.regionOf(1);
+    expect(after).toEqual({ x: 204, y: 0, w: 196, h: 300 });
+    view.container.destroy({ children: true });
+  });
+
+  it("per-player skins + theme + reduced effects flow into every FieldView", () => {
+    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0, playerName: "P" });
+    const view = new SplitScreenView({
+      viewport: { w: 800, h: 600 },
+      players: [0, 1],
+      locale: "en-US",
+      maxRound: 33,
+      skinIds: ["skin-a", "skin-b"],
+      themeId: "theme-x",
+      reducedEffects: true,
+    });
+    expect(view.fieldCount).toBe(2);
+    // Both fields render with the options (sync exercises the views).
+    view.sync([sim.snapshot(), sim.snapshot()]);
+    view.container.destroy({ children: true });
+  });
+
   it("sync consumes snapshots per field without sim internals", () => {
     const view = new SplitScreenView({
       viewport: { w: 1600, h: 900 },
