@@ -48,6 +48,14 @@ test("lobby: two contexts connect via copy-paste, ready gate, countdown, match s
   await guestCp.locator("[data-copy-submit]").click();
 
   // Guest screen now shows the answer code — paste it back on the host.
+  // The screen mounts with an empty answer first; connectViaCopyPasteGuest
+  // (decode + ICE, up to 5 s) re-renders it with the real code — poll for
+  // the non-empty value instead of racing the replacement.
+  await expect
+    .poll(async () => (await guestCp.locator("[data-copy-code]").textContent()) ?? "", {
+      timeout: 15_000,
+    })
+    .toBeTruthy();
   const answerCode = await guestCp.locator("[data-copy-code]").textContent();
   expect(answerCode).toBeTruthy();
   await hostCp.locator("[data-copy-paste-input]").fill(answerCode!);
