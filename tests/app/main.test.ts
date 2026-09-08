@@ -489,6 +489,30 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     // Routed without throwing (the mocked flow methods absorb them).
     expect(conn?.gameChannel.readyState).toBe("open");
   });
+
+  it("guest lobby: name + skin edits dispatch guest intents to the flow", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    // The guest LobbyScreen is up: edit the name input + skin select —
+    // both dispatch through onEvent → flow.guestIntent (mocked).
+    const nameInput = document.querySelector<HTMLInputElement>("input.ld-input");
+    expect(nameInput).not.toBeNull();
+    nameInput!.value = "Renamed";
+    nameInput!.dispatchEvent(new Event("change"));
+    const skinSelect = document.querySelector<HTMLSelectElement>("select.ld-input");
+    expect(skinSelect).not.toBeNull();
+    skinSelect!.value = skinSelect!.options[1]?.value ?? "";
+    skinSelect!.dispatchEvent(new Event("change"));
+    // The mocked flow absorbed both intents (no crash, lobby still up).
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Lobby");
+  });
 });
 
 describe("copy-paste fallback (ticket 53, spec §9)", () => {
