@@ -31,6 +31,7 @@ import { reducePause, pauseAllowedFor, UNPAUSED, type PauseState } from "app/pau
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 import { PauseOverlay } from "ui/pauseOverlay";
 import { QuitConfirm } from "ui/quitConfirm";
 import { assignSkinIndices } from "content/skinSync";
@@ -153,6 +154,11 @@ export class MpFlow {
   private degradedBanner: HTMLElement | null = null;
   /** Context-loss/restore banner. */
   private contextBanner: HTMLElement | null = null;
+  // ---- Ticket 30 debt: session audio ----
+  /** Synthesized SFX + music for this device's view of the match. */
+  private readonly audio: SessionAudio = createSessionAudio(
+    () => new AudioContext(),
+  );
 
   constructor(opts: MpFlowOptions) {
     this.hostEl = opts.host;
@@ -555,6 +561,11 @@ export class MpFlow {
     this.applyLadderRung();
   }
 
+  /** Ticket 30: apply Settings audio volumes live (lobby overlay path). */
+  applyAudioSettings(v: { music: number; sfx: number; mute: boolean }): void {
+    this.audio.setVolumes(v);
+  }
+
 
 
   /** Host local lobby action (UI dispatches through this). */
@@ -649,7 +660,14 @@ export class MpFlow {
    * context loss/restore drive the resync-from-snapshot contract.
    */
   private createShell(): Promise<AppShell> {
-    const display = loadSettings(new Storage()).display;
+    const stored = loadSettings(new Storage());
+    // Ticket 30: stored audio volumes apply from the first frame.
+    this.audio.setVolumes({
+      music: stored.audio.music,
+      sfx: stored.audio.sfx,
+      mute: stored.audio.mute,
+    });
+    const display = stored.display;
     this.ladder = createPerfLadder(rungForDprMode(display.dprMode));
     const deviceDpr = globalThis.devicePixelRatio || 1;
     return createAppShell(this.hostEl, {
@@ -713,6 +731,8 @@ export class MpFlow {
             if (s !== undefined) local.push(s);
           }
         }
+        // Ticket 30: SFX/music from this device's own field snapshots.
+        for (const s of local) this.audio.consume(s);
         this.split?.sync(local);
         this.lastSyncMs = performance.now() - syncStart;
       },
@@ -1148,7 +1168,10 @@ export class MpFlow {
       render: () => {
         const syncStart = performance.now();
         const now = performance.now();
-        this.split?.sync(guestGame.renderSnapshots(now));
+        const snaps = guestGame.renderSnapshots(now);
+        // Ticket 30: SFX/music from the guest's interpolated view.
+        for (const s of snaps) this.audio.consume(s);
+        this.split?.sync(snaps);
         this.lastSyncMs = performance.now() - syncStart;
       },
       onFrameStats: (sample) => {
@@ -1176,6 +1199,8 @@ export class MpFlow {
   /** Sample local input once per tick for every local player (46). */
   private sampleLocalFrames(): void {
     if (this.opts.sampleLocal === undefined) return;
+    // First local input = user gesture → unlock audio (autoplay policy).
+    this.audio.unlock();
     for (const player of this.matchLocalPlayers) {
       const frame = this.opts.sampleLocal(player, this.matchTick);
       if (frame === null) continue;
@@ -1393,6 +1418,7 @@ export class MpFlow {
   dispose(): void {
     this.teardownGameLoops();
     this.teardownRender();
+    this.audio.dispose();
     this.endScreen?.root.remove();
     this.endScreen = null;
     this.shell?.dispose();

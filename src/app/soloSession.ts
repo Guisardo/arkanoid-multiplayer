@@ -21,6 +21,7 @@ import { EndScreen, soloEnd } from "ui/endScreens";
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats, estimateTextureBytes, textureWithinBudget } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 
 export interface SoloSessionOptions {
   locale?: Locale;
@@ -105,6 +106,23 @@ export async function startSoloSession(
   const bot = opts.bot ? createBot(0, opts.bot.difficulty, opts.bot.seed) : null;
   const enablePointer = opts.enablePointer ?? true;
 
+  // Audio (ticket 30 debt): synthesized SFX + music; unlock on first user
+  // input (autoplay policy), volumes from Settings applied live.
+  const audio: SessionAudio = createSessionAudio(
+    () => new AudioContext(),
+  );
+  audio.setVolumes({
+    music: settings.audio.music,
+    sfx: settings.audio.sfx,
+    mute: settings.audio.mute,
+  });
+  let audioUnlocked = false;
+  const unlockAudio = (): void => {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    audio.unlock();
+  };
+
   // Touch overlay (ticket 42): touch devices get the virtual stick + cluster.
   const coarse =
     typeof globalThis.matchMedia === "function" &&
@@ -130,6 +148,7 @@ export async function startSoloSession(
   applyStoredBindings();
 
   const kd = (e: KeyboardEvent): void => {
+    unlockAudio();
     keyboard.keyDown(e.code);
   };
   const ku = (e: KeyboardEvent): void => {
@@ -166,7 +185,10 @@ export async function startSoloSession(
       else touch.pointerMove(e.pointerId, x, y);
     };
     app.canvas.addEventListener("pointerdown", (e) => {
-      if (e.pointerType === "touch") route(e, true);
+      if (e.pointerType === "touch") {
+        unlockAudio();
+        route(e, true);
+      }
     });
     app.canvas.addEventListener("pointermove", (e) => {
       if (e.pointerType === "touch") route(e, false);
@@ -293,6 +315,7 @@ export async function startSoloSession(
     mouse.feedPointer(toFieldX(e.clientX), latest.players[0]?.paddle.x ?? 104);
   };
   const onPointerDown = (e: PointerEvent): void => {
+    unlockAudio();
     if (!enablePointer) return;
     if (e.button === 0) mouse.feedClick();
   };
@@ -309,6 +332,8 @@ export async function startSoloSession(
       return;
     }
     const b = (i: number): boolean => pad.buttons[i]?.pressed === true;
+    // Any gamepad button = user gesture → unlock audio (autoplay policy).
+    if (pad.buttons.some((btn) => btn.pressed)) unlockAudio();
     const state: GamepadState = {
       stickX: pad.axes[0] ?? 0,
       stickY: pad.axes[1] ?? 0,
@@ -366,6 +391,7 @@ export async function startSoloSession(
       }
       sim.step([frame]);
       latest = sim.snapshot();
+      audio.consume(latest);
       // Ticket 36/53: episode-level endings surface the solo end screen.
       if (episode.phase() !== "playing") showSoloEnd();
     },
@@ -519,6 +545,14 @@ export async function startSoloSession(
     loop.stop();
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
       ...(fromPause ? { sections: ["audio", "display"] as const } : {}),
+      // Ticket 30: sliders + mute apply live, no reload needed.
+      onChange: (audioChanged) => {
+        audio.setVolumes({
+          music: audioChanged.music,
+          sfx: audioChanged.sfx,
+          mute: audioChanged.mute,
+        });
+      },
       onClose: () => {
         settingsScreen = null;
         // Rebinds may have changed — re-apply live (ticket 41). Flush stale
@@ -526,6 +560,13 @@ export async function startSoloSession(
         applyStoredBindings();
         keyboard.flush();
         gamepad.flush();
+        // Audio changes apply live (ticket 30): sliders + mute hit the engine.
+        const audioSettings = loadSettings(storage).audio;
+        audio.setVolumes({
+          music: audioSettings.music,
+          sfx: audioSettings.sfx,
+          mute: audioSettings.mute,
+        });
         // Ticket 54: Display changes apply live — dpr mode re-pins the
         // ladder's start rung, reduced-effects toggles the field layers.
         const display = loadSettings(storage).display;
@@ -547,6 +588,7 @@ export async function startSoloSession(
   /** Full teardown (dispose body — quitTo reuses it). */
   function teardown(): void {
     loop.stop();
+    audio.dispose();
     globalThis.removeEventListener("keydown", kd);
     globalThis.removeEventListener("keyup", ku);
     globalThis.removeEventListener("keydown", onEsc);
