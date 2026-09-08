@@ -13,4 +13,14 @@
 - [ ] QR share encodes the production URL; `?code=` prefill works in production
 - [ ] Cloudflare Pages fallback + itch.io mirror documented (runbook-level)
 
+## Comments
+
+**2026-09-08 (PR #40 + #41/#42 + #43):** Implementation shipped. Prod live at https://guisardo.github.io/arkanoid-multiplayer/ (deploy workflow green, assets + QR subpath verified). Signaling Worker + DO deployed; TURN redeployed (healthz 200). Prod verification surfaced two real bugs, both fixed + deployed: dpr>1 canvas overflow (autoDensity, PR #41) and missing audio (ticket 30 false resolution — wired for real in PR #43, prod-verified). Runbook at docs/deploy.md.
+
+**Remaining HITL (blocks resolution):**
+1. Metered secret re-check — credential mint 502s (`curl -H "Origin: https://guisardo.github.io" https://arkanoid-turn.ropitas.workers.dev/turn/credentials`); stored secret rejected on first live call. Fix: dashboard.metered.ca → copy current Secret Key → `npx wrangler secret put METERED_SECRET_KEY --config workers/turn/wrangler.toml` → re-curl, expect 200. Confirm 20 GB Open Relay quota while there.
+2. DO hibernation billing check — Cloudflare dashboard → Workers → arkanoid-signaling → Metrics after a real session.
+3. QR scan test on a phone (encodes prod URL w/ subpath + ?code=).
+4. Deploy-disconnect test — two devices in lobby → redeploy signaling Worker → clients auto-reconnect.
+
 
