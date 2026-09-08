@@ -1,0 +1,47 @@
+# Production deploy to GitHub Pages (ticket 55). Workers are NOT deployed
+# here — they deploy rarely by hand (a redeploy disconnects live DO sockets;
+# clients auto-reconnect, but we avoid it — see docs/deploy.md).
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build (prod base + worker URLs)
+        run: npm run build
+        env:
+          # GH Pages project site serves under /arkanoid-multiplayer/.
+          VITE_BASE: /arkanoid-multiplayer/
+          # Signaling + TURN Workers (deployed by hand, docs/deploy.md).
+          VITE_SIGNALING_BASE: https://arkanoid-signaling.ropitas.workers.dev
+          VITE_TURN_URL: https://arkanoid-turn.ropitas.workers.dev/turn/credentials
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -130,6 +130,8 @@ export type HostRoomEvent =
 
 export interface HostRoomOptions {
   code: string;
+  /** Explicit signaling WS URL (production Worker); default = same-origin. */
+  signalingUrl?: string;
   iceConfig?: IceConfig;
   /** Called with the finished connection for that guest index. */
   connectGuest?: (guestIndex: number, conn: RtcConnection) => void;
@@ -141,7 +143,10 @@ export function openHostRoom(opts: HostRoomOptions): HostRoom {
   const pendingEvents: HostRoomEvent[] = [];
 
   const signalingPromise = (async (): Promise<SignalingClient> => {
-    const signaling = await SignalingClient.connect(opts.code, { role: "host" });
+    const signaling = await SignalingClient.connect(opts.code, {
+      role: "host",
+      ...(opts.signalingUrl !== undefined ? { url: opts.signalingUrl } : {}),
+    });
     signaling.onMessage((msg) => {
       if (msg.type === "guest-joined" && msg.guestIndex !== undefined) {
         void connectGuest(msg.guestIndex);
@@ -214,8 +219,15 @@ export function openHostRoom(opts: HostRoomOptions): HostRoom {
 
 // ---- Guest (signaling transport) ----
 
-export async function connectViaSignalingGuest(code: string, iceConfig?: IceConfig): Promise<RtcConnection> {
-  const signaling = await SignalingClient.connect(code, { role: "guest" });
+export async function connectViaSignalingGuest(
+  code: string,
+  iceConfig?: IceConfig,
+  signalingUrl?: string,
+): Promise<RtcConnection> {
+  const signaling = await SignalingClient.connect(code, {
+    role: "guest",
+    ...(signalingUrl !== undefined ? { url: signalingUrl } : {}),
+  });
   await signaling.joinedAck();
   const pc = createPeerConnection(iceConfig);
   const offerSdpStr = await signaling.offer();

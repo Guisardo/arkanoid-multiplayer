@@ -3,7 +3,7 @@ main = "src/worker.ts"
 compatibility_date = "2026-01-01"
 
 [vars]
-ALLOWED_ORIGINS = "http://localhost:5173,https://arkanoid-multiplayer.pages.dev"
+ALLOWED_ORIGINS = "http://localhost:5173,https://guisardo.github.io,https://arkanoid-multiplayer.pages.dev"
 
 [[durable_objects.bindings]]
 name = "ROOM_DO"
