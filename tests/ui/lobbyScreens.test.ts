@@ -23,6 +23,14 @@ describe("QR + code helpers", () => {
     expect(qrPayloadFor("ABC23", "example.com")).toBe("https://example.com/?code=ABC23");
   });
 
+  it("qrPayload keeps the project-site subpath (ticket 55)", () => {
+    expect(qrPayloadFor("ABC23", "guisardo.github.io", "/arkanoid-multiplayer/"))
+      .toBe("https://guisardo.github.io/arkanoid-multiplayer/?code=ABC23");
+    // Path without leading slash is normalized; default stays root.
+    expect(qrPayloadFor("ABC23", "example.com", "sub/")).toBe("https://example.com/sub/?code=ABC23");
+    expect(qrPayloadFor("ABC23", "example.com")).toBe("https://example.com/?code=ABC23");
+  });
+
   it("codeFromUrl reads ?code= and rejects invalid", () => {
     expect(codeFromUrl("https://example.com/?code=ABC23")).toBe("ABC23");
     expect(codeFromUrl("https://example.com/?code=AB0IL")).toBeNull(); // lookalikes

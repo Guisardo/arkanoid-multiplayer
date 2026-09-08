@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
   const token = process.env.CODECOV_TOKEN ?? env.CODECOV_TOKEN;
 
   return {
+    // GH Pages project site serves under /arkanoid-multiplayer/ (ticket 55);
+    // dev/e2e keep the root base. VITE_BASE="" → "/".
+    base: env.VITE_BASE || "/",
     plugins: [
       // Put the Codecov vite plugin after all other plugins
       codecovVitePlugin({

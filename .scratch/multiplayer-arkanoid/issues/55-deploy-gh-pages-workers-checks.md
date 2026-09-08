@@ -4,7 +4,7 @@
 
 **Blocked by:** 38 — TURN credential worker; 53 — E2E Playwright suite.
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Production deploy live on GitHub Pages over HTTPS; game fully playable from the deployed URL
 - [ ] Signaling Worker + DO deployed and hibernation billing verified against free tier

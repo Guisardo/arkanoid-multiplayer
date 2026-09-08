@@ -32,9 +32,14 @@ interface QrGenerator {
 }
 type QrFactory = (typeNumber: number, errorCorrectionLevel: string) => QrGenerator;
 
-/** QR payload for a room: https://<host>/?code=XXXXX (spec §8). */
-export function qrPayloadFor(code: string, host: string): string {
-  return `https://${host}/?code=${code}`;
+/**
+ * QR payload for a room: https://<host><path>?code=XXXXX (spec §8). The path
+ * rides along so project-site subpaths (GH Pages /arkanoid-multiplayer/)
+ * produce scannable links — host-only payloads 404 there.
+ */
+export function qrPayloadFor(code: string, host: string, path = "/"): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `https://${host}${cleanPath}?code=${code}`;
 }
 
 /** Render a QR matrix for the payload; null when the lib is unavailable. */
@@ -180,6 +185,8 @@ export interface RoomCodeScreenOptions {
   code?: string;
   /** For the QR payload. */
   pageHost: string;
+  /** Page path for the QR payload (project-site subpath, default "/"). */
+  pagePath?: string;
   onCreate: (code: string) => void;
   onJoin: (code: string) => void;
   onBack: () => void;
@@ -205,8 +212,8 @@ export class RoomCodeScreen {
       codeEl.textContent = code;
       panel.appendChild(codeEl);
 
-      // QR share: https://<host>/?code=XXXXX, client-side.
-      const matrix = qrMatrix(qrPayloadFor(code, opts.pageHost));
+      // QR share: https://<host><path>?code=XXXXX, client-side.
+      const matrix = qrMatrix(qrPayloadFor(code, opts.pageHost, opts.pagePath));
       if (matrix !== null) {
         const size = 8;
         const canvas = document.createElement("canvas");

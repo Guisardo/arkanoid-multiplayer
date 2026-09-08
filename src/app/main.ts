@@ -14,7 +14,10 @@ import {
   connectViaCopyPasteHost,
   connectViaCopyPasteGuest,
   type RtcConnection,
+  type IceConfig,
 } from "signaling/rtc";
+import { fetchIceConfig } from "signaling/iceConfig";
+import { deployEnvFromVite, signalingUrlFor, turnConfigured, type DeployEnv } from "app/deployEnv";
 import { CopyPasteHostScreen, CopyPasteGuestScreen } from "ui/copyPasteScreens";
 import { Storage } from "persistence/storage";
 import { loadSettings } from "ui/settings";
@@ -34,6 +37,10 @@ const appHost: HTMLElement = appHostElement;
 
 const storage = new Storage();
 const settings = loadSettings(storage);
+// Deploy environment (ticket 55): production reads VITE_SIGNALING_BASE /
+// VITE_TURN_URL at build time; absent (dev/e2e) keeps same-origin
+// signaling + STUN-only ICE.
+const deployEnv: DeployEnv = deployEnvFromVite(import.meta.env);
 // Settings override + auto-detect (spec §14): stored language wins.
 const locale: Locale = resolveLocale(
   storage.loadAll().language,
@@ -340,6 +347,8 @@ function openMultiplayer(joinCode?: string): void {
     mode: joinCode === undefined ? "create" : "join",
     ...(joinCode !== undefined ? { code: joinCode } : {}),
     pageHost: globalThis.location.host,
+    // QR links must survive the GH Pages project-site subpath (ticket 55).
+    pagePath: globalThis.location.pathname,
     onCreate: (code) => {
       screen.root.remove();
       startHostFlow(code);
@@ -352,6 +361,17 @@ function openMultiplayer(joinCode?: string): void {
   });
 }
 
+/**
+ * ICE config for a connection attempt (ticket 55): TURN credential Worker
+ * when configured, STUN-only otherwise (dev/e2e). Never throws — a failed
+ * credential fetch degrades to STUN-only inside fetchIceConfig.
+ */
+async function iceConfigFor(): Promise<IceConfig | undefined> {
+  if (!turnConfigured(deployEnv)) return undefined;
+  const resolved = await fetchIceConfig(deployEnv.turnUrl as string, fetch);
+  return resolved.turnEnabled ? { iceServers: resolved.iceServers } : undefined;
+}
+
 function startHostFlow(code: string): void {
   const guests = new Map<number, GuestEntry>();
   let room: ReturnType<typeof openHostRoom> | null = null;
@@ -362,8 +382,11 @@ function startHostFlow(code: string): void {
     locale,
     connect: async () => {
       try {
+        const ice = await iceConfigFor();
         room = openHostRoom({
           code,
+          signalingUrl: signalingUrlFor(deployEnv, code, "host", globalThis.location),
+          ...(ice !== undefined ? { iceConfig: ice } : {}),
           connectGuest: (guestIndex, conn) => {
             guests.set(guestIndex, { conn });
             wireGuestChannels(flow, guestIndex, conn);
@@ -381,7 +404,7 @@ function startHostFlow(code: string): void {
         const answerReceived = new Promise<string>((resolve) => {
           answerResolve = resolve;
         });
-        const hostFlow = await connectViaCopyPasteHost(answerReceived);
+        const hostFlow = await connectViaCopyPasteHost(answerReceived, await iceConfigFor());
         copyPasteScreen = new CopyPasteHostScreen({
           host: appHost,
           locale,
@@ -488,7 +511,11 @@ function startGuestFlow(code: string): void {
   /** Signaling first; spec §9 fallback = copy-paste when the WS is down. */
   const connectGuest = async (): Promise<RtcConnection> => {
     try {
-      return await connectViaSignalingGuest(code);
+      return await connectViaSignalingGuest(
+        code,
+        await iceConfigFor(),
+        signalingUrlFor(deployEnv, code, "guest", globalThis.location),
+      );
     } catch {
       let offerResolve: (c: string) => void = () => undefined;
       const offerReceived = new Promise<string>((resolve) => {
@@ -503,7 +530,7 @@ function startGuestFlow(code: string): void {
       });
       copyPasteScreen = screen;
       const offer = await offerReceived;
-      const guestFlow = await connectViaCopyPasteGuest(offer);
+      const guestFlow = await connectViaCopyPasteGuest(offer, await iceConfigFor());
       // Re-render the screen with the real answer code (same DOM slot).
       copyPasteScreen.close();
       copyPasteScreen = new CopyPasteGuestScreen({
@@ -531,7 +558,11 @@ function startGuestFlow(code: string): void {
     // Copy-paste sessions have no signaling to rejoin through — null.
     reconnect: async (): Promise<MpConnectResult | null> => {
       try {
-        const conn = await connectViaSignalingGuest(code);
+        const conn = await connectViaSignalingGuest(
+          code,
+          await iceConfigFor(),
+          signalingUrlFor(deployEnv, code, "guest", globalThis.location),
+        );
         return wireGuestConn(flow, conn);
       } catch {
         return null;
