@@ -4,11 +4,14 @@ import { Application } from "pixi.js";
 // context per device, webglcontextrestored = resync-from-snapshot (ticket 54:
 // Pixi re-uploads GPU state automatically; the app-level listener lets the
 // session invalidate its scene caches and resync from the latest snapshot).
+// autoDensity: true — the canvas CSS size stays at logical px while the
+// backing store is resolution-scaled; without it every dpr>1 device renders
+// the canvas dpr× larger than the viewport (prod overflow bug, ticket 55).
 export const RENDERER_CONFIG = {
   antialias: false,
   useContextAlpha: false as const,
   resolution: 1,
-  autoDensity: false,
+  autoDensity: true,
   preference: "webgl" as const,
 };
 

@@ -151,7 +151,9 @@ describe("createAppShell (ticket 54)", () => {
       antialias: false,
       useContextAlpha: false,
       resolution: 1,
-      autoDensity: false,
+      // autoDensity true: canvas CSS size stays logical px while the backing
+      // store is dpr-scaled — false overflowed every dpr>1 device (55).
+      autoDensity: true,
       preference: "webgl",
     });
   });
