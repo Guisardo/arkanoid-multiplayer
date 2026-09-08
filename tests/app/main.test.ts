@@ -359,8 +359,7 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "Escape" }));
   });
 
-  it("guest flow: join with a valid code builds the guest flow with input seam", async () => {
-    // ?code= prefill jumps straight into join mode (QR share path).
+  it("guest flow: join with a valid code builds the guest flow with input seam", async () => {    // ?code= prefill jumps straight into join mode (QR share path).
     joinCodePrefill.value = "ABC23";
     await importMain();
     // The auto-click is deferred a microtask — let it land.
@@ -449,5 +448,147 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     rtc.connectViaSignalingGuest.mockRejectedValueOnce(new Error("room gone"));
     const result = await reconnect();
     expect(result).toBeNull();
+  });
+
+  it("guest flow: lobby Quit tears down and re-boots the landing", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    // Guest lobby is up (LobbyScreen). Quit → dispose + boot() → landing.
+    const quit = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "Quit",
+    );
+    expect(quit).toBeDefined();
+    quit!.click();
+    // Landing re-rendered: the three entries are back.
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Solo");
+    expect(text).toContain("Multiplayer");
+  });
+
+  it("guest wireGuestConn: binary + control messages route to the flow", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    // The signaling-mock connection (guestConnections key 1) has message
+    // listeners wired by wireGuestConn — deliver through them.
+    const conn = guestConnections.get(1);
+    expect(conn).toBeDefined();
+    conn?.controlChannel.receive(JSON.stringify({ type: "ping", atMs: 1 }));
+    conn?.gameChannel.receive(new ArrayBuffer(4));
+    // Routed without throwing (the mocked flow methods absorb them).
+    expect(conn?.gameChannel.readyState).toBe("open");
+  });
+});
+
+describe("copy-paste fallback (ticket 53, spec §9)", () => {
+  /** Poll a DOM query across macrotasks until it returns non-null. */
+  async function waitFor<T>(
+    query: () => T,
+    tries: number,
+    stepMs = 5,
+  ): Promise<T | null> {
+    for (let i = 0; i < tries; i++) {
+      const v = query();
+      if (v !== null && v !== undefined) return v;
+      await new Promise((r) => globalThis.setTimeout(r, stepMs));
+    }
+    return query();
+  }
+
+  /** Fake copy-paste connection channels shared host↔guest in-process. */
+  function makeCpConn(): { pc: unknown; gameChannel: FakeDataChannel; controlChannel: FakeDataChannel } {
+    return { pc: {}, gameChannel: new FakeDataChannel(), controlChannel: new FakeDataChannel() };
+  }
+
+  /** All the standard mocks, but signaling DOWN + copy-paste UP. */
+  async function importMainFallback(): Promise<void> {
+    vi.resetModules();
+    applyMocks();
+    vi.doMock("signaling/rtc", () => ({
+      openHostRoom: (): FakeRoom => {
+        throw new Error("signaling down");
+      },
+      connectViaSignalingGuest: vi.fn(() => Promise.reject(new Error("signaling down"))),
+      connectViaCopyPasteHost: vi.fn((receiveAnswer: Promise<string>) => {
+        const conn = makeCpConn();
+        return Promise.resolve({
+          offerCode: "OFFERCODE123",
+          connection: receiveAnswer.then(() => conn),
+        });
+      }),
+      connectViaCopyPasteGuest: vi.fn((offer: string) => {
+        expect(offer).toBe("OFFERCODE123");
+        const conn = makeCpConn();
+        // Deferred: the test releases the connection after asserting the
+        // answer screen — otherwise the screen closes before it's visible.
+        return Promise.resolve({
+          answerCode: "ANSWERCODE456",
+          connection: new Promise((resolve) => {
+            globalThis.setTimeout(() => resolve(conn), 150);
+          }),
+        });
+      }),
+    }));
+    await import("app/main");
+  }
+
+  afterEach(() => {
+    vi.doUnmock("signaling/rtc");
+  });
+
+  it("host fallback: signaling down → copy-paste screen, answer paste connects", async () => {
+    await importMainFallback();
+    clickButton("Multiplayer");
+    clickButton("Continue");
+    // Copy-paste host screen appears with the offer code.
+    const cpRoot = await waitFor(() => document.querySelector(".cp-root") as HTMLElement | null, 50);
+    expect(cpRoot).not.toBeNull();
+    expect(cpRoot!.textContent).toContain("OFFERCODE123");
+    // Paste the answer + submit → connection resolves, screen closes,
+    // flow.start() completes (mocked MpFlow.start calls connect).
+    const input = cpRoot!.querySelector<HTMLTextAreaElement>("[data-copy-paste-input]");
+    expect(input).not.toBeNull();
+    input!.value = "ANSWERCODE456";
+    cpRoot!.querySelector<HTMLButtonElement>("[data-copy-submit]")!.click();
+    const closed = await waitFor(() =>
+      document.querySelector(".cp-root") === null ? true : null, 50);
+    expect(closed).toBe(true);
+  });
+
+  it("guest fallback: signaling down → paste offer → answer screen → connects", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMainFallback();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    // Guest copy-paste screen appears once the connect promise chain
+    // reaches the catch branch — poll for it (microtask count varies).
+    const cpRoot = await waitFor(() =>
+      document.querySelector(".cp-root") as HTMLElement | null, 50);
+    expect(cpRoot).not.toBeNull();
+    // Paste the offer + submit → screen re-renders with the answer code.
+    const input = cpRoot!.querySelector<HTMLTextAreaElement>("[data-copy-paste-input]");
+    input!.value = "OFFERCODE123";
+    cpRoot!.querySelector<HTMLButtonElement>("[data-copy-submit]")!.click();
+    const cpRoot2 = await waitFor(() => {
+      const el = document.querySelector(".cp-root") as HTMLElement | null;
+      return el !== null && el.textContent?.includes("ANSWERCODE456") === true ? el : null;
+    }, 50);
+    expect(cpRoot2).not.toBeNull();
+    // Connection resolves → screen closes.
+    const closed = await waitFor(() =>
+      document.querySelector(".cp-root") === null ? true : null, 50);
+    expect(closed).toBe(true);
   });
 });

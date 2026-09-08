@@ -43,6 +43,11 @@ vi.mock("render/splitScreen", () => ({
   SplitScreenView: class {
     readonly container = { y: 0, destroy: () => {} };
     sync = vi.fn();
+    invalidate = vi.fn();
+    setReducedEffects = vi.fn();
+    /** Ticket 53/N2 probe surface: region per local player. */
+    regionOf = vi.fn((player: number) =>
+      player === 0 ? { x: 0, y: 0, w: 400, h: 600 } : null);
   },
 }));
 
@@ -299,4 +304,35 @@ describe("mpFlow wiring (ticket 45)", () => {
   it("protocol version constant is the handshake value", () => {
     expect(PROTOCOL_VERSION).toBe(1);
   });
+
+  // ---- Ticket 53 (N2): mouse/touch wiring probes ----
+
+  it("probes: renderApp/localRegion/localPlayers/currentMode expose the match to input wiring", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Probe", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    // Before the match: no app, no region, no mode.
+    expect(hostFlow.renderApp).toBeNull();
+    expect(hostFlow.localRegion(0)).toBeNull();
+    expect(hostFlow.currentMode).toBeNull();
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    // In-match: app live, region for the host's local player, mode set.
+    expect(hostFlow.currentPhase).toBe("inGame");
+    expect(hostFlow.renderApp).not.toBeNull();
+    expect(hostFlow.localRegion(0)).toEqual({ x: 0, y: 0, w: 400, h: 600 });
+    expect(hostFlow.localRegion(1)).toBeNull(); // no second local player
+    expect(hostFlow.localPlayers).toEqual([0]);
+    expect(hostFlow.currentMode).toBe("race");
+    // Guest side: same probes live for its own wiring.
+    expect(guestFlow.renderApp).not.toBeNull();
+    expect(guestFlow.localPlayers).toEqual([1]);
+  }, 20000);
 });

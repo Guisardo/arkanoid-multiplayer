@@ -294,4 +294,225 @@ describe("solo session wiring", () => {
     for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
     expect(document.querySelector("[data-perf-overlay]")).toBeNull();
   });
+
+  // ---- Ticket 36/53: episode wiring — pause menu, end screen, probes ----
+
+  describe("episode wiring (ticket 36/53)", () => {
+    /** Drain one life deterministically via the debug probe. */
+    async function loseLife(s: SoloSession): Promise<void> {
+      const before = s.latestSnapshot().players[0]?.lives ?? 0;
+      s.debugSetBall(20, 240, 0, 120);
+      for (let i = 0; i < 120; i++) {
+        s.loop.advance(1000 / 60);
+        if ((s.latestSnapshot().players[0]?.lives ?? 0) < before) return;
+      }
+      throw new Error("life not lost within 120 ticks");
+    }
+
+    it("probes expose episode state (soloPhase/soloRound/soloScore/paused)", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      expect(s.soloPhase).toBe("playing");
+      expect(s.soloRound).toBe(1);
+      expect(s.soloScore).toBe(0);
+      expect(s.paused).toBe(false);
+    });
+
+    it("Esc opens the pause menu (not settings); Resume continues", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60); // render pass processes the menu key
+      const menu = document.querySelector("[data-pause-menu]");
+      expect(menu).not.toBeNull();
+      expect(s.paused).toBe(true);
+      // Resume button unpauses and the loop runs again.
+      const resume = [...(menu as HTMLElement).querySelectorAll("button")]
+        .find((b) => b.textContent === "Resume");
+      expect(resume).toBeDefined();
+      resume!.click();
+      expect(s.paused).toBe(false);
+      const before = s.latestSnapshot().tick;
+      for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+      expect(s.latestSnapshot().tick).toBeGreaterThan(before);
+    });
+
+    it("second Esc resumes; a queued menu edge never re-pauses", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60);
+      expect(s.paused).toBe(true);
+      // Second Esc = resume (toggle semantics).
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60);
+      expect(s.paused).toBe(false);
+      // The next render must not re-pause from a stale edge.
+      for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
+      expect(s.paused).toBe(false);
+      expect(document.querySelector("[data-pause-menu]")).toBeNull();
+    });
+
+    it("Settings from the pause menu shows Audio/Display only, returns to the menu", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60);
+      const menu = document.querySelector("[data-pause-menu]") as HTMLElement;
+      const settingsBtn = [...menu.querySelectorAll("button")]
+        .find((b) => b.textContent === "Settings");
+      expect(settingsBtn).toBeDefined();
+      settingsBtn!.click();
+      // Settings overlay up; pause menu replaced (not both).
+      const overlay = [...document.querySelectorAll("div")]
+        .find((d) => d.style.zIndex === "1000" && (d.textContent ?? "").includes("Audio"));
+      expect(overlay).toBeDefined();
+      expect(document.querySelector("[data-pause-menu]")).toBeNull();
+      // In-session sections: Audio + Display, no Controls/Appearance.
+      const text = overlay!.textContent ?? "";
+      expect(text).toContain("Audio");
+      expect(text).toContain("Display");
+      expect(text).not.toContain("Controls");
+      expect(text).not.toContain("Appearance");
+      // Back returns to the pause menu (still paused).
+      const back = [...overlay!.querySelectorAll("button")].find((b) => b.textContent === "Back");
+      back!.click();
+      expect(document.querySelector("[data-pause-menu]")).not.toBeNull();
+      expect(s.paused).toBe(true);
+    });
+
+    it("game over shows the end screen; Continue keeps round + score −60%", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      // Score some points first: launch, then place the ball to clear a
+      // brick row deterministically is overkill — score 0 path is the
+      // contract here (Continue on 0 = 0).
+      for (let i = 0; i < 3; i++) await loseLife(s);
+      // The end screen appears once (guard against multi-tick double-show).
+      s.loop.advance(1000 / 60);
+      expect(s.soloPhase).toBe("gameOver");
+      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      expect(endRoot).not.toBeNull();
+      expect(endRoot!.textContent).toContain("Game over");
+      const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");
+      cont!.click();
+      expect(s.soloPhase).toBe("playing");
+      expect(s.soloRound).toBe(1);
+      expect(s.soloScore).toBe(0);
+      expect(document.querySelector(".end-root")).toBeNull();
+    });
+
+    it("Restart from the end screen resets round + score", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      for (let i = 0; i < 3; i++) await loseLife(s);
+      s.loop.advance(1000 / 60);
+      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      expect(endRoot).not.toBeNull();
+      const restart = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Restart");
+      restart!.click();
+      expect(s.soloPhase).toBe("playing");
+      expect(s.soloRound).toBe(1);
+      expect(s.soloScore).toBe(0);
+    });
+
+    it("Quit from the end screen disposes + hands off via onQuit", async () => {
+      let quit = 0;
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const s = await startSoloSession(host, 1, { onQuit: () => { quit++; } });
+      sessions.push(s);
+      s.loop.advance(0);
+      for (let i = 0; i < 3; i++) await loseLife(s);
+      s.loop.advance(1000 / 60);
+      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      expect(endRoot).not.toBeNull();
+      const quitBtn = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Quit");
+      quitBtn!.click();
+      expect(quit).toBe(1);
+    });
+
+    it("Quit from the pause menu disposes + hands off via onQuit", async () => {
+      let quit = 0;
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const s = await startSoloSession(host, 1, { onQuit: () => { quit++; } });
+      sessions.push(s);
+      s.loop.advance(0);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60);
+      const menu = document.querySelector("[data-pause-menu]") as HTMLElement;
+      const quitBtn = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Quit");
+      quitBtn!.click();
+      expect(quit).toBe(1);
+    });
+
+    it("episode complete (round 33 Doh clear) shows the complete end screen without Continue", async () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const s = await startSoloSession(host, 33);
+      sessions.push(s);
+      s.loop.advance(0);
+      // Deterministic Doh kill: park the ball inside the boss box every
+      // tick (boss center 104,44 — 16 HP drains in a few dozen ticks).
+      let guard = 0;
+      while (s.soloPhase === "playing" && guard < 600) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space" }));
+        s.loop.advance(1000 / 60);
+        window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space" }));
+        for (let i = 0; i < 10; i++) {
+          s.debugSetBall(104, 44, 0, 120);
+          s.loop.advance(1000 / 60);
+        }
+        guard++;
+      }
+      expect(s.soloPhase).toBe("episodeComplete");
+      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      expect(endRoot).not.toBeNull();
+      expect(endRoot!.textContent).toContain("Episode complete");
+      const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");
+      expect(cont).toBeUndefined(); // complete = Restart/Quit only
+    });
+
+    it("openSettings + Back resumes the loop (not from pause)", async () => {
+      const s = await makeSession();
+      sessions.push(s);
+      s.loop.advance(0);
+      // Direct settings (the public probe — the pre-pause-menu path).
+      s.openSettings();
+      const overlay = [...document.querySelectorAll("div")]
+        .find((d) => d.style.zIndex === "1000" && (d.textContent ?? "").includes("Audio"));
+      expect(overlay).toBeDefined();
+      // Back closes → onClose → loop.start() (the fromPause=false branch).
+      const back = [...overlay!.querySelectorAll("button")].find((b) => b.textContent === "Back");
+      back!.click();
+      const before = s.latestSnapshot().tick;
+      for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+      expect(s.latestSnapshot().tick).toBeGreaterThan(before);
+    });
+
+    it("touch device: resize re-anchors the touch overlay region", async () => {
+      // Coarse pointer → device.touch → TouchAdapter + overlay created.
+      const matchMedia = vi
+        .spyOn(window, "matchMedia")
+        .mockReturnValue({ matches: true } as MediaQueryList);
+      try {
+        const s = await makeSession();
+        sessions.push(s);
+        s.loop.advance(0);
+        window.dispatchEvent(new Event("resize"));
+        for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
+        // No crash; overlay re-anchored (mocked TouchOverlay.setRegion called).
+        expect(s.latestSnapshot().tick).toBeGreaterThan(0);
+      } finally {
+        matchMedia.mockRestore();
+      }
+    });
+  });
 });

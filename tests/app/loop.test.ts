@@ -121,4 +121,41 @@ describe("accumulator loop", () => {
     expect(tickCount).toBe(30);
     expect(renderCount).toBe(30);
   });
+
+  // ---- Ticket 53: start() after advance()-mode keeps the advance clock ----
+
+  it("start() after advance() does not poison the clock (pause/resume in test mode)", () => {
+    // jsdom never fires rAF — stub both halves so start/stop are inert
+    // (the test drives everything through advance()).
+    const raf = globalThis.requestAnimationFrame;
+    const caf = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((): number => 0) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = ((): void => undefined) as typeof cancelAnimationFrame;
+    try {
+      let tickCount = 0;
+      const loop = createAccumulatorLoop({ tick: () => tickCount++, render: () => {} });
+      loop.advance(0);
+      for (let i = 0; i < 5; i++) loop.advance(1000 / 60);
+      expect(tickCount).toBe(5);
+      // Pause (stop) then resume (start) — the advance clock must survive:
+      // resetting to wall-clock performance.now() would make the next
+      // advance's delta hugely negative and freeze all ticks.
+      loop.stop();
+      loop.start();
+      loop.stop(); // back to advance mode (rAF never fires under jsdom)
+      for (let i = 0; i < 5; i++) loop.advance(1000 / 60);
+      expect(tickCount).toBe(10);
+    } finally {
+      globalThis.requestAnimationFrame = raf;
+      globalThis.cancelAnimationFrame = caf;
+    }
+  });
+
+  it("ticksRun/rendersRun counters track advance work", () => {
+    const loop = createAccumulatorLoop({ tick: () => {}, render: () => {} });
+    loop.advance(0);
+    for (let i = 0; i < 10; i++) loop.advance(1000 / 60);
+    expect(loop.ticksRun).toBe(10);
+    expect(loop.rendersRun).toBe(10);
+  });
 });
