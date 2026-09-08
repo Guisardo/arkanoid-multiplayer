@@ -77,6 +77,15 @@ function applyMocks(): void {
   vi.doMock("render/spriteSheet", () => ({
     loadSkinSprites: () => Promise.resolve(undefined),
   }));
+  // Ticket 53/N2: main.ts imports the Pixi-backed TouchOverlay — mock it
+  // (jsdom cannot load pixi.js; the overlay is covered in its own tests).
+  vi.doMock("render/touchOverlay", () => ({
+    TouchOverlay: class {
+      readonly container = { destroy: (): void => undefined };
+      redraw = vi.fn();
+      setRegion = vi.fn();
+    },
+  }));
   vi.doMock("ui/versusBotsScreen", () => ({
     VersusBotsConfigScreen: class {
       readonly root = { remove: vi.fn() };
@@ -108,10 +117,14 @@ function applyMocks(): void {
       guestConnections.set(1, { gameChannel, controlChannel });
       return { pc: {}, gameChannel, controlChannel };
     })())),
+    // Copy-paste fallback (ticket 53): never reached in these tests —
+    // signaling always succeeds here — but the import needs them.
+    connectViaCopyPasteHost: vi.fn(() => Promise.reject(new Error("unused"))),
+    connectViaCopyPasteGuest: vi.fn(() => Promise.reject(new Error("unused"))),
   }));
   vi.doMock("app/mpFlow", () => ({
     MpFlow: class {
-      start = vi.fn().mockResolvedValue(undefined);
+      start = vi.fn().mockImplementation(() => this.connect().then(() => undefined));
       hostLocalEvent = vi.fn();
       hostStartMatch = vi.fn();
       guestHello = vi.fn();
@@ -122,14 +135,23 @@ function applyMocks(): void {
       controlFromWire = vi.fn();
       dispose = vi.fn();
       localPausePressed = vi.fn();
-      /** Captured sampleLocal seam (ticket 46 input path). */
+      /** Ticket 53/N2 probes (mouse/touch wiring reads these). */
+      renderApp = null;
+      localRegion = vi.fn(() => null);
+      localPlayers: readonly number[] = [];
+      currentPhase = "lobby";
+      currentMode = null;
+      localSnapshots = vi.fn(() => []);
+      /** Captured seams. */
       sampleLocal: ((player: number, tick: number) => unknown) | undefined;
-      /** Captured reconnect seam (ticket 47 rejoin path). */
       reconnect: (() => Promise<unknown>) | undefined;
+      private connect: () => Promise<unknown>;
       constructor(opts: {
+        connect: () => Promise<unknown>;
         sampleLocal?: (player: number, tick: number) => unknown;
         reconnect?: () => Promise<unknown>;
       }) {
+        this.connect = opts.connect;
         this.sampleLocal = opts.sampleLocal;
         this.reconnect = opts.reconnect;
         constructedFlows.push({
@@ -179,6 +201,7 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock("app/soloSession");
   vi.doUnmock("render/spriteSheet");
+  vi.doUnmock("render/touchOverlay");
   vi.doUnmock("ui/versusBotsScreen");
   vi.doUnmock("signaling/rtc");
   vi.doUnmock("app/mpFlow");

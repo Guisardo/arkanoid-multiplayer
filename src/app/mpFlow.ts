@@ -5,6 +5,7 @@
 // RemoteStrip (remote players, numbers only) + EndScreen (ticket 50).
 // Transport injects the channel pair — WebRTC in production, loopback or
 // copy-paste in tests/e2e.
+import type { Application } from "pixi.js";
 import type { RtcConnection } from "signaling/rtc";
 import {
   createHostLobbySession,
@@ -165,6 +166,28 @@ export class MpFlow {
 
   get lobbySnapshot(): LobbyState | null {
     return this.lobbyState;
+  }
+
+  // ---- Ticket 53 (N2): mouse/touch wiring probes ----
+
+  /** Pixi app once a match is rendering (null before/after). */
+  get renderApp(): Application | null {
+    return this.shell?.app ?? null;
+  }
+
+  /** Screen-px region of a local player's field (null when not rendering). */
+  localRegion(player: number): { x: number; y: number; w: number; h: number } | null {
+    return this.split?.regionOf(player) ?? null;
+  }
+
+  /** Sim players local to this device in the running match. */
+  get localPlayers(): readonly number[] {
+    return this.matchLocalPlayers;
+  }
+
+  /** Running match mode (null outside a match). */
+  get currentMode(): LobbyMode | null {
+    return this.matchMode;
   }
 
   /** Boot: connect, handshake, enter the lobby. Resolves when lobby is live. */

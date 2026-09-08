@@ -1,9 +1,7 @@
 import type { Application } from "pixi.js";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
-import type { RoundSim } from "sim/roundSim";
-import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { createSoloEpisode, CONTINUE_SCORE_FACTOR, type SoloEpisode, type SoloPhase } from "app/soloEpisode";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
@@ -19,6 +17,7 @@ import { Storage } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
+import { EndScreen, soloEnd } from "ui/endScreens";
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats, estimateTextureBytes, textureWithinBudget } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
@@ -30,6 +29,8 @@ export interface SoloSessionOptions {
   bot?: { difficulty: BotDifficulty; seed: number };
   /** Enable mouse + gamepad input alongside keyboard (default true). */
   enablePointer?: boolean;
+  /** Quit from the pause menu / end screen: dispose, then this (default reload). */
+  onQuit?: () => void;
 }
 
 export interface SoloSession {
@@ -44,6 +45,16 @@ export interface SoloSession {
   readonly perfRung: number;
   /** Test/e2e probe: force a ladder rung (drives resolution + banner). */
   setPerfRung(rung: number): void;
+  /** Test/e2e probe: current episode phase (playing/gameOver/episodeComplete). */
+  readonly soloPhase: SoloPhase;
+  /** Test/e2e probe: current episode round (1–33). */
+  readonly soloRound: number;
+  /** Test/e2e probe: current episode score. */
+  readonly soloScore: number;
+  /** Test/e2e probe: pause state (pause menu or settings overlay up). */
+  readonly paused: boolean;
+  /** Test/e2e probe: place the ball (drives game over deterministically). */
+  debugSetBall(x: number, y: number, vx: number, vy: number): void;
 }
 
 export async function startSoloSession(
@@ -79,12 +90,14 @@ export async function startSoloSession(
       : ["en"];
   // Settings override + auto-detect (spec §14): stored language wins.
   const locale: Locale = opts.locale ?? resolveLocale(storage.loadAll().language, languages);
-  const level = getLevel(round);
-  const sim: RoundSim = createRoundSim(level, {
-    lives: opts.lives ?? 3,
-    score: 0,
+  // Ticket 36/53: the episode owns rounds 1–33, lives, Continue/Restart,
+  // records — the session renders whatever round it is on.
+  const episode: SoloEpisode = createSoloEpisode({
+    storage,
     playerName: "Player 1",
+    ...(round > 1 ? { startRound: round } : {}),
   });
+  const sim = episode;
 
   const keyboard = KeyboardAdapter.solo();
   const mouse = new MouseAdapter({ player: 0 });
@@ -167,6 +180,106 @@ export async function startSoloSession(
 
   let latest: Snapshot = sim.snapshot();
   let settingsScreen: SettingsScreen | null = null;
+  /** Ticket 36/53: pause menu / end screen up = paused (loop stopped). */
+  let pauseMenu: HTMLElement | null = null;
+  let endScreen: EndScreen | null = null;
+  let paused = false;
+
+  /** Quit from pause menu / end screen: dispose, then hand off (default reload). */
+  const quitTo = (): void => {
+    teardown();
+    if (opts.onQuit !== undefined) opts.onQuit();
+    else globalThis.location.reload();
+  };
+
+  /** Solo pause menu (spec §14): Resume / Settings (Audio+Display) / Quit. */
+  function buildPauseMenu(): HTMLElement {
+    const root = document.createElement("div");
+    root.dataset.pauseMenu = "";
+    root.style.cssText =
+      "position:absolute;inset:0;background:rgba(8,8,16,.92);display:flex;" +
+      "align-items:center;justify-content:center;z-index:1000;";
+    const panel = document.createElement("div");
+    panel.style.cssText =
+      "background:#181828;color:#eee;padding:24px 32px;border:2px solid #444;" +
+      "min-width:320px;display:flex;flex-direction:column;gap:12px;font-family:monospace;";
+    const title = document.createElement("h2");
+    title.textContent = t(locale, "pause.soloTitle");
+    title.style.cssText = "font-size:20px;font-weight:bold;margin:0 0 8px;text-align:center;";
+    panel.appendChild(title);
+    const mkBtn = (label: string, onClick: () => void): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.style.cssText =
+        "padding:8px 16px;font-family:monospace;min-height:48px;min-width:48px;" +
+        "touch-action:manipulation;cursor:pointer;";
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    panel.appendChild(mkBtn(t(locale, "menu.resume"), resumeFromPause));
+    panel.appendChild(mkBtn(t(locale, "menu.settings"), () => {
+      // Settings over the pause menu (spec §14: in-session = Audio/Display).
+      if (pauseMenu !== null) {
+        pauseMenu.remove();
+        pauseMenu = null;
+      }
+      openSettings(true);
+    }));
+    panel.appendChild(mkBtn(t(locale, "menu.quit"), quitTo));
+    root.appendChild(panel);
+    return root;
+  }
+
+  function openPauseMenu(): void {
+    if (paused || endScreen !== null) return;
+    paused = true;
+    loop.stop();
+    pauseMenu = buildPauseMenu();
+    canvasHost.appendChild(pauseMenu);
+  }
+
+  function resumeFromPause(): void {
+    if (!paused) return;
+    pauseMenu?.remove();
+    pauseMenu = null;
+    paused = false;
+    loop.start();
+  }
+
+  /** Game over / episode complete → solo EndScreen (ticket 36/50). */
+  function showSoloEnd(): void {
+    if (endScreen !== null) return; // accumulator may fire several ticks
+    loop.stop();
+    const complete = episode.phase() === "episodeComplete";
+    const records = storage.loadAll();
+    endScreen = new EndScreen({
+      host: canvasHost,
+      locale,
+      data: {
+        kind: "solo",
+        end: soloEnd(complete, episode.score(), episode.round(), {
+          highScore: records.soloHighScore,
+          highestRound: records.soloHighestRound,
+        }),
+      },
+      continueScoreFactor: CONTINUE_SCORE_FACTOR,
+      onChoice: (choice) => {
+        endScreen?.close();
+        endScreen = null;
+        if (choice === "continue") {
+          episode.continueRun();
+          latest = sim.snapshot();
+          loop.start();
+        } else if (choice === "restart") {
+          episode.restartRun();
+          latest = sim.snapshot();
+          loop.start();
+        } else {
+          quitTo();
+        }
+      },
+    });
+  }
 
   /** Screen px → field units via the current layout scale. */
   const toFieldX = (clientX: number): number => {
@@ -253,13 +366,23 @@ export async function startSoloSession(
       }
       sim.step([frame]);
       latest = sim.snapshot();
+      // Ticket 36/53: episode-level endings surface the solo end screen.
+      if (episode.phase() !== "playing") showSoloEnd();
     },
     render: () => {
       pollGamepads();
-      // Rebound menu key / gamepad Start opens settings (ticket 41).
-      // Touch pause icon (ticket 42) — same overlay, same semantics.
+      // Rebound menu key / gamepad Start / touch pause icon open the pause
+      // menu (ticket 36: pause freely, coop semantics). Settings-from-pause
+      // is a menu entry; direct Esc while unpaused also pauses. While
+      // paused, edges are consumed (discarded) so a queued Esc never
+      // re-pauses on the first frame after resume.
       const touchPause = touch !== null && touch.consumePause();
-      if ((menuRequested() || touchPause) && !settingsScreen) openSettings();
+      if (paused) {
+        keyboard.consumeMenuEvent();
+        gamepad.consumeMenuEvent();
+      } else if ((menuRequested() || touchPause) && !settingsScreen) {
+        openPauseMenu();
+      }
       touchOverlay?.redraw();
       const syncStart = performance.now();
       for (const v of views) v.sync(latest);
@@ -376,16 +499,26 @@ export async function startSoloSession(
   }
 
   const onEsc = (e: KeyboardEvent): void => {
-    if (e.code === "Escape" && !settingsScreen) {
-      e.preventDefault();
-      openSettings();
-    }
+    if (e.code !== "Escape" || settingsScreen !== null) return;
+    e.preventDefault();
+    // Consume the adapter's menu edge here — the render pass must never
+    // see the same Esc press and re-toggle the pause state.
+    keyboard.consumeMenuEvent();
+    gamepad.consumeMenuEvent();
+    if (paused) resumeFromPause();
+    else if (endScreen === null) openPauseMenu();
   };
   globalThis.addEventListener("keydown", onEsc);
 
-  function openSettings(): void {
+  /**
+   * Settings overlay. `fromPause` = opened over the pause menu (spec §14:
+   * in-session settings = Audio/Display only) — closing returns to the
+   * pause menu, not to gameplay.
+   */
+  function openSettings(fromPause = false): void {
     loop.stop();
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
+      ...(fromPause ? { sections: ["audio", "display"] as const } : {}),
       onClose: () => {
         settingsScreen = null;
         // Rebinds may have changed — re-apply live (ticket 41). Flush stale
@@ -399,12 +532,35 @@ export async function startSoloSession(
         ladder.setRung(rungForDprMode(display.dprMode));
         applyLadderRung();
         for (const v of views) v.setReducedEffects(display.reducedEffects);
-        loop.start();
+        if (fromPause) {
+          pauseMenu = buildPauseMenu();
+          canvasHost.appendChild(pauseMenu);
+        } else {
+          loop.start();
+        }
       },
     });
   }
 
   loop.start();
+
+  /** Full teardown (dispose body — quitTo reuses it). */
+  function teardown(): void {
+    loop.stop();
+    globalThis.removeEventListener("keydown", kd);
+    globalThis.removeEventListener("keyup", ku);
+    globalThis.removeEventListener("keydown", onEsc);
+    globalThis.removeEventListener("resize", onResize);
+    app.canvas.removeEventListener("pointermove", onPointerMove);
+    app.canvas.removeEventListener("pointerdown", onPointerDown);
+    settingsScreen?.close();
+    pauseMenu?.remove();
+    endScreen?.close();
+    perfOverlay?.close();
+    degradedBanner?.remove();
+    contextBanner?.remove();
+    shell.dispose();
+  }
 
   return {
     app,
@@ -418,19 +574,21 @@ export async function startSoloSession(
       ladder.setRung(rung);
       applyLadderRung();
     },
-    dispose() {
-      loop.stop();
-      globalThis.removeEventListener("keydown", kd);
-      globalThis.removeEventListener("keyup", ku);
-      globalThis.removeEventListener("keydown", onEsc);
-      globalThis.removeEventListener("resize", onResize);
-      app.canvas.removeEventListener("pointermove", onPointerMove);
-      app.canvas.removeEventListener("pointerdown", onPointerDown);
-      settingsScreen?.close();
-      perfOverlay?.close();
-      degradedBanner?.remove();
-      contextBanner?.remove();
-      shell.dispose();
+    get soloPhase(): SoloPhase {
+      return episode.phase();
     },
+    get soloRound(): number {
+      return episode.round();
+    },
+    get soloScore(): number {
+      return episode.score();
+    },
+    get paused(): boolean {
+      return paused;
+    },
+    debugSetBall(x: number, y: number, vx: number, vy: number): void {
+      episode.debugSetBall(x, y, vx, vy);
+    },
+    dispose: teardown,
   };
 }

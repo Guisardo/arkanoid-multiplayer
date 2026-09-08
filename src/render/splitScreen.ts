@@ -73,6 +73,18 @@ export class SplitScreenView {
     return this.views.length;
   }
 
+  /**
+   * Ticket 53 (N2): the screen-px region of a local player's field — the
+   * mouse/touch overlay anchor. Null when the player has no field here.
+   */
+  regionOf(player: number): { x: number; y: number; w: number; h: number } | null {
+    const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length);
+    const i = this.opts.players.indexOf(player);
+    const region = regions[i];
+    if (i < 0 || region === undefined) return null;
+    return { ...region };
+  }
+
   /** Ticket 54: context-restore resync — invalidate every field's caches. */
   invalidate(): void {
     for (const v of this.views) v.invalidate();
