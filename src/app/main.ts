@@ -55,8 +55,17 @@ if (typeof document !== "undefined") {
 }
 
 /** Settings overlay from landing/lobby (spec §14: always reachable). */
-function openSettingsOverlay(): void {
-  showSettings(appHost, locale, storage);
+function openSettingsOverlay(flow?: MpFlow): void {
+  showSettings(appHost, locale, storage, {
+    // Ticket 30: audio sliders + mute apply live when a flow is up.
+    onChange: (audio) => {
+      flow?.applyAudioSettings({
+        music: audio.music,
+        sfx: audio.sfx,
+        mute: audio.mute,
+      });
+    },
+  });
 }
 
 function boot(): void {
@@ -468,7 +477,7 @@ function startHostFlow(code: string): void {
     host: appHost,
     locale,
     defaultSkinId: settings.appearance.skinId,
-    onSettings: openSettingsOverlay,
+    onSettings: () => { openSettingsOverlay(flow); },
     onEvent: (event) => { flow.hostLocalEvent(event); },
     onStart: () => { flow.hostStartMatch(); },
     onQuit: () => {
@@ -589,7 +598,7 @@ function startGuestFlow(code: string): void {
     host: appHost,
     locale,
     defaultSkinId: settings.appearance.skinId,
-    onSettings: openSettingsOverlay,
+    onSettings: () => { openSettingsOverlay(flow); },
     onEvent: (event) => {
       if (event.type === "setReady") flow.guestIntent({ kind: "ready", ready: event.ready });
       else if (event.type === "setPlayerName") flow.guestIntent({ kind: "name", name: event.name });
