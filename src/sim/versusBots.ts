@@ -5,10 +5,11 @@
 // selector (session-wide, default Normal). Pause freely (coop semantics).
 // Pure composition — the variant sims stay the source of truth.
 import { createBot, type BotDifficulty, type BotSource } from "sim/bot";
-import { createRoundDuel, type DuelSim, type DuelOptions } from "sim/duel";
+import { createRoundDuel, type DuelSim, type DuelOptions, type DuelMatchResult } from "sim/duel";
 import {
   createMultiFieldSession,
   type MatchConfig,
+  type MatchState,
   type MultiFieldSession,
 } from "sim/multiField";
 import { createAttackSession, type AttackSession } from "sim/attackSession";
@@ -16,6 +17,7 @@ import {
   createAssistSession,
   type AssistSession,
   type AssistSessionOptions,
+  type AssistMatchState,
 } from "sim/assistSession";
 import { createSharedFieldSim, type SharedFieldSim, type SharedFieldOptions } from "sim/sharedField";
 import { getLevel } from "content/levels";
@@ -85,7 +87,23 @@ export interface VersusBotsSession {
   pause(): void;
   resume(): void;
   isPaused(): boolean;
+  /** Match-over signal (ticket 56): drives the end screen. */
+  over(): boolean;
+  /** End-screen data once over (ticket 56); null before. */
+  endData(): VersusBotsEnd | null;
+  /** Per-player skin UUIDs, player-index aligned (ticket 56 render). */
+  skinIds(): string[];
+  /** Test hook (assist): force a player downed — drives the lost path. */
+  debugSetDowned(player: number): void;
 }
+
+/** End-screen payload per variant family (ticket 56). */
+export type VersusBotsEnd =
+  | { kind: "race"; state: MatchState }
+  | { kind: "attack"; state: MatchState }
+  | { kind: "duel"; result: DuelMatchResult }
+  | { kind: "sharedField"; cleared: boolean; round: number; teamScore: number }
+  | { kind: "assist"; state: AssistMatchState };
 
 export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSession {
   const err = validateBotsSetup(opts.variant, opts.humans, opts.bots);
@@ -100,12 +118,21 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
   // skins that never collide with it; UUIDs → compact session indices.
   const humanSkinId = opts.humanSkinId ?? DEFAULT_SKIN_ID;
   const botSkinIds = autoAssignBotSkins([humanSkinId], opts.bots);
-  const skinIndices = assignSkinIndices([humanSkinId, ...botSkinIds]).indices;
+  const allSkinIds = [humanSkinId, ...botSkinIds];
+  const skinIndices = assignSkinIndices(allSkinIds).indices;
 
-  // Bots: host-local input sources, one per bot player index.
+  // Bots: host-local input sources, one per bot. Parallel variants
+  // (race/attack/assist) give each bot a field-local snapshot (player 0 —
+  // multiField sims are per-field single-player), so those bots are
+  // created with player 0 and their frames remapped to the session index
+  // for routing (multiField routes by f.player). Single-field variants
+  // (duel/sharedField) keep real session indices 1..N end to end.
+  const parallel =
+    opts.variant === "race" || opts.variant === "attack" || opts.variant === "parallelAssist";
   const bots: BotSource[] = [];
   for (let i = 1; i < total; i++) {
-    bots.push(createBot(i, difficulty, seed + i * 7919));
+    const player = parallel ? 0 : i;
+    bots.push(createBot(player, difficulty, seed + i * 7919));
   }
 
   let paused = false;
@@ -116,7 +143,10 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       const bot = bots[i];
       if (!bot) continue;
       const snap = snaps[Math.min(i + 1, snaps.length - 1)] ?? snaps[0];
-      if (snap) out.push(bot.sampleFrame(tick, snap));
+      if (!snap) continue;
+      const frame = bot.sampleFrame(tick, snap);
+      // Field-local bot → its frame rides the session player index.
+      out.push(parallel ? { ...frame, player: i + 1 } : frame);
     }
     return out;
   }
@@ -148,6 +178,13 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
         paused = false;
       },
       isPaused: () => paused,
+      over: () => sim.getMatchResult() !== null,
+      endData: () => {
+        const result = sim.getMatchResult();
+        return result === null ? null : { kind: "duel", result };
+      },
+      skinIds: () => allSkinIds.slice(0, 2),
+      debugSetDowned: () => undefined,
     };
   }
 
@@ -181,6 +218,19 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
         sim.requestResume(0);
       },
       isPaused: () => paused || sim.isPaused(),
+      over: () => sim.snapshot().phase === "roundClear" && sim.getTeamState().round >= 33,
+      endData: () => {
+        if (!(sim.snapshot().phase === "roundClear" && sim.getTeamState().round >= 33)) return null;
+        const team = sim.getTeamState();
+        return {
+          kind: "sharedField",
+          cleared: true,
+          round: team.round,
+          teamScore: team.score,
+        };
+      },
+      skinIds: () => allSkinIds.slice(0, total),
+      debugSetDowned: () => undefined,
     };
   }
 
@@ -213,6 +263,10 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
         paused = false;
       },
       isPaused: () => paused,
+      over: () => sim.state().phase !== "playing",
+      endData: () => (sim.state().phase === "playing" ? null : { kind: "assist", state: sim.state() }),
+      skinIds: () => allSkinIds.slice(0, total),
+      debugSetDowned: (player: number) => { sim.debugSetDowned(player); },
     };
   }
 
@@ -251,6 +305,11 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
         paused = false;
       },
       isPaused: () => paused,
+      over: () => sim.race().state().phase === "matchOver",
+      endData: () =>
+        sim.race().state().phase === "matchOver" ? { kind: "attack", state: sim.race().state() } : null,
+      skinIds: () => allSkinIds.slice(0, total),
+      debugSetDowned: () => undefined,
     };
   }
 
@@ -280,5 +339,9 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
       paused = false;
     },
     isPaused: () => paused,
+    over: () => sim.state().phase === "matchOver",
+    endData: () => (sim.state().phase === "matchOver" ? { kind: "race", state: sim.state() } : null),
+    skinIds: () => allSkinIds.slice(0, total),
+    debugSetDowned: () => undefined,
   };
 }
