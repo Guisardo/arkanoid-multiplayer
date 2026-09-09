@@ -195,4 +195,53 @@ describe("versus bots session wiring (ticket 56)", () => {
     s.loop.advance(0);
     expect(() => { s.dispose(); }).not.toThrow();
   });
+
+  it("pause menu → Settings (Audio/Display only) → Back returns to pause", async () => {
+    const s = await makeSession("duel", 1);
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    const menu = document.querySelector("[data-pause-menu]");
+    const settingsBtn = [...(menu?.querySelectorAll("button") ?? [])].find(
+      (b) => b.textContent === "Settings",
+    );
+    settingsBtn?.click();
+    const overlay = document.body.textContent ?? "";
+    expect(overlay).toContain("Audio");
+    expect(overlay).toContain("Display");
+    expect(overlay).not.toContain("Controls");
+    const back = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === "Back",
+    );
+    back?.click();
+    // Back over pause returns to the pause menu.
+    expect(document.querySelector("[data-pause-menu]")).not.toBeNull();
+  });
+
+  it("quit from the pause menu fires onQuit", async () => {
+    let quits = 0;
+    const s = await makeSession("race", 1, {
+      onQuit: () => {
+        quits++;
+      },
+    });
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    s.loop.advance(1000 / 60);
+    const menu = document.querySelector("[data-pause-menu]");
+    const quitBtn = [...(menu?.querySelectorAll("button") ?? [])].find(
+      (b) => b.textContent === "Quit",
+    );
+    quitBtn?.click();
+    expect(quits).toBe(1);
+  });
+
+  it("resize re-lays-out the split view", async () => {
+    const s = await makeSession("race", 1);
+    sessions.push(s);
+    s.loop.advance(0);
+    expect(() => window.dispatchEvent(new Event("resize"))).not.toThrow();
+  });
 });
