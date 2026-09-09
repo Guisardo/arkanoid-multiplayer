@@ -5,7 +5,8 @@
 import { startSoloSession } from "app/soloSession";
 import { loadSkinSprites } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
-import { VersusBotsConfigScreen } from "ui/versusBotsScreen";
+import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
+import { startVersusBotsSession } from "app/versusBotsSession";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import { MpFlow, type MpConnectResult } from "app/mpFlow";
 import {
@@ -99,17 +100,39 @@ function openVersusBots(): void {
     locale,
     onStart: (config) => {
       screen.root.remove();
-      void startSoloSession(appHost, 1, {
-        bot: { difficulty: config.difficulty, seed: 1 },
+      // Ticket 56: real versus match — human plays, bots play.
+      void startVersusBotsSession(appHost, {
+        variant: config.variant,
+        bots: config.bots,
+        difficulty: config.difficulty,
+        skinId: settings.appearance.skinId,
+        onRematch: () => { openVersusBotsWith(config); },
+        onBackToConfig: () => { openVersusBots(); },
         onQuit: boot,
       }).then((session) => {
-        globalThis.__arkanoid = session;
+        globalThis.__arkanoidBots = session;
       });
     },
     onBack: () => {
       screen.root.remove();
       boot();
     },
+  });
+}
+
+/** Rematch: same config, fresh session (ticket 56 end-screen flow). */
+function openVersusBotsWith(config: VersusBotsConfig): void {
+  void loadSkinSprites();
+  void startVersusBotsSession(appHost, {
+    variant: config.variant,
+    bots: config.bots,
+    difficulty: config.difficulty,
+    skinId: settings.appearance.skinId,
+    onRematch: () => { openVersusBotsWith(config); },
+    onBackToConfig: () => { openVersusBots(); },
+    onQuit: boot,
+  }).then((session) => {
+    globalThis.__arkanoidBots = session;
   });
 }
 

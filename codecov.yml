@@ -2,7 +2,7 @@ coverage:
   status:
     project:
       default:
-        target: auto
+        target: 92%
     patch:
       default:
         target: 60%
@@ -18,5 +18,5 @@ coverage:
           - "src/ui/"
           - "src/render/"
           - "src/app/"
-comment:
-  layout: "reach, diff, flags, files"
+  comment:
+    layout: "reach, diff, flags, files"

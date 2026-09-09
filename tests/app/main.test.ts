@@ -74,6 +74,10 @@ function applyMocks(): void {
   vi.doMock("app/soloSession", () => ({
     startSoloSession: () => soloStart(),
   }));
+  // Ticket 56: versus-bots session layer — mock (jsdom cannot load Pixi).
+  vi.doMock("app/versusBotsSession", () => ({
+    startVersusBotsSession: () => soloStart(),
+  }));
   vi.doMock("render/spriteSheet", () => ({
     loadSkinSprites: () => Promise.resolve(undefined),
   }));
@@ -200,6 +204,7 @@ afterEach(() => {
   joinCodePrefill.value = null;
   vi.resetModules();
   vi.doUnmock("app/soloSession");
+  vi.doUnmock("app/versusBotsSession");
   vi.doUnmock("render/spriteSheet");
   vi.doUnmock("render/touchOverlay");
   vi.doUnmock("ui/versusBotsScreen");

@@ -122,6 +122,74 @@ describe("session composition", () => {
   });
 });
 
+describe("ticket 56: over / endData / skinIds", () => {
+  it("race: over() false while playing; endData null; skinIds per player", () => {
+    const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
+    expect(s.over()).toBe(false);
+    expect(s.endData()).toBeNull();
+    expect(s.skinIds()).toHaveLength(3);
+    // Distinct skins: human + 2 auto-assigned bots never collide.
+    expect(new Set(s.skinIds()).size).toBe(3);
+  });
+
+  it("duel: skinIds exactly 2; over() false at start", () => {
+    const s = createVersusBotsSession({ variant: "duel", humans: 1, bots: 1, seed: 3 });
+    expect(s.skinIds()).toHaveLength(2);
+    expect(s.over()).toBe(false);
+    expect(s.endData()).toBeNull();
+  });
+
+  it("sharedField + parallelAssist + attack: skinIds cover playerCount", () => {
+    const variants: Array<[BotVariant, number]> = [
+      ["sharedField", 3],
+      ["parallelAssist", 2],
+      ["attack", 3],
+    ];
+    for (const [variant, bots] of variants) {
+      const s = createVersusBotsSession({ variant, humans: 1, bots, seed: 5 });
+      expect(s.skinIds()).toHaveLength(1 + bots);
+      expect(s.over()).toBe(false);
+      expect(s.endData()).toBeNull();
+    }
+  });
+
+  it("parallelAssist: over() flips when the assist match leaves playing", () => {
+    const s = createVersusBotsSession({
+      variant: "parallelAssist",
+      humans: 1,
+      bots: 1,
+      assistRange: { startRound: 1, endRound: 1 },
+      seed: 11,
+    });
+    expect(s.over()).toBe(false);
+    // Force both players downed → all-downed = lost (deterministic, fast).
+    s.debugSetDowned(0);
+    s.debugSetDowned(1);
+    s.step(frame(0));
+    expect(s.over()).toBe(true);
+    const data = s.endData();
+    expect(data).not.toBeNull();
+    expect(data?.kind).toBe("assist");
+  });
+
+  it("ticket 56 regression: race bots LAUNCH and move (field-local view)", () => {
+    const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
+    // Human launches; bots must launch within their 60–240-tick window.
+    s.step(frame(0, 0, true));
+    for (let t = 1; t <= 300; t++) s.step(frame(t));
+    const snaps = s.snapshots();
+    // Every field left serve (bot 1 + bot 2 launched their balls).
+    expect(snaps[1]?.phase).not.toBe("serve");
+    expect(snaps[2]?.phase).not.toBe("serve");
+    // Bot paddles track the ball after launch — sample movement.
+    const x1 = snaps[1]?.players[0]?.paddle.x ?? -1;
+    for (let t = 301; t <= 420; t++) s.step(frame(t));
+    const later = s.snapshots();
+    const x1Later = later[1]?.players[0]?.paddle.x ?? -1;
+    expect(x1Later).not.toBe(x1);
+  });
+});
+
 describe("trimmed config screen", () => {
   it("variant picker disables invalid bot counts (Duel = exactly 1)", () => {
     const host = document.body;
