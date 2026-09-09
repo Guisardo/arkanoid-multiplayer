@@ -67,6 +67,8 @@ export interface VersusBotsAppSession {
   readonly matchOver: boolean;
   /** Test/e2e probe: latest snapshots. */
   snapshots(): Snapshot[];
+  /** Test probe (assist): force a player downed — drives the lost path. */
+  debugSetDowned(player: number): void;
 }
 
 export async function startVersusBotsSession(
@@ -586,6 +588,9 @@ export async function startVersusBotsSession(
     },
     snapshots(): Snapshot[] {
       return sim.snapshots();
+    },
+    debugSetDowned(player: number): void {
+      sim.debugSetDowned(player);
     },
     dispose: teardown,
   };
