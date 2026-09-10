@@ -151,37 +151,75 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     return s;
   }
 
+  /** Clamp a paddle's center into the field walls for its current width. */
+  function clampToWalls(p: PaddleState): void {
+    p.x = Math.max(p.w / 2, Math.min(FIELD_W - p.w / 2, p.x));
+  }
+
+  /**
+   * After a width change (E/R capsule): re-clamp to the walls and keep the
+   * paddles solid to each other (spec §5) — shove the other paddle away,
+   * or pull this one back if the other is already at its wall.
+   */
+  function separateAfterWidthChange(me: PaddleState, other: PaddleState): void {
+    clampToWalls(me);
+    const halfSum = (me.w + other.w) / 2;
+    const gap = other.x - me.x;
+    if (Math.abs(gap) >= halfSum) return; // no overlap
+    const dir = gap >= 0 ? 1 : -1; // shove the other away from me
+    other.x = me.x + dir * halfSum;
+    const wall = dir > 0 ? FIELD_W - other.w / 2 : other.w / 2;
+    if ((dir > 0 && other.x > wall) || (dir < 0 && other.x < wall)) {
+      other.x = wall;
+      me.x = wall - dir * halfSum;
+    }
+  }
+
   /**
    * Wall-constrained separation (spec §5): each paddle moves only as far as
    * the wall allows; leftover shift goes to the other paddle; ends flush.
-   * Deterministic order: player 0's input processed first.
+   * Deterministic order: player 0's input processed first. The other paddle
+   * bounds movement only when it sits AHEAD in the movement direction —
+   * a paddle behind never limits the shift (and never causes drift).
    */
   function movePaddle(player: 0 | 1, axis: number): void {
     const me = paddles[player];
     const other = paddles[player === 0 ? 1 : 0];
+    // Guard: a width change (E/R capsule) can leave this paddle overhanging
+    // a wall — re-clamp before moving so the shift math stays in-field.
+    clampToWalls(me);
+    if (axis === 0) return;
     const halfSum = (me.w + other.w) / 2;
     let budget = axis * PADDLE_VMAX * TICK_DT;
-    // Phase 1: me moves until wall or flush against other.
     while (budget !== 0) {
       const wallLimit = axis > 0 ? FIELD_W - me.w / 2 : me.w / 2;
-      const otherLimit = other.x - Math.sign(axis) * halfSum;
-      const limit = axis > 0 ? Math.min(wallLimit, otherLimit) : Math.max(wallLimit, otherLimit);
-      const step = Math.sign(axis) * Math.min(Math.abs(budget), Math.abs(limit - me.x));
-      me.x += step;
-      budget -= step;
-      if (Math.abs(me.x - limit) < 1e-9) {
-        if (Math.abs(limit - wallLimit) < 1e-9) break; // wall reached — done
-        // Flush against other: leftover shift pushes the other paddle.
+      const otherAhead = axis > 0 ? other.x > me.x : other.x < me.x;
+      const flushLimit = other.x - Math.sign(axis) * halfSum;
+      const limit = otherAhead
+        ? axis > 0
+          ? Math.min(wallLimit, flushLimit)
+          : Math.max(wallLimit, flushLimit)
+        : wallLimit;
+      const room = axis > 0 ? limit - me.x : me.x - limit;
+      if (room <= 1e-9) {
+        // At the wall, or flush against the other paddle: any leftover
+        // shift pushes the other paddle until it hits its wall.
+        if (!otherAhead || Math.abs(limit - wallLimit) < 1e-9) break;
         let otherBudget = budget;
         budget = 0;
         while (otherBudget !== 0) {
           const otherWall = axis > 0 ? FIELD_W - other.w / 2 : other.w / 2;
-          const oStep = Math.sign(axis) * Math.min(Math.abs(otherBudget), Math.abs(otherWall - other.x));
+          const oRoom = axis > 0 ? otherWall - other.x : other.x - otherWall;
+          if (oRoom <= 1e-9) break; // both flush at the wall
+          const oStep = Math.sign(axis) * Math.min(Math.abs(otherBudget), oRoom);
           other.x += oStep;
           otherBudget -= oStep;
-          if (Math.abs(other.x - otherWall) < 1e-9) break; // both flush at wall
         }
+        break;
       }
+      const step = Math.sign(axis) * Math.min(Math.abs(budget), room);
+      me.x += step;
+      budget -= step;
     }
   }
 
@@ -322,9 +360,11 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     switch (type) {
       case "E":
         p.w = PADDLE_W * CAPSULE_EFFECTS.expandFactor;
+        separateAfterWidthChange(p, paddles[catcher === 0 ? 1 : 0]);
         break;
       case "R":
         p.w = PADDLE_W * CAPSULE_EFFECTS.reduceFactor;
+        clampToWalls(p);
         break;
       case "P":
         // No lives in duel — P converts to points for the catcher.
