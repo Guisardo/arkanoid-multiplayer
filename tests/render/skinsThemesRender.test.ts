@@ -109,4 +109,14 @@ describe("skin painter (spec §13, headless Graphics)", () => {
       paintBall(gfx, skin.ball, 104, 100);
     }
   });
+
+  it("owner glow ring: 2px solid owner color over a white base (readability)", () => {
+    // Regression (duel ownership unreadable): the old 1px alpha-0.9 ring
+    // was too subtle to map the ball to its owner. The ring must be a
+    // solid 2px owner-color band with a white inner base.
+    const gfx = new Graphics();
+    paintOwnerGlow(gfx, 104, 100, 3, 0x3cbcfc);
+    const instructions = (gfx.context as unknown as { instructions: unknown[] }).instructions;
+    expect(instructions.length).toBe(2); // ring + white base, no third layer
+  });
 });

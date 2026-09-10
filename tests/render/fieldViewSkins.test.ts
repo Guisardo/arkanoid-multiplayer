@@ -137,6 +137,25 @@ describe("FieldView multi-paddle + field-local fallback (ticket 56)", () => {
     if (gfx) expect(gfx.visible).toBe(true);
     view.container.destroy({ children: true });
   });
+
+  it("owner bar: every paddle carries a 2px strip in the player's color", () => {
+    // Readability (duel ownership): paddle ↔ owner color ↔ ball mapping.
+    // The bar renders on paddleGfx for every player in the snapshot.
+    const view = new FieldView({
+      layout,
+      player: 0,
+      locale: "en-US",
+      maxRound: 33,
+      skinIds: [DEFAULT_SKIN_ID, SKINS[1]?.id ?? DEFAULT_SKIN_ID],
+    });
+    const snap = multiPlayerSnap();
+    view.sync(snap);
+    const gfx = (view as unknown as { paddleGfx: { context: { instructions: unknown[] } } }).paddleGfx;
+    // 2 players → 1 procedural paddle (bot) + 1 fallback (own, node: no
+    // sprite) + 2 owner bars = 4+ draw instructions on paddleGfx.
+    expect(gfx.context.instructions.length).toBeGreaterThanOrEqual(4);
+    view.container.destroy({ children: true });
+  });
 });
 
 describe("SplitScreenView skinIds forwarding (ticket 56)", () => {

@@ -56,14 +56,15 @@ export function paintBall(gfx: Graphics, skin: BallSkin, x: number, y: number, t
 }
 
 /**
- * Owner glow: ring in the owner color + white outline — the readability-gate
- * layer that renders over whatever skin the ball wears (spec §13). Never the
- * sole signal for Duel ownership; always drawn on top of the ball skin.
- * Draw order: owner ring (outermost) → white outline → ball skin on top.
+ * Owner glow: ring in the owner color — the readability-gate layer that
+ * renders over whatever skin the ball wears (spec §13). Never the sole
+ * signal for Duel ownership; always drawn on top of the ball skin.
+ * 2px solid ring (readability: 1px alpha rings were too subtle to map
+ * the ball to its owner at gameplay speed).
  */
 export function paintOwnerGlow(gfx: Graphics, x: number, y: number, r: number, owner: number): void {
-  gfx.circle(x, y, r + 1).fill({ color: owner, alpha: 0.9 });
-  gfx.circle(x, y, r + 0.5).fill(0xffffff);
+  gfx.circle(x, y, r + 2).fill(owner);
+  gfx.circle(x, y, r).fill(0xffffff);
 }
 
 /** Draw a lettered capsule pill at center (x, y) — pill body + glyph composite. */
