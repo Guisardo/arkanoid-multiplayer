@@ -145,21 +145,24 @@ export async function startVersusBotsSession(
     audio.unlock();
   };
 
-  // Render: split-screen for parallel variants, single field otherwise.
+  // Render (mpFlow mountRender pattern): parallel variants (race/attack/
+  // parallelAssist) = N fields, 1 player each; single-field variants
+  // (duel/sharedField) = 1 field — FieldView renders every player's paddle
+  // from the shared snapshot (ticket 56 multi-paddle).
   const parallel = opts.variant === "race" || opts.variant === "attack" || opts.variant === "parallelAssist";
-  const playerList = Array.from({ length: sim.playerCount }, (_, i) => i);
   const viewport = (): { w: number; h: number } => ({
     w: app.renderer.width,
     h: app.renderer.height,
   });
+  const fields = parallel
+    ? Array.from({ length: sim.playerCount }, (_, i) => i)
+    : [0];
   const split = new SplitScreenView({
     viewport: viewport(),
-    players: parallel ? playerList : [0],
+    players: fields,
     locale,
     maxRound: 33,
-    skinIds: parallel
-      ? sim.skinIds()
-      : [sim.skinIds()[0] ?? settings.appearance.skinId],
+    skinIds: sim.skinIds(),
     themeId: settings.appearance.themeId,
     reducedEffects: settings.display.reducedEffects,
   });
@@ -435,6 +438,8 @@ export async function startVersusBotsSession(
       const syncStart = performance.now();
       const snaps = sim.snapshots();
       for (const s of snaps) audio.consume(s);
+      // Parallel: N snapshots → N fields. Single-field: 1 snapshot (all
+      // players) → 1 field — SplitScreenView.sync index-aligns.
       split.sync(snaps);
       lastSyncMs = performance.now() - syncStart;
     },

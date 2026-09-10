@@ -29,6 +29,12 @@ export interface FieldViewOptions {
   maxRound: number;
   /** Player skin UUID (Settings Appearance default until lobby override). */
   skinId?: string | undefined;
+  /**
+   * Per-player skin UUIDs, player-index aligned (single-field variants:
+   * duel/sharedField render every player's paddle on one field — ticket 56).
+   * Absent → other players render with the default skin.
+   */
+  skinIds?: readonly string[] | undefined;
   /** Field theme UUID (host-chosen; default theme when absent/unknown). */
   themeId?: string | undefined;
   /**
@@ -56,6 +62,8 @@ export class FieldView {
   private readonly locale: Locale;
   private readonly maxRound: number;
   private readonly skin: PlayerSkin;
+  /** Per-player skin UUIDs (single-field multi-paddle render, ticket 56). */
+  private readonly skinIds: readonly string[] | undefined;
   private readonly theme: FieldTheme;
   private prevBricks: number[] | null = null;
   private lives = -1;
@@ -72,6 +80,7 @@ export class FieldView {
     this.locale = opts.locale;
     this.maxRound = opts.maxRound;
     this.skin = getSkinSafe(opts.skinId);
+    this.skinIds = opts.skinIds;
     this.theme = getTheme(opts.themeId ?? null) ?? DEFAULT_THEME;
     this.reducedEffects = opts.reducedEffects ?? false;
 
@@ -122,7 +131,11 @@ export class FieldView {
 
   /** Consume a snapshot; sync scene. Reads Snapshot only — never sim. */
   sync(snap: Snapshot): void {
-    const player = snap.players.find((p) => p.player === this.player);
+    // Field-local snapshots (multiField variants) carry player 0 only —
+    // fall back to the first player so session-indexed FieldViews still
+    // render (ticket 56: bot fields were blank).
+    const player =
+      snap.players.find((p) => p.player === this.player) ?? snap.players[0];
     if (!player) return;
 
     // Bricks: incremental diff redraw
@@ -132,11 +145,22 @@ export class FieldView {
     }
     this.prevBricks = [...snap.bricks];
 
-    // Paddle (skin geometry; sprite overlays when loaded)
-    const p = player.paddle;
+    // Paddles: EVERY player on this field (single-field variants — duel/
+    // sharedField — carry all players in one snapshot, ticket 56). Own
+    // player renders with the skin sprite; others procedural via their skin.
     this.paddleGfx.clear();
-    paintPaddle(this.paddleGfx, this.skin.paddle, p.x, p.y, p.w, p.h);
+    for (const pl of snap.players) {
+      const p = pl.paddle;
+      if (pl.player === this.player) {
+        paintPaddle(this.paddleGfx, this.skin.paddle, p.x, p.y, p.w, p.h);
+      } else {
+        const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
+        paintPaddle(this.paddleGfx, otherSkin.paddle, p.x, p.y, p.w, p.h);
+      }
+    }
+    const me = player;
     if (this.paddleSprite !== null) {
+      const p = me.paddle;
       this.paddleSprite.visible = true;
       this.paddleSprite.position.set(p.x - p.w / 2, p.y - p.h / 2);
       this.paddleSprite.width = p.w;

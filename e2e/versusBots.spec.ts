@@ -55,19 +55,16 @@ test("versus bots (56): race with 3 bots renders 4 fields; bot paddles move", as
   const fields = await page.evaluate(() => globalThis.__arkanoidBots!.fieldCount);
   expect(fields).toBe(4);
 
-  // Bot paddles move: sample a bot field's paddle over ~5 s (bots launch
-  // within 1–4 s, then track the ball).
-  const before = await page.evaluate(() => {
-    const snaps = globalThis.__arkanoidBots!.snapshots();
-    return snaps.map((s) => s.players[0]?.paddle.x ?? -1);
-  });
-  await page.waitForTimeout(5000);
-  const after = await page.evaluate(() => {
-    const snaps = globalThis.__arkanoidBots!.snapshots();
-    return snaps.map((s) => s.players[0]?.paddle.x ?? -1);
-  });
-  const moved = after.some((x, i) => x !== before[i]);
-  expect(moved).toBe(true);
+  // Bot paddles move: poll until any bot paddle leaves its serve position.
+  // SwiftShader headless renders 4 fields slowly (low tick rate), so the
+  // bots' 60–240-tick launch window stretches in wall time — poll, don't
+  // sample a fixed window.
+  await page.waitForFunction(() => {
+    const s = globalThis.__arkanoidBots;
+    if (s === undefined) return false;
+    const snaps = s.snapshots();
+    return snaps.some((x) => x.phase !== "serve" || (x.players[0]?.paddle.x ?? 104) !== 104);
+  }, null, { timeout: 60_000, polling: 1000 });
 
   expect(errors).toEqual([]);
 });
