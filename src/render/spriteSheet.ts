@@ -4,6 +4,7 @@
 // Pixi Assets cache serves textures loaded once at boot (loadSkinSprites).
 import { Assets } from "pixi.js";
 import type { Texture } from "pixi.js";
+import { assetUrl } from "./assetUrl";
 
 /** Sprite descriptor paths shipped under public/assets (served verbatim). */
 export const SPRITE_PATHS = {
@@ -48,7 +49,9 @@ export async function loadSkinSprites(): Promise<void> {
   ];
   for (const path of paths) {
     try {
-      rememberTexture(path, await Assets.load<Texture>(path));
+      // Load against the deploy base (GH Pages subpath — ticket 55); cache
+      // under the raw descriptor path so painters/lookups stay base-agnostic.
+      rememberTexture(path, await Assets.load<Texture>(assetUrl(path)));
     } catch {
       // Missing asset must never break the game — geometry fallback covers it.
     }
