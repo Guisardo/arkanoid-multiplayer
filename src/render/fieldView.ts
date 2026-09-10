@@ -152,15 +152,21 @@ export class FieldView {
     // visible so other players' paddles never disappear behind the sprite.
     // Owner bar (readability): a 2px strip in the player's color under
     // every paddle — maps paddle ↔ owner color ↔ ball tint/ring.
+    // Ownership marking (readability gate): only when 2+ players share
+    // this field (duel/sharedField) — solo fields carry no ownership
+    // semantics, so no tint, no ring, no bars.
+    const markOwnership = snap.players.length >= 2;
     const me = player;
     this.paddleGfx.clear();
     for (const pl of snap.players) {
       if (pl === me) continue; // own paddle = sprite below (or fallback paint)
       const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
       paintPaddle(this.paddleGfx, otherSkin.paddle, pl.paddle.x, pl.paddle.y, pl.paddle.w, pl.paddle.h);
-      this.paddleGfx
-        .rect(pl.paddle.x - pl.paddle.w / 2, pl.paddle.y + pl.paddle.h / 2 + 1, pl.paddle.w, 2)
-        .fill(ownerColor(pl.player));
+      if (markOwnership) {
+        this.paddleGfx
+          .rect(pl.paddle.x - pl.paddle.w / 2, pl.paddle.y + pl.paddle.h / 2 + 1, pl.paddle.w, 2)
+          .fill(ownerColor(pl.player));
+      }
     }
     if (this.paddleSprite !== null) {
       const p = me.paddle;
@@ -171,9 +177,11 @@ export class FieldView {
     } else {
       paintPaddle(this.paddleGfx, this.skin.paddle, me.paddle.x, me.paddle.y, me.paddle.w, me.paddle.h);
     }
-    this.paddleGfx
-      .rect(me.paddle.x - me.paddle.w / 2, me.paddle.y + me.paddle.h / 2 + 1, me.paddle.w, 2)
-      .fill(ownerColor(me.player));
+    if (markOwnership) {
+      this.paddleGfx
+        .rect(me.paddle.x - me.paddle.w / 2, me.paddle.y + me.paddle.h / 2 + 1, me.paddle.w, 2)
+        .fill(ownerColor(me.player));
+    }
     this.paddleGfx.visible = true;
 
     // Balls: owner-colored outline glow UNDER the ball skin (readability
@@ -186,7 +194,7 @@ export class FieldView {
     this.ballGfx.visible = true;
     if (this.ballSprite !== null) this.ballSprite.visible = false;
     for (const b of snap.balls) {
-      const owner = b.owner === null ? null : ownerColor(b.owner);
+      const owner = markOwnership && b.owner !== null ? ownerColor(b.owner) : null;
       if (owner !== null && !this.reducedEffects) {
         paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
       }
@@ -202,7 +210,8 @@ export class FieldView {
       const b0 = snap.balls[0];
       if (b0 !== undefined) {
         this.ballSprite.visible = true;
-        this.ballSprite.tint = b0.owner === null ? 0xffffff : ownerColor(b0.owner);
+        this.ballSprite.tint =
+          markOwnership && b0.owner !== null ? ownerColor(b0.owner) : 0xffffff;
         this.ballSprite.position.set(b0.x - this.skin.ball.radius, b0.y - this.skin.ball.radius);
         this.ballSprite.width = this.skin.ball.radius * 2;
         this.ballSprite.height = this.skin.ball.radius * 2;

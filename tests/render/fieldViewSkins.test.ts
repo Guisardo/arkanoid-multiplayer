@@ -156,6 +156,20 @@ describe("FieldView multi-paddle + field-local fallback (ticket 56)", () => {
     expect(gfx.context.instructions.length).toBeGreaterThanOrEqual(4);
     view.container.destroy({ children: true });
   });
+
+  it("solo fields carry no ownership marking (no bars, no tint, no ring)", () => {
+    // Solo snapshots carry one player — ownership semantics don't apply,
+    // so the severe color marking (bars/tint/ring) must stay off.
+    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const snap = sim.snapshot(); // 1 player, ball owner 0
+    const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
+    view.sync(snap);
+    const gfx = (view as unknown as { paddleGfx: { context: { instructions: unknown[] } } }).paddleGfx;
+    // 1 player → own paddle only (node: no sprite → procedural paint =
+    // body + 2 trims = 3 instructions), NO owner bar on top.
+    expect(gfx.context.instructions.length).toBe(3);
+    view.container.destroy({ children: true });
+  });
 });
 
 describe("SplitScreenView skinIds forwarding (ticket 56)", () => {

@@ -53,6 +53,12 @@ function busySnapshot(): Snapshot {
   const snap = sim.snapshot();
   return {
     ...snap,
+    // Two players = duel shape — ownership marking active (solo fields
+    // carry no ownership semantics and skip tint/ring/bars).
+    players: [
+      snap.players[0]!,
+      { ...snap.players[0]!, player: 1, name: "Bot 1" },
+    ],
     balls: snap.balls.map((b) => ({ ...b, owner: 1 })),
     bricks: snap.bricks.map((c, i) => (i < 6 ? 9 : c)), // silver tier
   };
