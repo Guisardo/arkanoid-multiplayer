@@ -187,16 +187,69 @@ describe("capsules in duel", () => {
     s.debugDropCapsule(p0x, PADDLE_Y - 4, "M");
     for (let i = 0; i < 3; i++) s.step([frame(0, 10 + i)]);
     expect(s.snapshot().balls.length).toBe(3);
-    // All 3 fall out: each pays opponent +500 (owner 0), last re-attaches.
+    // Drop the balls deterministically: place one below the field each
+    // tick until the last falls — every drop pays the opponent +500
+    // (owner 0), and only the last re-attaches to the dropper.
     let guard = 0;
-    while (s.snapshot().phase !== "serve" && guard < 600) {
-      s.step([frame(0, 100 + guard, -1), frame(1, 100 + guard, 1)]);
+    while (s.snapshot().phase !== "serve" && guard < 60) {
+      s.debugSetBall(104, 300, 0, 60);
+      s.step([frame(0, 100 + guard)]);
       guard++;
     }
     expect(s.snapshot().phase).toBe("serve");
     expect(s.snapshot().balls).toHaveLength(1);
     expect(s.snapshot().balls[0]!.attachedTo).toBe(0);
     expect(s.snapshot().players[1]!.score).toBe(1500); // 3 drops × 500
+  });
+});
+
+describe("paddle bounds after width change (spec §5)", () => {
+  it("E caught at the wall stays inside the field", () => {
+    const s = duel();
+    // Player 0 hugs the left wall, then catches an Expand capsule.
+    for (let i = 0; i < 600; i++) s.step([frame(0, i, -1)]);
+    const p0 = s.snapshot().players[0]!.paddle;
+    s.debugDropCapsule(p0.x, PADDLE_Y - 4, "E");
+    s.step([frame(0, 600)]);
+    const after = s.snapshot().players[0]!.paddle;
+    expect(after.w).toBeGreaterThan(32);
+    expect(after.x - after.w / 2).toBeGreaterThanOrEqual(-1e-6);
+    expect(after.x + after.w / 2).toBeLessThanOrEqual(FIELD_W + 1e-6);
+  });
+
+  it("E caught while flush with the other paddle keeps them solid", () => {
+    const s = duel();
+    // Player 0 pushes player 1 to the right wall (both flush).
+    for (let i = 0; i < 600; i++) s.step([frame(0, i, 1)]);
+    const p0 = s.snapshot().players[0]!.paddle;
+    s.debugDropCapsule(p0.x, PADDLE_Y - 4, "E");
+    s.step([frame(0, 600)]);
+    const [a, b] = s.snapshot().players.map((p) => p.paddle);
+    expect(a!.x + a!.w / 2).toBeLessThanOrEqual(b!.x - b!.w / 2 + 1e-6);
+    expect(b!.x + b!.w / 2).toBeLessThanOrEqual(FIELD_W + 1e-6);
+    expect(a!.x - a!.w / 2).toBeGreaterThanOrEqual(-1e-6);
+  });
+
+  it("holding direction at the wall after E never drifts out of bounds", () => {
+    const s = duel();
+    for (let i = 0; i < 600; i++) s.step([frame(0, i, -1)]);
+    const p0 = s.snapshot().players[0]!.paddle;
+    s.debugDropCapsule(p0.x, PADDLE_Y - 4, "E");
+    for (let i = 0; i < 300; i++) s.step([frame(0, 600 + i, -1)]);
+    const after = s.snapshot().players[0]!.paddle;
+    expect(after.x - after.w / 2).toBeGreaterThanOrEqual(-1e-6);
+    expect(after.x + after.w / 2).toBeLessThanOrEqual(FIELD_W + 1e-6);
+  });
+
+  it("R caught at the wall stays inside the field", () => {
+    const s = duel();
+    for (let i = 0; i < 600; i++) s.step([frame(1, i, 1)]);
+    const p1 = s.snapshot().players[1]!.paddle;
+    s.debugDropCapsule(p1.x, PADDLE_Y - 4, "R");
+    s.step([frame(1, 600)]);
+    const after = s.snapshot().players[1]!.paddle;
+    expect(after.w).toBeLessThan(32);
+    expect(after.x + after.w / 2).toBeLessThanOrEqual(FIELD_W + 1e-6);
   });
 });
 
