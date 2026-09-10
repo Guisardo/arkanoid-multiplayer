@@ -150,12 +150,17 @@ export class FieldView {
     // player renders with the skin sprite (when loaded); every other
     // player renders procedurally via their own skin — paddleGfx stays
     // visible so other players' paddles never disappear behind the sprite.
+    // Owner bar (readability): a 2px strip in the player's color under
+    // every paddle — maps paddle ↔ owner color ↔ ball tint/ring.
     const me = player;
     this.paddleGfx.clear();
     for (const pl of snap.players) {
       if (pl === me) continue; // own paddle = sprite below (or fallback paint)
       const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
       paintPaddle(this.paddleGfx, otherSkin.paddle, pl.paddle.x, pl.paddle.y, pl.paddle.w, pl.paddle.h);
+      this.paddleGfx
+        .rect(pl.paddle.x - pl.paddle.w / 2, pl.paddle.y + pl.paddle.h / 2 + 1, pl.paddle.w, 2)
+        .fill(ownerColor(pl.player));
     }
     if (this.paddleSprite !== null) {
       const p = me.paddle;
@@ -166,6 +171,9 @@ export class FieldView {
     } else {
       paintPaddle(this.paddleGfx, this.skin.paddle, me.paddle.x, me.paddle.y, me.paddle.w, me.paddle.h);
     }
+    this.paddleGfx
+      .rect(me.paddle.x - me.paddle.w / 2, me.paddle.y + me.paddle.h / 2 + 1, me.paddle.w, 2)
+      .fill(ownerColor(me.player));
     this.paddleGfx.visible = true;
 
     // Balls: owner-colored outline glow UNDER the ball skin (readability
@@ -186,11 +194,15 @@ export class FieldView {
         paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
       }
     }
-    // Single-ball fields: sprite body over the glow ring (ring stays visible).
+    // Single-ball fields: sprite body over the glow ring (ring stays
+    // visible). White-base sprite tinted with the owner color (spec §13:
+    // owner variants = render-time tint, never per-owner PNGs) — the ball
+    // body itself carries ownership; no owner → untinted white.
     if (this.ballSprite !== null && snap.balls.length === 1) {
       const b0 = snap.balls[0];
       if (b0 !== undefined) {
         this.ballSprite.visible = true;
+        this.ballSprite.tint = b0.owner === null ? 0xffffff : ownerColor(b0.owner);
         this.ballSprite.position.set(b0.x - this.skin.ball.radius, b0.y - this.skin.ball.radius);
         this.ballSprite.width = this.skin.ball.radius * 2;
         this.ballSprite.height = this.skin.ball.radius * 2;
