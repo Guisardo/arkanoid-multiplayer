@@ -46,6 +46,9 @@ export class SplitScreenView {
         locale: this.opts.locale,
         maxRound: this.opts.maxRound,
         skinId: this.opts.skinIds?.[i],
+        // Full per-player array (ticket 56): single-field variants render
+        // every player's paddle — FieldView resolves each by player index.
+        skinIds: this.opts.skinIds,
         themeId: this.opts.themeId,
         reducedEffects: this.opts.reducedEffects ?? false,
       });

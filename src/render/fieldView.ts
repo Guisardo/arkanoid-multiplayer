@@ -147,28 +147,26 @@ export class FieldView {
 
     // Paddles: EVERY player on this field (single-field variants — duel/
     // sharedField — carry all players in one snapshot, ticket 56). Own
-    // player renders with the skin sprite; others procedural via their skin.
+    // player renders with the skin sprite (when loaded); every other
+    // player renders procedurally via their own skin — paddleGfx stays
+    // visible so other players' paddles never disappear behind the sprite.
+    const me = player;
     this.paddleGfx.clear();
     for (const pl of snap.players) {
-      const p = pl.paddle;
-      if (pl.player === this.player) {
-        paintPaddle(this.paddleGfx, this.skin.paddle, p.x, p.y, p.w, p.h);
-      } else {
-        const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
-        paintPaddle(this.paddleGfx, otherSkin.paddle, p.x, p.y, p.w, p.h);
-      }
+      if (pl === me) continue; // own paddle = sprite below (or fallback paint)
+      const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
+      paintPaddle(this.paddleGfx, otherSkin.paddle, pl.paddle.x, pl.paddle.y, pl.paddle.w, pl.paddle.h);
     }
-    const me = player;
     if (this.paddleSprite !== null) {
       const p = me.paddle;
       this.paddleSprite.visible = true;
       this.paddleSprite.position.set(p.x - p.w / 2, p.y - p.h / 2);
       this.paddleSprite.width = p.w;
       this.paddleSprite.height = p.h;
-      this.paddleGfx.visible = false;
     } else {
-      this.paddleGfx.visible = true;
+      paintPaddle(this.paddleGfx, this.skin.paddle, me.paddle.x, me.paddle.y, me.paddle.w, me.paddle.h);
     }
+    this.paddleGfx.visible = true;
 
     // Balls: owner-colored outline glow UNDER the ball skin (readability
     // gate — glow ring stays visible around whatever skin the ball wears;
