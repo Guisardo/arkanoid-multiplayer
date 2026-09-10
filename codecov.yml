@@ -2,7 +2,10 @@ coverage:
   status:
     project:
       default:
-        target: 92%
+        # Fixed floor (user-approved 90%): UI glue files (session layers,
+        # DOM/Pixi wiring) dilute project % while e2e covers the real
+        # behavior under SwiftShader.
+        target: 90%
     patch:
       default:
         target: 60%
