@@ -185,8 +185,8 @@ describe("FieldView multi-paddle + field-local fallback (ticket 56)", () => {
       balls: base.balls.map((b) => ({ ...b, owner: 1 })),
       capsules: [{ x: 100, y: 150, type: "E" as const }],
       bricks: base.bricks.map((c, i) => (i < 6 ? 9 : c)), // silver tier
-      boss: { x: 104, y: 60, dead: false },
-      bossProjectiles: [{ x: 90, y: 80 }],
+      boss: { x: 104, y: 60, hp: 5, phase: 1 as const, dead: false },
+      bossProjectiles: [{ x: 90, y: 80, vx: 0, vy: 1 }],
     };
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
     view.sync(snap);
