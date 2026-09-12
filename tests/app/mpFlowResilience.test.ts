@@ -45,6 +45,39 @@ vi.mock("render/splitScreen", () => ({
 }));
 
 import { MpFlow, type MpChannels } from "app/mpFlow";
+import { serializeSnapshot } from "net/serializer";
+import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
+import type { Snapshot } from "shared/protocol";
+
+/** Minimal valid snapshot for guest-side feeds (blind-state recovery). */
+function serializeOneSnapshot(): ArrayBuffer {
+  const snap: Snapshot = {
+    tick: 1,
+    phase: "serve",
+    round: 1,
+    players: [
+      {
+        player: 0,
+        name: "HostP",
+        skinIndex: 0,
+        paddle: { x: 104, y: 240, w: 24, h: 6, edge: "bottom" },
+        lives: 3,
+        score: 0,
+        meter: 0,
+        target: -1,
+        chain: 0,
+        state: "playing",
+        effects: {},
+      },
+    ],
+    balls: [],
+    capsules: [],
+    bricks: Array.from({ length: BRICK_COLS * BRICK_ROWS }, () => 0),
+    events: [],
+    inputAcks: [1],
+  };
+  return serializeSnapshot(snap);
+}
 /** In-memory channel pair with a guest-index remap seam (rejoin path). */
 function makePair(): {
   hostFlow: MpFlow;
@@ -196,6 +229,28 @@ describe("mpFlow resilience wiring (ticket 47)", () => {
     expect(texts.some((t) => t.includes("Connection lost"))).toBe(true);
   }, 20000);
 
+  it("guest blind state: banner clears when snapshots resume", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await startMatch(hostFlow, guestFlow);
+    const texts = () =>
+      [...document.querySelectorAll(".ld-title")].map((b) => b.textContent ?? "");
+    // Silence → banner.
+    vi.stubGlobal("requestAnimationFrame", (): number => 0);
+    vi.stubGlobal("cancelAnimationFrame", (): void => undefined);
+    await new Promise((r) => globalThis.setTimeout(r, 2100));
+    expect(texts().some((t) => t.includes("Connection lost"))).toBe(true);
+    // Snapshots resume continuously (host traffic): the monitor goes
+    // live and the banner clears — recovery is visible, not just state.
+    const buf = serializeOneSnapshot();
+    const feeder = globalThis.setInterval(() => {
+      guestFlow.binaryFromWire(0, buf);
+    }, 250);
+    await new Promise((r) => globalThis.setTimeout(r, 1500));
+    globalThis.clearInterval(feeder);
+    expect(texts().some((t) => t.includes("Connection lost"))).toBe(false);
+  }, 20000);
+
   it("guest control-closed mid-match → fatal (session over)", async () => {
     const { hostFlow, guestFlow } = makePair();
     flows.push(hostFlow, guestFlow);
@@ -313,6 +368,6 @@ describe("mpFlow resilience wiring (ticket 47)", () => {
     const back = [...document.querySelectorAll("button")]
       .find((b) => b.textContent === "Back");
     expect(back).toBeDefined();
-    expect(() => back!.click()).not.toThrow();
+    expect(() => { back!.click(); }).not.toThrow();
   }, 20000);
 });

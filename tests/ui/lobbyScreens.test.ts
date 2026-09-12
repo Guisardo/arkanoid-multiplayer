@@ -373,6 +373,27 @@ describe("LobbyScreen", () => {
     screen.close();
   });
 
+  it("reopen re-attaches after close; idempotent (match → lobby cycle)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => undefined,
+      onQuit: () => undefined,
+    });
+    screen.close();
+    expect(screen.root.isConnected).toBe(false);
+    screen.reopen();
+    expect(screen.root.isConnected).toBe(true);
+    expect(host.contains(screen.root)).toBe(true);
+    // Double reopen: no duplicate nodes.
+    screen.reopen();
+    expect(host.querySelectorAll(".ld-root").length).toBe(1);
+    screen.close();
+  });
+
   it("Settings button renders + fires onSettings (spec §14: lobby always)", () => {
     const host = document.body;
     host.innerHTML = "";
