@@ -71,12 +71,14 @@ export interface GuestSilenceMonitor {
 export type GuestBlindState = "live" | "blind" | "over";
 
 export function createGuestSilenceMonitor(
-  nowMs: number,
   opts: { bannerMs?: number; overMs?: number } = {},
 ): GuestSilenceMonitor {
   const bannerMs = opts.bannerMs ?? GUEST_BLIND_BANNER_MS;
   const overMs = opts.overMs ?? GUEST_SESSION_OVER_MS;
-  let lastFed = nowMs;
+  // lastFed stays null until the first host traffic: the match-start gap
+  // (host mounts its render shell before its first broadcast) is a legit
+  // startup pause, not a disconnect — the monitor arms on the first feed.
+  let lastFed: number | null = null;
   let state: GuestBlindState = "live";
   return {
     get state() {
@@ -89,6 +91,7 @@ export function createGuestSilenceMonitor(
     },
     tick(now) {
       if (state === "over") return state;
+      if (lastFed === null) return state;
       const silence = now - lastFed;
       if (silence >= overMs) state = "over";
       else if (silence >= bannerMs) state = "blind";

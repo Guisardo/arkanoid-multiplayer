@@ -846,6 +846,7 @@ export class MpFlow {
       }
       const blind = this.guestGame?.heartbeatTick(now) ?? "live";
       if (blind === "blind") this.showBanner(t(this.locale, "mp.reconnecting"));
+      else this.hideBanner();
       if (blind === "over") this.hostGone();
     }
   }

@@ -68,6 +68,8 @@ const constructedFlows: {
   sampleLocal?: (player: number, tick: number) => unknown;
   reconnect?: () => Promise<unknown>;
 }[] = [];
+/** The mocked MpFlow instances themselves (phase-driven UI tests). */
+const flowInstances: { currentPhase: string }[] = [];
 /** localPausePressed calls captured by the mocked flow (ticket 48). */
 const pausePresses: { host: boolean }[] = [];
 function applyMocks(): void {
@@ -158,6 +160,7 @@ function applyMocks(): void {
         this.connect = opts.connect;
         this.sampleLocal = opts.sampleLocal;
         this.reconnect = opts.reconnect;
+        flowInstances.push(this);
         constructedFlows.push({
           ...(opts.sampleLocal !== undefined ? { sampleLocal: opts.sampleLocal } : {}),
           ...(opts.reconnect !== undefined ? { reconnect: opts.reconnect } : {}),
@@ -200,6 +203,7 @@ afterEach(() => {
   lastRoom.room = null;
   guestConnections.clear();
   constructedFlows.length = 0;
+  flowInstances.length = 0;
   pausePresses.length = 0;
   joinCodePrefill.value = null;
   vi.resetModules();
@@ -362,6 +366,42 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     expect(flow).toBeDefined();
     expect(flow?.host).toBe(true);
     globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "Escape" }));
+  });
+
+  it("host flow: lobby overlay hides on inGame and returns on lobby", async () => {
+    await bootHostFlow();
+    const flow = flowInstances[0];
+    expect(flow).toBeDefined();
+    // Lobby visible at boot.
+    expect(document.querySelector(".ld-root")).not.toBeNull();
+    // Match starts → the opaque overlay must be gone within a poll tick.
+    flow!.currentPhase = "inGame";
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    expect(document.querySelector(".ld-root")).toBeNull();
+    // Back to lobby (end screen "lobby" choice) → overlay re-attached.
+    flow!.currentPhase = "lobby";
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    expect(document.querySelector(".ld-root")).not.toBeNull();
+  });
+
+  it("guest flow: lobby overlay hides on inGame and returns on lobby", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    clickButton("Join");
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => globalThis.setTimeout(r, 0));
+    const flow = flowInstances[0];
+    expect(flow).toBeDefined();
+    expect(document.querySelector(".ld-root")).not.toBeNull();
+    flow!.currentPhase = "inGame";
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    expect(document.querySelector(".ld-root")).toBeNull();
+    flow!.currentPhase = "lobby";
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    expect(document.querySelector(".ld-root")).not.toBeNull();
   });
 
   it("guest flow: join with a valid code builds the guest flow with input seam", async () => {    // ?code= prefill jumps straight into join mode (QR share path).
@@ -564,7 +604,7 @@ describe("copy-paste fallback (ticket 53, spec §9)", () => {
         return Promise.resolve({
           answerCode: "ANSWERCODE456",
           connection: new Promise((resolve) => {
-            globalThis.setTimeout(() => resolve(conn), 150);
+            globalThis.setTimeout(() => { resolve(conn); }, 150);
           }),
         });
       }),
@@ -581,7 +621,7 @@ describe("copy-paste fallback (ticket 53, spec §9)", () => {
     clickButton("Multiplayer");
     clickButton("Continue");
     // Copy-paste host screen appears with the offer code.
-    const cpRoot = await waitFor(() => document.querySelector(".cp-root") as HTMLElement | null, 50);
+    const cpRoot = await waitFor(() => document.querySelector(".cp-root"), 50);
     expect(cpRoot).not.toBeNull();
     expect(cpRoot!.textContent).toContain("OFFERCODE123");
     // Paste the answer + submit → connection resolves, screen closes,
@@ -604,15 +644,15 @@ describe("copy-paste fallback (ticket 53, spec §9)", () => {
     // Guest copy-paste screen appears once the connect promise chain
     // reaches the catch branch — poll for it (microtask count varies).
     const cpRoot = await waitFor(() =>
-      document.querySelector(".cp-root") as HTMLElement | null, 50);
+      document.querySelector(".cp-root"), 50);
     expect(cpRoot).not.toBeNull();
     // Paste the offer + submit → screen re-renders with the answer code.
     const input = cpRoot!.querySelector<HTMLTextAreaElement>("[data-copy-paste-input]");
     input!.value = "OFFERCODE123";
     cpRoot!.querySelector<HTMLButtonElement>("[data-copy-submit]")!.click();
     const cpRoot2 = await waitFor(() => {
-      const el = document.querySelector(".cp-root") as HTMLElement | null;
-      return el !== null && el.textContent?.includes("ANSWERCODE456") === true ? el : null;
+      const el = document.querySelector(".cp-root");
+      return el !== null && (el.textContent?.includes("ANSWERCODE456")) ? el : null;
     }, 50);
     expect(cpRoot2).not.toBeNull();
     // Connection resolves → screen closes.

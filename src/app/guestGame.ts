@@ -105,7 +105,7 @@ export function createGuestGameSession(
   let protocolError: string | null = null;
   let lastProgressEmit = 0;
   // Ticket 47: host-silence monitor — banner at ~1 s, session-over at ~12 s.
-  const silence = createGuestSilenceMonitor(nowMs());
+  const silence = createGuestSilenceMonitor();
 
   // ---- Ticket 46: local-paddle prediction ----
   const boundsKind: PredictBoundsKind =

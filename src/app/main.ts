@@ -486,9 +486,21 @@ function startHostFlow(code: string): void {
   // cadence; the flow routes coop pause vs competitive quit-confirm.
   // N2: matchStart wires mouse/touch once fields exist; renderTick
   // refreshes the touch overlays.
+  // Phase-driven lobby visibility: the opaque .ld-root overlay must get
+  // out of the way when the match mounts (countdown keeps it visible —
+  // the 3-2-1 rides its status line) and come back between matches.
   let hostInputStarted = false;
+  let hostLobbyShown = true;
   const hostMenuPoll = globalThis.setInterval(() => {
-    if (flow.currentPhase === "inGame" && !hostInputStarted) {
+    const phase = flow.currentPhase;
+    if (phase === "inGame" && hostLobbyShown) {
+      hostLobbyShown = false;
+      hostLobbyUI.close();
+    } else if (phase === "lobby" && !hostLobbyShown) {
+      hostLobbyShown = true;
+      hostLobbyUI.reopen();
+    }
+    if (phase === "inGame" && !hostInputStarted) {
       hostInputStarted = true;
       hostInput.matchStart();
     }
@@ -606,10 +618,20 @@ function startGuestFlow(code: string): void {
 
   const guestInput = makeLocalInput(flow);
   // Ticket 48: menu/pause edges — same routing as the host side.
-  // N2: same matchStart/renderTick wiring.
+  // N2: same matchStart/renderTick wiring; same phase-driven lobby
+  // visibility (close on inGame, reopen on lobby).
   let guestInputStarted = false;
+  let guestLobbyShown = true;
   const guestMenuPoll = globalThis.setInterval(() => {
-    if (flow.currentPhase === "inGame" && !guestInputStarted) {
+    const phase = flow.currentPhase;
+    if (phase === "inGame" && guestLobbyShown) {
+      guestLobbyShown = false;
+      guestLobbyUI.close();
+    } else if (phase === "lobby" && !guestLobbyShown) {
+      guestLobbyShown = true;
+      guestLobbyUI.reopen();
+    }
+    if (phase === "inGame" && !guestInputStarted) {
       guestInputStarted = true;
       guestInput.matchStart();
     }

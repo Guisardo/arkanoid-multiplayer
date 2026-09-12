@@ -53,29 +53,39 @@ describe("host watchdog (spec §9: drop at ~10–15 s silence)", () => {
 
 describe("guest silence monitor (banner ~1 s, over ~12 s)", () => {
   it("live while snapshots flow", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     for (let t = 0; t <= 10_000; t += 33) {
       m.fed(t);
       expect(m.tick(t)).toBe("live");
     }
   });
 
+  it("stays live before the first snapshot (match-start gap)", () => {
+    // The host mounts its render shell before its first broadcast — that
+    // startup pause must never read as a disconnect.
+    const m = createGuestSilenceMonitor();
+    expect(m.tick(2000)).toBe("live");
+    expect(m.tick(12_000)).toBe("live");
+    m.fed(12_100);
+    expect(m.tick(12_101)).toBe("live");
+  });
+
   it("blind banner after 1 s of snapshot silence", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     m.fed(0);
     expect(m.tick(999)).toBe("live");
     expect(m.tick(1000)).toBe("blind");
   });
 
   it("session over after 12 s of silence", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     m.fed(0);
     expect(m.tick(11_999)).toBe("blind");
     expect(m.tick(12_000)).toBe("over");
   });
 
   it("a snapshot during blind restores live", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     m.fed(0);
     expect(m.tick(2000)).toBe("blind");
     m.fed(2100);
@@ -83,14 +93,14 @@ describe("guest silence monitor (banner ~1 s, over ~12 s)", () => {
   });
 
   it("control channel close = over immediately", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     m.fed(0);
     expect(m.controlClosed()).toBe("over");
     expect(m.state).toBe("over");
   });
 
   it("over is terminal", () => {
-    const m = createGuestSilenceMonitor(0);
+    const m = createGuestSilenceMonitor();
     m.fed(0);
     m.tick(20_000);
     m.fed(20_100); // too late
