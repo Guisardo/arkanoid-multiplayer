@@ -77,9 +77,13 @@ test("lobby: two contexts connect via copy-paste, ready gate, countdown, match s
   await expect(hostLobby.locator("button", { hasText: "Ready" })).toHaveCount(2, { timeout: 10_000 });
 
   await hostLobby.locator("button", { hasText: "Start" }).click();
-  // Countdown 3-2-1 shows on both sides, then the match (canvas).
+  // Countdown 3-2-1 shows on both sides, then the match (canvas). The
+  // opaque lobby overlay must be gone — a canvas behind it would still
+  // count as "visible" to Playwright, so assert the overlay is hidden.
   await expect(hostPage.locator("#app canvas")).toBeVisible({ timeout: 20_000 });
   await expect(guestPage.locator("#app canvas")).toBeVisible({ timeout: 20_000 });
+  await expect(hostPage.locator(".ld-root")).toBeHidden({ timeout: 5_000 });
+  await expect(guestPage.locator(".ld-root")).toBeHidden({ timeout: 5_000 });
 
   expect(errors).toEqual([]);
   await host.close();

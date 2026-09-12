@@ -551,6 +551,11 @@ export class LobbyScreen {
   close(): void {
     this.root.remove();
   }
+
+  /** Re-attach after close (match ended → back to lobby). Idempotent. */
+  reopen(): void {
+    if (!this.root.isConnected) this.opts.host.appendChild(this.root);
+  }
 }
 
 function modeKey(m: LobbyMode): StringKey {
