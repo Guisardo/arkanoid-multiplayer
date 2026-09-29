@@ -176,6 +176,46 @@ describe("mpFlow wiring (ticket 45)", () => {
     await new Promise((r) => globalThis.setTimeout(r, 100));
   }, 15000);
 
+  it("hostStartMatch: not-all-ready → no countdown, stays in lobby", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Dee", "classic");
+    await Promise.resolve();
+    // Host ready, guest NOT ready.
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    await Promise.resolve();
+
+    hostFlow.hostStartMatch();
+    expect(hostFlow.currentPhase).toBe("lobby");
+    // No countdown timer armed: still lobby well past 3 s.
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    expect(hostFlow.currentPhase).toBe("lobby");
+    expect(guestFlow.currentPhase).toBe("lobby");
+  }, 15000);
+
+  it("host alone quits mid-match → session tears down (exit path)", async () => {
+    // Local match (host ONLY, no guest, no other local players): quit tears the
+    // flow down (game disposed, snapshots gone) and reloads to the landing
+    // (jsdom reload is a logged no-op — the teardown is the contract).
+    const { hostFlow } = makePair();
+    flows.push(hostFlow);
+    await hostFlow.start();
+    // Only the host player (no addLocalPlayer).
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    await Promise.resolve();
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    expect(hostFlow.currentPhase).toBe("inGame");
+    expect(hostFlow.localSnapshots().length).toBeGreaterThan(0);
+
+    // The quit the pause/quit-confirm overlay's button drives:
+    (hostFlow as unknown as { hostLocalQuit: () => void }).hostLocalQuit();
+    // Session gone: game disposed → no snapshots, loop stopped.
+    expect(hostFlow.localSnapshots()).toHaveLength(0);
+  }, 15000);
+
   it("host local frames tick the match; guest frames reach the host", async () => {
     const { hostFlow, guestFlow } = makePair();
     flows.push(hostFlow, guestFlow);

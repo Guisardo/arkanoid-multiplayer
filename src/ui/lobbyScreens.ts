@@ -323,6 +323,7 @@ export class LobbyScreen {
   private readonly playersEl: HTMLElement;
   private readonly configEl: HTMLElement;
   private readonly statusEl: HTMLElement;
+  private startEl: HTMLButtonElement | null = null;
 
   constructor(opts: LobbyScreenOptions) {
     ensureStyles();
@@ -370,6 +371,7 @@ export class LobbyScreen {
     start.addEventListener("click", () => {
       this.opts.onStart();
     });
+    this.startEl = start;
     const quit = menuBtn(opts.locale, "menu.quit");
     quit.addEventListener("click", () => {
       this.opts.onQuit();
@@ -412,6 +414,16 @@ export class LobbyScreen {
       this.statusEl.textContent = s.code;
     } else {
       this.statusEl.textContent = "";
+    }
+
+    // Start gate (spec §8): host + lobby phase + every player ready.
+    // Mirrors the reducer's startCountdown guard so the button never
+    // invites a click that would be rejected.
+    if (this.startEl !== null) {
+      this.startEl.disabled =
+        !s.isHost ||
+        s.phase !== "lobby" ||
+        s.players.some((p) => !p.ready);
     }
 
     // Players: name (editable, local), skin picker (local, ticket 44),
