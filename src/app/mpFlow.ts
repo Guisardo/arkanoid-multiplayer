@@ -496,6 +496,15 @@ export class MpFlow {
   /** Host-local quit from an overlay = removal of the host's players. */
   private hostLocalQuit(): void {
     if (this.phase !== "inGame") return;
+    // Host alone in the entire match (no guests, no other local players):
+    // quitting means leaving — tear the session down and reload to landing.
+    const totalPlayers = this.matchLocalPlayers.length + this.gameGuests().length;
+    if (totalPlayers <= 1) {
+      this.channels?.guestControl(JSON.stringify({ type: "bye" }));
+      this.dispose();
+      globalThis.location.reload();
+      return;
+    }
     this.game?.removePlayers(this.matchLocalPlayers);
     this.hidePauseOverlay();
     this.hideQuitConfirm();
@@ -581,6 +590,10 @@ export class MpFlow {
     if (!this.isHost || this.lobby === null) return;
     const state = this.lobby.state();
     if (state.phase !== "lobby") return;
+    // Ready gate (spec §8): the reducer rejects startCountdown with
+    // notAllReady — mirror it here so the flow never launches a match
+    // with unready players (the reducer's error must not be ignored).
+    if (state.players.some((p) => !p.ready)) return;
     this.lobby.startCountdown();
     this.phase = "countdown";
     this.opts.onCountdown?.(3);

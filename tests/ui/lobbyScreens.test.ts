@@ -366,6 +366,10 @@ describe("LobbyScreen", () => {
         quit++;
       },
     });
+    // All players ready so Start is enabled.
+    let s = createLobbyState(true);
+    s = reduceLobby(s, { type: "setReady", playerId: 0, ready: true }).state;
+    screen.sync(s);
     [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Start")?.click();
     [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Quit")?.click();
     expect(started).toBe(1);
@@ -391,6 +395,38 @@ describe("LobbyScreen", () => {
     // Double reopen: no duplicate nodes.
     screen.reopen();
     expect(host.querySelectorAll(".ld-root").length).toBe(1);
+    screen.close();
+  });
+
+  it("Start disabled until every player is ready (host, lobby phase)", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const screen = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => undefined,
+      onQuit: () => undefined,
+    });
+    const startBtn = () =>
+      [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Start");
+    // Fresh host lobby: own player unready → disabled.
+    let s = createLobbyState(true);
+    screen.sync(s);
+    expect(startBtn()?.disabled).toBe(true);
+    // Host ready, guest not → still disabled.
+    s = reduceLobby(s, { type: "setReady", playerId: 0, ready: true }).state;
+    s = reduceLobby(s, { type: "remoteJoined", guestIndex: 0, name: "G" }).state;
+    screen.sync(s);
+    expect(startBtn()?.disabled).toBe(true);
+    // Everyone ready → enabled.
+    s = reduceLobby(s, { type: "setReady", playerId: 100, ready: true }).state;
+    screen.sync(s);
+    expect(startBtn()?.disabled).toBe(false);
+    // Countdown phase → disabled again.
+    s = reduceLobby(s, { type: "startCountdown" }).state;
+    screen.sync(s);
+    expect(startBtn()?.disabled).toBe(true);
     screen.close();
   });
 

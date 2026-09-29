@@ -82,6 +82,7 @@ function makePair() {
     host: hostEl,
     locale: "en-US",
     connect: () => Promise.resolve({ isHost: true, guestIndex: 0, channels }),
+    onLobbyState: () => { /* lobbyState is private, use lobbySnapshot getter */ },
   });
   const guestFlow = new MpFlow({
     host: guestEl,
@@ -129,16 +130,28 @@ async function startMatch(
   await hostFlow.start();
   await guestFlow.start();
   guestFlow.guestHello("Zed", "classic");
-  await Promise.resolve();
-  guestFlow.guestIntent({ kind: "ready", ready: true });
-  await Promise.resolve();
-  hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+  // Wait for guest to join (hello-ok assigns myId, then lobby state has the player).
+  for (let i = 0; i < 50; i++) {
+    const s = hostFlow.lobbySnapshot;
+    if (s && s.players.some((p) => p.id === 100)) break;
+    await new Promise((r) => globalThis.setTimeout(r, 10));
+  }
+  // Set mode FIRST (spec §8: config change resets ready). Then ready up.
   if (mode === "sharedField") {
     hostFlow.hostLocalEvent({
       type: "setConfig",
       config: { mode: "sharedField" },
     });
     await Promise.resolve();
+  }
+  guestFlow.guestIntent({ kind: "ready", ready: true });
+  await Promise.resolve();
+  hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+  // Wait for all players ready in lobby state.
+  for (let i = 0; i < 50; i++) {
+    const s = hostFlow.lobbySnapshot;
+    if (s && s.players.every((p) => p.ready)) break;
+    await new Promise((r) => globalThis.setTimeout(r, 10));
   }
   hostFlow.hostStartMatch();
   await new Promise((r) => globalThis.setTimeout(r, 3400));
