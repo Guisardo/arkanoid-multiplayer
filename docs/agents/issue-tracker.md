@@ -1,30 +1,67 @@
-# Issue tracker: Local Markdown
+# Issue tracker: GitHub Issues
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as GitHub Issues in the Guisardo/arkanoid-multiplayer repository.
 
 ## Conventions
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The spec is `.scratch/<feature-slug>/spec.md`
-- Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` — never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- Wayfinder maps are issues labeled `wayfinder:map`
+- Wayfinder tickets are issues labeled `wayfinder:ticket` with subtype labels:
+  - `wayfinder:research` — research tickets (AFK)
+  - `wayfinder:prototype` — prototype tickets (HITL)
+  - `wayfinder:grilling` — grilling tickets (HITL)
+  - `wayfinder:task` — task tickets (HITL or AFK)
+- Triage state is recorded via GitHub issue state (open/closed) and labels
+- Comments and conversation history are GitHub issue comments
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create a new GitHub issue with appropriate labels using `gh issue create`.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+Read the GitHub issue using `gh issue view <number> --repo Guisardo/arkanoid-multiplayer`.
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
+Used by `/wayfinder`. The **map** is a GitHub issue with child tickets as linked issues.
 
-- **Map**: `.scratch/<effort>/map.md` — the Notes / Decisions-so-far / Fog body.
-- **Child ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`, with the question in the body. A `Type:` line records the ticket type (`research`/`prototype`/`grilling`/`task`); a `Status:` line records `claimed`/`resolved`.
-- **Blocking**: a `Blocked by: NN, NN` line near the top. A ticket is unblocked when every file it lists is `resolved`.
-- **Frontier**: scan `.scratch/<effort>/issues/` for files that are open, unblocked, and unclaimed; first by number wins.
-- **Claim**: set `Status: claimed` and save before any work.
-- **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
+- **Map**: GitHub issue labeled `wayfinder:map` — the Notes / Decisions-so-far / Fog body in the issue description.
+- **Child ticket**: GitHub issue labeled `wayfinder:ticket` with a `wayfinder:<type>` subtype label. The question is in the issue description.
+- **Blocking**: Use GitHub's native issue dependencies (blocked by / blocks). A ticket is unblocked when every blocking issue is closed.
+- **Frontier**: Query for open issues labeled `wayfinder:ticket` that have no open blocking dependencies and are not assigned. First by issue number wins.
+- **Claim**: Assign the issue to yourself (`gh issue edit <number> --assignee @me`) before any work.
+- **Resolve**: Post the answer as a comment, close the issue (`gh issue close <number>`), and append a context pointer (gist + link) to the map's Decisions-so-far in the map issue description (edit the map issue).
+
+## Map issue body format
+
+```markdown
+## Destination
+
+<what reaching the end of this map looks like — the spec, decision, or change this effort is finding its way to. One or two lines; every session orients to it before choosing a ticket.>
+
+## Notes
+
+<domain; skills every session should consult; standing preferences for this effort>
+
+## Decisions so far
+
+<!-- the index — one line per closed ticket: enough to judge relevance, then zoom the link for the detail the ticket holds -->
+
+- [<closed ticket title>](link) — <one-line gist of the answer>
+
+## Not yet specified
+
+<!-- see "Fog of war": in-scope fog you can't ticket yet; graduates as the frontier advances -->
+
+## Out of scope
+
+<!-- see "Out of scope": work ruled beyond the destination; closed, never graduates -->
+```
+
+## Ticket issue body format
+
+```markdown
+## Question
+
+<the decision or investigation this ticket resolves>
+```
