@@ -16,7 +16,8 @@
     "wrangler:dev": "wrangler dev --config workers/signaling/wrangler.toml",
     "wrangler:dev:turn": "wrangler dev --config workers/turn/wrangler.toml",
     "assetpack": "assetpack",
-    "assetpack:watch": "assetpack -w"
+    "assetpack:watch": "assetpack -w",
+    "assets:particles": "node scripts/gen-particle-frames.mjs && assetpack"
   },
   "dependencies": {
     "pixi.js": "^8.20.1",
