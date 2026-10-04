@@ -71,19 +71,29 @@ describe("skin/theme registries (spec §13)", () => {
     }
   });
 
-  it("every referenced sprite ships in public/assets (real CC0 assets)", () => {
-    const paths = new Set<string>();
+  it("every referenced sprite is in the AssetPack atlas (atlas frame)", () => {
+    // Find the atlas JSON file in public/assets
+    const assetsDir = path.join(process.cwd(), "public", "assets");
+    const files = require("fs").readdirSync(assetsDir);
+    const atlasJson = files.find((f: string) => f.endsWith(".json") && f.startsWith("atlas-"));
+    expect(atlasJson, "atlas JSON must exist").toBeDefined();
+    
+    const atlasPath = path.join(assetsDir, atlasJson!);
+    const atlas = JSON.parse(require("fs").readFileSync(atlasPath, "utf-8"));
+    const atlasFrames = new Set(Object.keys(atlas.frames));
+    
+    // Verify all skin/theme sprites are in the atlas
+    const expectedFrames = new Set<string>();
     for (const s of SKINS) {
-      if (s.paddle.sprite !== null) paths.add(s.paddle.sprite);
-      if (s.ball.sprite !== null) paths.add(s.ball.sprite);
+      if (s.paddle.sprite !== null) expectedFrames.add(path.basename(s.paddle.sprite));
+      if (s.ball.sprite !== null) expectedFrames.add(path.basename(s.ball.sprite));
     }
     for (const t of THEMES) {
-      if (t.background.sprite !== null) paths.add(t.background.sprite);
+      if (t.background.sprite !== null) expectedFrames.add(path.basename(t.background.sprite));
     }
-    expect(paths.size).toBeGreaterThan(0);
-    for (const p of paths) {
-      const file = path.join(process.cwd(), "public", p);
-      expect(existsSync(file), `${p} must exist in public/`).toBe(true);
+    
+    for (const frame of expectedFrames) {
+      expect(atlasFrames.has(frame), `${frame} must be in AssetPack atlas`).toBe(true);
     }
   });
 

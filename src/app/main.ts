@@ -3,7 +3,7 @@
 // opens the room-code flow (create: host room + lobby; join: signaling
 // guest + lobby) and drives MpFlow over real WebRTC channels.
 import { startSoloSession } from "app/soloSession";
-import { loadSkinSprites } from "render/spriteSheet";
+import { initAssets } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
 import { startVersusBotsSession } from "app/versusBotsSession";
@@ -79,7 +79,7 @@ function boot(): void {
     onChoice: (choice, joinCode) => {
       landing.close();
       if (choice === "solo") {
-        void loadSkinSprites()
+        void initAssets()
           .then(() => startSoloSession(appHost, 1, { onQuit: boot }))
           .then((session) => {
             globalThis.__arkanoid = session;
@@ -94,7 +94,7 @@ function boot(): void {
 }
 
 function openVersusBots(): void {
-  void loadSkinSprites();
+  void initAssets();
   const screen = new VersusBotsConfigScreen({
     host: appHost,
     locale,
@@ -122,7 +122,7 @@ function openVersusBots(): void {
 
 /** Rematch: same config, fresh session (ticket 56 end-screen flow). */
 function openVersusBotsWith(config: VersusBotsConfig): void {
-  void loadSkinSprites();
+  void initAssets();
   void startVersusBotsSession(appHost, {
     variant: config.variant,
     bots: config.bots,
@@ -368,7 +368,7 @@ function makeLocalInput(flow: MpFlow) {
 }
 
 function openMultiplayer(joinCode?: string): void {
-  void loadSkinSprites();
+  void initAssets();
   const onBack = (): void => {
     screen.root.remove();
     boot();

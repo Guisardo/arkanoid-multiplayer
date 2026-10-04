@@ -10,6 +10,14 @@ export default defineConfig(({ mode }) => {
     // GH Pages project site serves under /arkanoid-multiplayer/ (ticket 55);
     // dev/e2e keep the root base. VITE_BASE="" → "/".
     base: env.VITE_BASE || "/",
+    build: {
+      // Cache-busting for assets (ADR 0004): AssetPack generates content-hash filenames
+      rollupOptions: {
+        output: {
+          assetFileNames: "assets/[name]-[hash][extname]",
+        },
+      },
+    },
     plugins: [
       // Put the Codecov vite plugin after all other plugins
       codecovVitePlugin({

@@ -82,6 +82,7 @@ function applyMocks(): void {
   }));
   vi.doMock("render/spriteSheet", () => ({
     loadSkinSprites: () => Promise.resolve(undefined),
+    initAssets: () => Promise.resolve(undefined),
   }));
   // Ticket 53/N2: main.ts imports the Pixi-backed TouchOverlay — mock it
   // (jsdom cannot load pixi.js; the overlay is covered in its own tests).

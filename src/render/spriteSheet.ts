@@ -1,25 +1,25 @@
 // Sprite loading for real CC0 assets (spec §13). Node-guarded like
 // gameFont.ts: in node tests there is no DOM/fetch, so lookups resolve to
 // null and painters fall back to procedural geometry. In the browser the
-// Pixi Assets cache serves textures loaded once at boot (loadSkinSprites).
+// Pixi Assets cache serves textures loaded once at boot via AssetPack manifest.
 import { Assets } from "pixi.js";
 import type { Texture } from "pixi.js";
 import { assetUrl } from "./assetUrl";
 
-/** Sprite descriptor paths shipped under public/assets (served verbatim). */
+/** Sprite descriptor paths — now using atlas frame names (AssetPack manifest). */
 export const SPRITE_PATHS = {
   paddles: {
-    red: "/assets/paddles/paddle-a-red.png",
-    purple: "/assets/paddles/paddle-b-purple.png",
-    blue: "/assets/paddles/paddle-c-blue.png",
+    red: "paddle-a-red.png",
+    purple: "paddle-b-purple.png",
+    blue: "paddle-c-blue.png",
   },
   balls: {
-    red: "/assets/balls/ball-red.png",
-    yellow: "/assets/balls/ball-yellow.png",
-    green: "/assets/balls/ball-green.png",
+    red: "ball-red.png",
+    yellow: "ball-yellow.png",
+    green: "ball-green.png",
   },
   backgrounds: {
-    pixelSpace: "/assets/backgrounds/pixel-space.png",
+    pixelSpace: "pixel-space.png",
   },
 } as const;
 
@@ -39,21 +39,36 @@ export function spriteTexture(path: string): Texture | null {
   return loaded.get(path) ?? null;
 }
 
+/**
+ * Initialize Pixi Assets with the AssetPack manifest and load the boot bundle.
+ * Called once at app startup (src/app/main.ts).
+ */
+export async function initAssets(): Promise<void> {
+  if (typeof document === "undefined") return;
+  try {
+    await Assets.init({ manifest: assetUrl("manifest.json") });
+    await Assets.loadBundle("default");
+    // Cache all sprite textures for painter lookups using known aliases
+    const allAliases = [
+      ...Object.values(SPRITE_PATHS.paddles),
+      ...Object.values(SPRITE_PATHS.balls),
+      ...Object.values(SPRITE_PATHS.backgrounds),
+    ];
+    for (const alias of allAliases) {
+      try {
+        const texture = Assets.get<Texture>(alias);
+        rememberTexture(alias, texture);
+      } catch {
+        // Texture not in cache yet — will be loaded on demand
+      }
+    }
+  } catch {
+    // Missing manifest/bundle must never break the game — geometry fallback covers it.
+  }
+}
+
 /** Preload every shipped sprite once at boot; failures degrade to geometry. */
 export async function loadSkinSprites(): Promise<void> {
-  if (typeof document === "undefined") return;
-  const paths = [
-    ...Object.values(SPRITE_PATHS.paddles),
-    ...Object.values(SPRITE_PATHS.balls),
-    ...Object.values(SPRITE_PATHS.backgrounds),
-  ];
-  for (const path of paths) {
-    try {
-      // Load against the deploy base (GH Pages subpath — ticket 55); cache
-      // under the raw descriptor path so painters/lookups stay base-agnostic.
-      rememberTexture(path, await Assets.load<Texture>(assetUrl(path)));
-    } catch {
-      // Missing asset must never break the game — geometry fallback covers it.
-    }
-  }
+  // Kept for backward compatibility — now delegates to initAssets
+  await initAssets();
 }

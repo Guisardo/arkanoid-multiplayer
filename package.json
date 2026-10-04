@@ -14,13 +14,16 @@
     "lint": "eslint .",
     "e2e": "playwright test",
     "wrangler:dev": "wrangler dev --config workers/signaling/wrangler.toml",
-    "wrangler:dev:turn": "wrangler dev --config workers/turn/wrangler.toml"
+    "wrangler:dev:turn": "wrangler dev --config workers/turn/wrangler.toml",
+    "assetpack": "assetpack",
+    "assetpack:watch": "assetpack -w"
   },
   "dependencies": {
     "pixi.js": "^8.20.1",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
+    "@assetpack/core": "^1.7.0",
     "@cloudflare/workers-types": "^5.20260831.1",
     "@codecov/vite-plugin": "^2.0.1",
     "@eslint/js": "^9.0.0",
