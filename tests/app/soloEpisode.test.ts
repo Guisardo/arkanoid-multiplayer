@@ -11,6 +11,9 @@ function fakeBackend(): StorageBackend {
     setItem: (k, v) => {
       map.set(k, v);
     },
+    removeItem: (k) => {
+      map.delete(k);
+    },
   };
 }
 
