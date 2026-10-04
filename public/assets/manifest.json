@@ -9,12 +9,12 @@
           ],
           "src": [
             {
-              "src": "atlas-PO7h1w.webp.json",
-              "progressSize": 30.29
+              "src": "atlas-ugyCKQ.png.json",
+              "progressSize": 14.38
             },
             {
-              "src": "atlas-aFWrxw.png.json",
-              "progressSize": 13.52
+              "src": "atlas-c-eVjw.webp.json",
+              "progressSize": 31.15
             }
           ],
           "data": {
@@ -24,10 +24,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "fonts",
-      "assets": []
     }
   ]
 }
