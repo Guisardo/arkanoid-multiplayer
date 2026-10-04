@@ -48,6 +48,8 @@ const spritesheet = {
 const initCalls: Array<{ manifest?: string; basePath?: string }> = [];
 const added: Array<{ alias: string; src: string }> = [];
 let failInit = false;
+/** Swapped per-test to drive the manual frame-cutting fallback. */
+let atlasAliasValue: unknown = [spritesheet];
 
 // The real Rectangle/Texture are kept (via importActual) so the shared-source
 // guarantee is genuinely exercised; only the Assets registry is faked.
@@ -63,7 +65,7 @@ vi.mock("pixi.js", async () => {
       loadBundle: vi.fn(() => Promise.resolve()),
       // AssetPack gives one asset two srcs (PNG + WebP frame tables), so Pixi
       // resolves the alias to an array — mirror that.
-      get: vi.fn(() => [spritesheet]),
+      get: vi.fn(() => atlasAliasValue),
       add: vi.fn((a: { alias: string; src: string }) => {
         added.push(a);
       }),
@@ -79,6 +81,7 @@ beforeEach(() => {
   initCalls.length = 0;
   added.length = 0;
   failInit = false;
+  atlasAliasValue = [spritesheet];
 });
 
 describe("spriteSheet — SPRITE_PATHS", () => {
@@ -166,5 +169,112 @@ describe("spriteSheet — mocked atlas shape", () => {
   it("the fixture exposes a `textures` record", () => {
     expect(typeof spritesheet.textures).toBe("object");
     expect(Object.keys(spritesheet.textures).length).toBeGreaterThan(8);
+  });
+});
+
+describe("spriteSheet — manual frame-cutting fallback", () => {
+  // The frame cache is module-level and `initAssets` never clears it, and
+  // earlier tests already registered these names via the Spritesheet path. So
+  // these assert on the *identity and geometry* of the cut texture, which is
+  // what actually distinguishes the manual path from the shared-source one.
+  interface Recut {
+    beforePaddle: Texture | null;
+    beforeBall: Texture | null;
+    paddle: Texture | null;
+    ball: Texture | null;
+  }
+
+  async function recut(): Promise<Recut> {
+    atlasAliasValue = rawTable;
+    const beforePaddle = spriteTexture("paddle-a-red.png");
+    const beforeBall = spriteTexture("ball-red.png");
+    await initAssets();
+    return {
+      beforePaddle,
+      beforeBall,
+      paddle: spriteTexture("paddle-a-red.png"),
+      ball: spriteTexture("ball-red.png"),
+    };
+  }
+  // A manifest can resolve to a bare frame table instead of a Spritesheet (no
+  // atlas parser registered, or a hand-written manifest). The loader then
+  // cuts the sub-textures itself — a real code path, so it gets a real test.
+  const rawTable = {
+    frames: {
+      "paddle-a-red.png": {
+        frame: { x: 130, y: 1348, w: 62, h: 26 },
+        rotated: false,
+        trimmed: true,
+        spriteSourceSize: { x: 1, y: 1, w: 62, h: 26 },
+        sourceSize: { w: 64, h: 28 },
+      },
+      "ball-red.png": {
+        frame: { x: 1348, y: 145, w: 14, h: 14 },
+        rotated: false,
+        trimmed: true,
+        spriteSourceSize: { x: 1, y: 1, w: 14, h: 14 },
+        sourceSize: { w: 16, h: 16 },
+      },
+      // Rotated frames are skipped rather than rendered with wrong UVs.
+      "ball-green.png": {
+        frame: { x: 0, y: 0, w: 16, h: 16 },
+        rotated: true,
+        trimmed: false,
+        spriteSourceSize: { x: 0, y: 0, w: 16, h: 16 },
+        sourceSize: { w: 16, h: 16 },
+      },
+    },
+    meta: { image: "atlas-raw.png" },
+  };
+
+  it("cuts a sub-texture per frame from the frame table's image", async () => {
+    const r = await recut();
+    // The manual path built fresh textures, replacing the Spritesheet ones.
+    expect(r.paddle).not.toBe(r.beforePaddle);
+    expect(r.ball).not.toBe(r.beforeBall);
+    expect(r.paddle).not.toBeNull();
+    // The atlas image was registered under AssetPack's output dir.
+    expect(added).toHaveLength(1);
+    expect(added[0]!.src).toContain("assets/atlas-raw.png");
+    expect(added[0]!.alias).toContain("atlas-raw.png");
+  });
+
+  it("gives every cut frame the frame rect and the trim rect", async () => {
+    atlasAliasValue = rawTable;
+    await initAssets();
+    const paddle = spriteTexture("paddle-a-red.png")!;
+    expect(paddle.frame.x).toBe(130);
+    expect(paddle.frame.y).toBe(1348);
+    expect(paddle.frame.width).toBe(62);
+    // A trimmed sprite must keep its original size, not the trimmed one.
+    expect(paddle.orig?.width).toBe(64);
+    expect(paddle.trim?.x).toBe(1);
+    // All cut frames share the loaded image's source — the batching contract.
+    expect(paddle.source).toBe(spriteTexture("ball-red.png")!.source);
+  });
+
+  it("skips a rotated frame rather than rendering it with wrong UVs", async () => {
+    atlasAliasValue = rawTable;
+    const before = spriteTexture("ball-green.png");
+    await initAssets();
+    // Untouched: the previous registration (or absence) still stands.
+    expect(spriteTexture("ball-green.png")).toBe(before);
+  });
+
+  it("a table with no image yields nothing instead of throwing", async () => {
+    atlasAliasValue = { frames: rawTable.frames, meta: {} };
+    const before = spriteTexture("paddle-a-red.png");
+    await expect(initAssets()).resolves.toBeUndefined();
+    expect(spriteTexture("paddle-a-red.png")).toBe(before);
+    expect(spriteDebugState().error).toBeNull();
+    expect(added).toHaveLength(0);
+  });
+
+  it("an alias that resolves to nothing usable leaves the cache alone", async () => {
+    const before = spriteTexture("paddle-a-red.png");
+    atlasAliasValue = undefined;
+    await initAssets();
+    expect(spriteTexture("paddle-a-red.png")).toBe(before);
+    expect(spriteDebugState().error).toBeNull();
   });
 });
