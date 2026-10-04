@@ -11,6 +11,7 @@ import { capDpr, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { diffBricks } from "./sceneSync";
 import { spriteTexture } from "./spriteSheet";
+import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
 import { format, t, type Locale } from "ui/strings";
 import { DEFAULT_SKIN, getSkin, type PlayerSkin } from "content/skins";
 import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
@@ -72,6 +73,16 @@ export class FieldView {
   private readonly nameText: BitmapText;
   /** Ticket 54: reduced-effects mode (decorative layers skipped). */
   private reducedEffects: boolean;
+  /** ADR 0009: one effects orchestrator per field (split-screen isolated). */
+  private readonly effects: VisualEffects;
+  /** Shake target, pivoted on the field center and parented by fieldContainer. */
+  private readonly shakeLayer = new Container();
+  /** Effect layers, mounted inside the shake layer (field-unit coordinates). */
+  private readonly particleLayer = new Container();
+  private readonly popLayer = new Container();
+  private readonly flashGfx = new Graphics();
+  /** Wall-clock of the last tickEffects() call — FieldView owns the frame clock. */
+  private lastFrameMs = 0;
 
   constructor(opts: FieldViewOptions) {
     installGameFont();
@@ -122,11 +133,49 @@ export class FieldView {
     this.paddleSprite = paddleTex !== null ? new Sprite(paddleTex) : null;
     const ballTex = this.skin.ball.sprite !== null ? spriteTexture(this.skin.ball.sprite) : null;
     this.ballSprite = ballTex !== null ? new Sprite(ballTex) : null;
-    this.fieldContainer.addChild(this.brickGfx, this.capsuleGfx, this.paddleGfx, this.ballGfx, this.bossGfx);
-    if (this.paddleSprite !== null) this.fieldContainer.addChild(this.paddleSprite);
-    if (this.ballSprite !== null) this.fieldContainer.addChild(this.ballSprite);
+    // ADR 0009: the shake layer pivots on the field center so camera roll swings
+    // the field about its middle instead of whipping it around the top-left.
+    this.shakeLayer.pivot.set(FIELD_W / 2, FIELD_H / 2);
+    this.shakeLayer.position.set(FIELD_W / 2, FIELD_H / 2);
+    this.shakeLayer.addChild(
+      this.brickGfx,
+      this.capsuleGfx,
+      this.paddleGfx,
+      this.ballGfx,
+      this.bossGfx,
+    );
+    if (this.paddleSprite !== null) this.shakeLayer.addChild(this.paddleSprite);
+    if (this.ballSprite !== null) this.shakeLayer.addChild(this.ballSprite);
+
+    // Effect layers sit inside the shake layer, so they inherit both the field
+    // scale and the shake — and their coordinates are field units.
+    this.flashGfx.rect(0, 0, FIELD_W, FIELD_H).fill(0xffffff);
+    this.flashGfx.blendMode = "add";
+    this.flashGfx.visible = false;
+    this.shakeLayer.addChild(this.particleLayer, this.popLayer, this.flashGfx);
+    this.fieldContainer.addChild(this.shakeLayer);
+
+    this.effects = new VisualEffects(this.effectScene());
+    this.effects.setReducedEffects(this.reducedEffects);
+    this.effects.mount();
+    this.lastFrameMs = nowMs();
 
     this.container.addChild(this.nameText, this.hudText, this.fieldContainer);
+  }
+
+  /**
+   * The scene surface the orchestrator writes to. Shake targets the shake
+   * layer (in field units); flash/pops/particles are separate mount points.
+   */
+  private effectScene(): VisualEffectsScene {
+    return {
+      shakeTarget: this.shakeLayer,
+      particleLayer: this.particleLayer,
+      popLayer: this.popLayer,
+      flashLayer: this.flashGfx,
+      ballSprite: this.ballSprite,
+      paddleSprite: this.paddleSprite,
+    };
   }
 
   /** Consume a snapshot; sync scene. Reads Snapshot only — never sim. */
@@ -246,6 +295,10 @@ export class FieldView {
       this.nameText.text = player.name;
       this.hudText.text = `${livesIcons}  ${String(player.score).padStart(6, "0")}  ${format(t(this.locale, "hud.roundOf"), { round: snap.round, max: this.maxRound })}`;
     }
+
+    // ADR 0009: events fire after the state draw so anchors read this frame's
+    // geometry. The effects advance themselves in tickEffects().
+    this.syncEffects(snap);
   }
 
   private redrawBricks(bricks: readonly number[]): void {
@@ -280,6 +333,49 @@ export class FieldView {
     return set.tierColors[cell] ?? 0xffffff;
   }
 
+  // ---- visual effects (ADR 0009) -------------------------------------------
+
+  /**
+   * Feed the snapshot's event ring to the effects orchestrator. Called from
+   * sync() after the state draw so anchors read the same frame's geometry.
+   */
+  private syncEffects(snap: Snapshot): void {
+    this.effects.consume(snap);
+  }
+
+  /**
+   * Advance and apply the effects for one rendered frame. Called by the
+   * session render callback (not sync) so dt reflects the real frame gap —
+   * on the perf ladder's 30 fps rung that is ~33 ms, not a rendered frame.
+   */
+  tickEffects(dt: number): void {
+    this.lastFrameMs = nowMs();
+    this.effects.update(dt);
+    this.effects.applyToScene();
+  }
+
+  /**
+   * Advance effects using the wall-clock gap since the previous call. Lets
+   * callers that have no dt (or want the frame budget measured by someone
+   * else) drive the same clock.
+   */
+  tickEffectsAuto(): void {
+    const now = nowMs();
+    const dt = Math.min((now - this.lastFrameMs) / 1000, 0.1);
+    this.lastFrameMs = now;
+    this.tickEffects(dt);
+  }
+
+  /** Live effect state — read by tests and the reduced-effects gate. */
+  get effectsState(): EffectsState {
+    return this.effects.state;
+  }
+
+  /** The orchestrator, exposed for session-level assertions. */
+  get visualEffects(): VisualEffects {
+    return this.effects;
+  }
+
   /**
    * Ticket 54: context-restore resync — drop every cached render state so
    * the next sync() redraws the full scene from the snapshot (never from
@@ -290,6 +386,9 @@ export class FieldView {
     this.lives = -1;
     this.score = -1;
     this.round = -1;
+    // A context restore / rejoin drops transient effect state too (audit §7):
+    // a stranded particle burst or stuck flash would survive the resync.
+    this.effects.reset();
   }
 
   /** Ticket 54: live reduced-effects toggle (invalidates caches). */
@@ -297,8 +396,16 @@ export class FieldView {
     if (this.reducedEffects === reduced) return;
     this.reducedEffects = reduced;
     if (this.bgSprite !== null) this.bgSprite.visible = !reduced;
+    this.effects.setReducedEffects(reduced);
     this.invalidate();
   }
+}
+
+/** Wall clock in ms, guarded so node tests still get a usable (0) value. */
+function nowMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : 0;
 }
 
 /** Resolve a skin UUID with fallback to the default skin (unknown/null ids). */
