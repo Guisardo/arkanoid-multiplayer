@@ -1,0 +1,33 @@
+{
+  "bundles": [
+    {
+      "name": "default",
+      "assets": [
+        {
+          "alias": [
+            "atlas"
+          ],
+          "src": [
+            {
+              "src": "atlas-PO7h1w.webp.json",
+              "progressSize": 30.29
+            },
+            {
+              "src": "atlas-aFWrxw.png.json",
+              "progressSize": 13.52
+            }
+          ],
+          "data": {
+            "tags": {
+              "tps": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "fonts",
+      "assets": []
+    }
+  ]
+}
