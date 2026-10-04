@@ -1,5 +1,5 @@
 import type { Application } from "pixi.js";
-import type { InputFrame, Snapshot } from "shared/protocol";
+import type { InputFrame, SimEventType, Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import { createSoloEpisode, CONTINUE_SCORE_FACTOR, type SoloEpisode, type SoloPhase } from "app/soloEpisode";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
@@ -10,6 +10,7 @@ import { TouchOverlay } from "render/touchOverlay";
 import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
+import type { EffectsState } from "render/visualEffects";
 import { layoutField } from "render/layout";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
@@ -56,7 +57,30 @@ export interface SoloSession {
   readonly paused: boolean;
   /** Test/e2e probe: place the ball (drives game over deterministically). */
   debugSetBall(x: number, y: number, vx: number, vy: number): void;
+  /**
+   * Test/e2e probe (ADR 0009): the live visual-effects state, so an e2e test
+   * can assert that an event produced visible feedback without reading pixels.
+   */
+  readonly effectsState: EffectsState;
+  /** Test/e2e probe (ADR 0009): fire one event's recipe into the effects. */
+  debugFireEvent(type: SimEventType, source?: number, target?: number): void;
 }
+
+/** Reported by `effectsState` when no field view exists (mid-teardown). */
+const IDLE_EFFECTS: EffectsState = {
+  trauma: 0,
+  hitStopFrames: 0,
+  shake: { x: 0, y: 0, rotation: 0 },
+  flashAlpha: 0,
+  flashColor: 0xffffff,
+  ballScale: { x: 1, y: 1 },
+  paddleScale: { x: 1, y: 1 },
+  particles: 0,
+  particlePool: 0,
+  pops: [],
+  chain: 0,
+  reducedEffects: false,
+};
 
 export async function startSoloSession(
   canvasHost: HTMLElement,
@@ -412,6 +436,9 @@ export async function startSoloSession(
       touchOverlay?.redraw();
       const syncStart = performance.now();
       for (const v of views) v.sync(latest);
+      // ADR 0009: advance + apply the effects after the state draw. Uses the
+      // wall clock so the 30 fps ladder rung gets a real ~33 ms dt.
+      for (const v of views) v.tickEffectsAuto();
       lastSyncMs = performance.now() - syncStart;
     },
     onFrameStats: (sample) => {
@@ -630,6 +657,19 @@ export async function startSoloSession(
     },
     debugSetBall(x: number, y: number, vx: number, vy: number): void {
       episode.debugSetBall(x, y, vx, vy);
+    },
+    get effectsState(): EffectsState {
+      const view = views[0];
+      // No view yet means the field is torn down; report an idle state rather
+      // than throwing, so a probe can never break a test run.
+      return view?.effectsState ?? IDLE_EFFECTS;
+    },
+    debugFireEvent(type: SimEventType, source = 0, target = -1): void {
+      const view = views[0];
+      if (view === undefined) return;
+      // tick 0 is behind every real watermark, so this fires exactly once.
+      view.visualEffects.onSimEvent({ type, source, target, tick: 0 }, episode.snapshot());
+      view.visualEffects.applyToScene();
     },
     dispose: teardown,
   };

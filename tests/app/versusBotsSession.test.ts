@@ -48,6 +48,8 @@ vi.mock("render/fieldView", () => ({
     sync = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    tickEffects = vi.fn();
+    tickEffectsAuto = vi.fn();
   },
 }));
 
@@ -56,6 +58,8 @@ vi.mock("render/splitScreen", () => ({
     readonly container = {};
     static lastPlayers: number[] | null = null;
     sync = vi.fn();
+    // ADR 0009: per-field effects advance each rendered frame.
+    tickEffects = vi.fn();
     resize = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();

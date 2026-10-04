@@ -747,6 +747,9 @@ export class MpFlow {
         // Ticket 30: SFX/music from this device's own field snapshots.
         for (const s of local) this.audio.consume(s);
         this.split?.sync(local);
+        // ADR 0009: effects are local + cosmetic, so only this device's fields
+        // run them — same filter as the audio above.
+        this.split?.tickEffects();
         this.lastSyncMs = performance.now() - syncStart;
       },
       onFrameStats: (sample) => {
@@ -1186,6 +1189,9 @@ export class MpFlow {
         // Ticket 30: SFX/music from the guest's interpolated view.
         for (const s of snaps) this.audio.consume(s);
         this.split?.sync(snaps);
+        // ADR 0009: the interpolated guest ring replays the same event across
+        // frames — VisualEffects dedupes by tick, same as sessionAudio.
+        this.split?.tickEffects();
         this.lastSyncMs = performance.now() - syncStart;
       },
       onFrameStats: (sample) => {
