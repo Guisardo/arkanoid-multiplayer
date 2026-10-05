@@ -441,6 +441,8 @@ export async function startVersusBotsSession(
       // Parallel: N snapshots → N fields. Single-field: 1 snapshot (all
       // players) → 1 field — SplitScreenView.sync index-aligns.
       split.sync(snaps);
+      // ADR 0009: per-field effects advance after the state draw.
+      split.tickEffects();
       lastSyncMs = performance.now() - syncStart;
     },
     onFrameStats: (sample) => {

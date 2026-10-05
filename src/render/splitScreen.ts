@@ -6,6 +6,7 @@ import { Container } from "pixi.js";
 import type { Snapshot } from "shared/protocol";
 import { splitRegions, layoutField, type Region } from "./layout";
 import { FieldView } from "./fieldView";
+import type { EffectsState } from "./visualEffects";
 import type { Locale } from "ui/strings";
 
 export interface SplitScreenOptions {
@@ -32,7 +33,12 @@ export class SplitScreenView {
   }
 
   private rebuild(): void {
-    for (const v of this.views) v.container.destroy({ children: true });
+    for (const v of this.views) {
+      // Destroy the effects orchestrator first: it owns pooled particles and
+      // BitmapText nodes that the container teardown would otherwise leak.
+      v.visualEffects.destroy();
+      v.container.destroy({ children: true });
+    }
     this.container.removeChildren();
     this.views = [];
     const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length);
@@ -70,6 +76,24 @@ export class SplitScreenView {
       const snap = snapshots[i];
       if (view && snap) view.sync(snap);
     }
+  }
+
+  /**
+   * ADR 0009: advance and apply every field's visual effects for one rendered
+   * frame. Separate from sync() because dt must reflect the real frame gap —
+   * on the perf ladder's 30 fps rung a rendered frame is ~33 ms. Pass no dt to
+   * let each FieldView measure its own wall clock.
+   */
+  tickEffects(dt?: number): void {
+    for (const v of this.views) {
+      if (dt === undefined) v.tickEffectsAuto();
+      else v.tickEffects(dt);
+    }
+  }
+
+  /** A field's live effect state — read by tests and session diagnostics. */
+  effectsStateOf(index: number): EffectsState | null {
+    return this.views[index]?.effectsState ?? null;
   }
 
   get fieldCount(): number {
