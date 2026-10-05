@@ -31,7 +31,7 @@ import level30 from "./levels/round-030.json";
 import level31 from "./levels/round-031.json";
 import level32 from "./levels/round-032.json";
 import level33 from "./levels/round-033.json";
-import type { LevelData } from "./levelFormat";
+import { assertValidLevel, type LevelData } from "./levelFormat";
 
 // Round registry (33 rounds land across tickets 31/35).
 const LEVELS: Record<number, LevelData> = {
@@ -70,9 +70,22 @@ const LEVELS: Record<number, LevelData> = {
   33: level33,
 } as Record<number, LevelData>;
 
+/**
+ * Ticket 113: rounds are validated the first time they are loaded, so a level
+ * whose grid or capsule script breaks its own rules fails here — at the load
+ * site, naming the round — instead of surfacing as a capsule that never drops
+ * three rounds later. Level data is a frozen import, so the verdict is cached:
+ * validation runs once per round per page, never per `getLevel` call.
+ */
+const validated = new Set<number>();
+
 export function getLevel(round: number): LevelData {
   const level = LEVELS[round];
   if (!level) throw new Error(`no level data for round ${String(round)}`);
+  if (!validated.has(round)) {
+    assertValidLevel(level);
+    validated.add(round);
+  }
   return level;
 }
 
