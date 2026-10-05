@@ -37,6 +37,7 @@ import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 import { Pool } from "./pool";
+import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -276,6 +277,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     if (b.y - BALL_R < 0 && !hasTopPaddle) {
       b.y = BALL_R;
       b.vy = Math.abs(b.vy);
+      registerCeilingHit(b); // classic ceiling speed-up (ticket 96)
     }
 
     // Paddles: each edge type bounces off its inner face.
@@ -283,7 +285,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       if (!aabbOverlap(b.x, b.y, BALL_R * 2, BALL_R * 2, p.x, p.y, p.w, p.h)) continue;
       const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, p.x, p.y, p.w, p.h);
       if (!res) continue;
-      const speed = speedFor();
+      const speed = ballSpeedFor(speedFor(), b);
       if (p.edge === "bottom" && b.vy > 0) {
         const d = offsetDeflect(b.x, speed, paddleBox(p), BALL_R);
         b.vx = d.vx;
@@ -432,7 +434,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
-
+        
         }
         break;
       }
@@ -453,7 +455,6 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             });
           }
         }
-
         break;
       }
       case "B":
@@ -544,7 +545,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         for (const b of balls) {
           if (b.attachedTo === null) continue;
           if (placement === "C" || ballModel === "shared" || b.attachedTo === f.player) {
-            const speed = speedFor();
+            const speed = ballSpeedFor(speedFor(), b);
             const p = paddles[b.attachedTo];
             if (p?.edge === "left") {
               b.vx = speed;

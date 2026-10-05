@@ -40,6 +40,7 @@ import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS, EFFECTS_CLEAR_ON_BALL_LOSS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 import { Pool } from "./pool";
+import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -256,6 +257,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     if (b.y - BALL_R < 0) {
       b.y = BALL_R;
       b.vy = Math.abs(b.vy);
+      // Classic ceiling/back-wall speed-up (ticket 96): the contact counts and
+      // each full threshold of contacts buys one more speed tier.
+      registerCeilingHit(b);
     }
 
     // paddle
@@ -263,7 +267,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       b.vy > 0 &&
       aabbOverlap(b.x, b.y, BALL_R * 2, BALL_R * 2, paddle.x, paddle.y, paddle.w, paddle.h)
     ) {
-      const speed = speedFor(destructibleCount());
+      const speed = ballSpeedFor(speedFor(destructibleCount()), b);
       const d = offsetDeflect(b.x, speed, paddle, BALL_R);
       const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, paddle.x, paddle.y, paddle.w, paddle.h);
       b.vx = d.vx;
@@ -396,7 +400,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             b.vx = (b.vx / speed) * target;
             b.vy = (b.vy / speed) * target;
           }
-
+         // classic slow drops the multiball boost too
         }
         effects.set("S", 10_000);
         break;
@@ -404,7 +408,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       case "M": {
         // Multiball: split each in-flight ball to 3 total (classic splits the
         // one ball into 3); only the last ball re-attaches on drop (ball-loss
-        // path), others are simply lost.
+        // path), others are simply lost. Classic "D" also spawns the extra
+
         const inFlight = balls.filter((b) => b.attachedTo === null);
         for (const b of inFlight) {
           const speed = Math.hypot(b.vx, b.vy) || baseSpeed;
@@ -421,7 +426,6 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             });
           }
         }
-
         break;
       }
       case "B": {

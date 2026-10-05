@@ -11,6 +11,11 @@ export interface BallState {
   vy: number;
   attachedTo: number | null;
   owner: number | null;
+  /**
+   * Ceiling (back-wall) contacts this ball has made this life (ticket 96).
+   * Drives the classic Arkanoid ceiling speed-up tier — see `sim/ballSpeed`.
+   */
+  ceilingHits: number;
 
 }
 
@@ -29,6 +34,7 @@ export function makeBallState(): BallState {
     vy: 0,
     attachedTo: null,
     owner: null,
+    ceilingHits: 0,
 
   };
 }
@@ -41,6 +47,7 @@ export function resetBallState(b: BallState): void {
   b.vy = 0;
   b.attachedTo = null;
   b.owner = null;
+  b.ceilingHits = 0;
 
 }
 
@@ -65,6 +72,8 @@ export interface BallInit {
   attachedTo: number | null;
   owner: number | null;
 
+  ceilingHits?: number;
+
 }
 
 /**
@@ -79,6 +88,7 @@ export function applyBallInit(b: BallState, init: BallInit): BallState {
   b.vy = init.vy ?? 0;
   b.attachedTo = init.attachedTo;
   b.owner = init.owner;
+  b.ceilingHits = init.ceilingHits ?? 0;
 
   return b;
 }
