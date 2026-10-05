@@ -50,6 +50,8 @@ import {
   type CapsuleState,
 } from "./simState";
 
+import { probeBricks } from "./brickProbe";
+
 const EVENT_RING_SIZE = 8;
 /** Ball speed scaling per player beyond 2 (spec: +5–8%; 6.5% mid). */
 export const SPEED_SCALE_PER_EXTRA_PLAYER = 1.065;
@@ -313,26 +315,22 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       }
     }
 
-    // Bricks.
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const hit = brickAt(b.x + dx * BRICK_W * 0.5, b.y + dy * BRICK_H * 0.5);
-        if (!hit) continue;
-        const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h);
-        if (res === null) continue;
-        const hitY = b.y;
-        b.x = res.x;
-        b.y = res.y;
-        const cell = bricks[hit.index] ?? BRICK_EMPTY;
-        if (isGoldCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          continue;
-        }
-        if (isDestructibleCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          hitBrick(hit.index, b.owner ?? 0);
-          return;
-        }
+    // Bricks (any direction): closest first (ticket 98).
+    for (const hit of probeBricks(b.x, b.y, brickAt)) {
+      const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h);
+      if (res === null) continue;
+      const hitY = b.y;
+      b.x = res.x;
+      b.y = res.y;
+      const cell = bricks[hit.index] ?? BRICK_EMPTY;
+      if (isGoldCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        continue;
+      }
+      if (isDestructibleCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        hitBrick(hit.index, b.owner ?? 0);
+        return;
       }
     }
 
@@ -447,7 +445,6 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-
             spawnBall({
               x: b.x, y: b.y,
               vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
@@ -455,6 +452,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             });
           }
         }
+
         break;
       }
       case "B":
