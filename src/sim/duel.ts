@@ -37,6 +37,7 @@ import type { LevelData } from "content/levelFormat";
 import { DUEL_DROP_BONUS } from "content/scoring";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
 import { Pool } from "./pool";
+import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -258,6 +259,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     if (b.y - BALL_R < 0) {
       b.y = BALL_R;
       b.vy = Math.abs(b.vy);
+      registerCeilingHit(b); // classic ceiling speed-up (ticket 96)
     }
 
     // Paddles: offset-deflect; ownership per ball model.
@@ -265,7 +267,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       const p = paddles[pi as 0 | 1];
       if (b.vy <= 0) continue;
       if (!aabbOverlap(b.x, b.y, BALL_R * 2, BALL_R * 2, p.x, p.y, p.w, p.h)) continue;
-      const speed = speedFor();
+      const speed = ballSpeedFor(speedFor(), b);
       const d = offsetDeflect(b.x, speed, p, BALL_R);
       const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, p.x, p.y, p.w, p.h);
       b.vx = d.vx;
@@ -390,7 +392,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
-
+        
         }
         break;
       }
@@ -409,6 +411,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             });
           }
         }
+        break;
 
         break;
       }
@@ -468,7 +471,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         if (!f.launch) continue;
         for (const b of balls) {
           if (b.attachedTo === f.player) {
-            const speed = speedFor();
+            const speed = ballSpeedFor(speedFor(), b);
             b.vx = 0;
             b.vy = -speed;
             b.attachedTo = null;

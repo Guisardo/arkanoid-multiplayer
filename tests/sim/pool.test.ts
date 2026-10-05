@@ -171,6 +171,8 @@ describe("reset contract (the ADR's stated bug risk)", () => {
     const fresh = applyBallInit(makeBallState(), {
       x: 1, y: 2, attachedTo: null, owner: 0,
     });
-    expect(fresh).toEqual({ x: 1, y: 2, vx: 0, vy: 0, attachedTo: null, owner: 0 });
+    expect(fresh).toEqual({
+      x: 1, y: 2, vx: 0, vy: 0, attachedTo: null, owner: 0, ceilingHits: 0,
+    });
   });
 });

@@ -146,6 +146,7 @@ export const EFFECT_RECIPES: Partial<Record<SimEventType, EffectRecipe>> = {
     paddleSquash: { scaleX: 1.1, scaleY: 1 / 1.1, duration: 0.15 },
     pop: { text: "CAPSULE", color: 0x44ff88, size: 1 },
   },
+
   roundClear: {
     trauma: 0.8,
     hitStopFrames: 8,
