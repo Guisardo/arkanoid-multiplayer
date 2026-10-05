@@ -58,6 +58,7 @@ vi.mock("render/splitScreen", () => ({
 
 import { MpFlow, type MpChannels } from "app/mpFlow";
 import { PROTOCOL_VERSION, type InputFrame, EMPTY_ACTIONS } from "shared/protocol";
+import { versionsCompatible } from "net/control";
 
 /** In-memory channel pair: host flow + guest flow directly wired. */
 function makePair(): {
@@ -344,7 +345,12 @@ describe("mpFlow wiring (ticket 45)", () => {
   }, 15000);
 
   it("protocol version constant is the handshake value", () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+    // Pinned on purpose: a bump must be a deliberate edit here, and the guest
+    // must advertise the same constant (mpFlow passes PROTOCOL_VERSION, never a
+    // literal — a drifted copy refuses every connection).
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(versionsCompatible(PROTOCOL_VERSION, PROTOCOL_VERSION)).toBe(true);
+    expect(versionsCompatible(PROTOCOL_VERSION - 1, PROTOCOL_VERSION)).toBe(false);
   });
 
   // ---- Ticket 53 (N2): mouse/touch wiring probes ----

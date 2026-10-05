@@ -31,6 +31,7 @@ import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
 const PHASES: readonly SimPhase[] = ["serve", "play", "roundClear", "gameOver"];
 const EVENT_TYPES: readonly SimEventType[] = [
   "ballLaunch", "ballLoss", "brickBreak", "brickSilverHit", "capsuleCatch",
+  "multiballBoost",
   "roundClear", "gameOver", "attack", "assist", "pause", "resume", "paddleBounce",
   "bossHit", "bossDead",
 ];

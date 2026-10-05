@@ -40,7 +40,6 @@ import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS, EFFECTS_CLEAR_ON_BALL_LOSS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 import { Pool } from "./pool";
-import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -52,7 +51,7 @@ import {
   type BallState,
   type CapsuleState,
 } from "./simState";
-
+import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
 const EVENT_RING_SIZE = 8;
@@ -247,6 +246,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     }
     b.x += b.vx * TICK_DT;
     b.y += b.vy * TICK_DT;
+    decayBoost(b);
 
     // walls
     if (b.x - BALL_R < 0) {
@@ -398,7 +398,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             b.vx = (b.vx / speed) * target;
             b.vy = (b.vy / speed) * target;
           }
-         // classic slow drops the multiball boost too
+          b.boostTicks = 0; // classic slow drops the multiball boost too
         }
         effects.set("S", 10_000);
         break;
@@ -407,23 +407,28 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         // Multiball: split each in-flight ball to 3 total (classic splits the
         // one ball into 3); only the last ball re-attaches on drop (ball-loss
         // path), others are simply lost. Classic "D" also spawns the extra
-
+        // balls *faster* (ticket 97): the boost rides the children only, for a
+        // fixed number of ticks, so it is a window rather than a permanent edge.
         const inFlight = balls.filter((b) => b.attachedTo === null);
         for (const b of inFlight) {
           const speed = Math.hypot(b.vx, b.vy) || baseSpeed;
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
+            // Boosted at the split, not at the next paddle touch: the speed
+            // jump leaving the paddle is the whole reward (ticket #97).
             spawnBall({
               x: b.x, y: b.y,
-              vx: Math.cos(a) * speed,
-              vy: Math.sin(a) * speed,
+              vx: Math.cos(a) * speed * MULTIBALL_BOOST.factor,
+              vy: Math.sin(a) * speed * MULTIBALL_BOOST.factor,
               attachedTo: null,
               owner: b.owner,
+              ceilingHits: b.ceilingHits,
+              boostTicks: MULTIBALL_BOOST.ticks,
             });
           }
         }
-
+        if (inFlight.length > 0) pushEvent("multiballBoost", player, -1);
         break;
       }
       case "B": {

@@ -37,7 +37,6 @@ import type { LevelData } from "content/levelFormat";
 import { DUEL_DROP_BONUS } from "content/scoring";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
 import { Pool } from "./pool";
-import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -49,7 +48,7 @@ import {
   type BallState,
   type CapsuleState,
 } from "./simState";
-
+import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
 const EVENT_RING_SIZE = 8;
@@ -250,6 +249,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     }
     b.x += b.vx * TICK_DT;
     b.y += b.vy * TICK_DT;
+    decayBoost(b);
 
     if (b.x - BALL_R < 0) {
       b.x = BALL_R;
@@ -390,7 +390,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
-        
+          b.boostTicks = 0;
         }
         break;
       }
@@ -401,14 +401,18 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
+            // Boosted at the split, not at the next paddle touch (ticket #97).
             spawnBall({
               x: b.x, y: b.y,
-              vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+              vx: Math.cos(a) * speed * MULTIBALL_BOOST.factor,
+              vy: Math.sin(a) * speed * MULTIBALL_BOOST.factor,
               attachedTo: null, owner: b.owner,
+              ceilingHits: b.ceilingHits,
+              boostTicks: MULTIBALL_BOOST.ticks,
             });
           }
         }
-
+        if (mine.length > 0) pushEvent("multiballBoost", catcher, -1);
         break;
       }
       case "B":
