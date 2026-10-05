@@ -159,7 +159,7 @@ describe("reset contract (the ADR's stated bug risk)", () => {
     const pool = new Pool<BallState>(makeBallState, resetBallState);
     pool.prewarm(1);
     const first = applyBallInit(pool.acquire(), {
-      x: 12, y: 34, vx: -5, vy: 6, attachedTo: 3, owner: 2,
+      x: 12, y: 34, vx: -5, vy: 6, attachedTo: 3, owner: 2, ceilingHits: 9, boostTicks: 8,
     });
     pool.release(first);
     const second = pool.acquire();
@@ -171,8 +171,6 @@ describe("reset contract (the ADR's stated bug risk)", () => {
     const fresh = applyBallInit(makeBallState(), {
       x: 1, y: 2, attachedTo: null, owner: 0,
     });
-    expect(fresh).toEqual({
-      x: 1, y: 2, vx: 0, vy: 0, attachedTo: null, owner: 0, ceilingHits: 0,
-    });
+    expect(fresh).toEqual({ x: 1, y: 2, vx: 0, vy: 0, attachedTo: null, owner: 0, ceilingHits: 0, boostTicks: 0 });
   });
 });

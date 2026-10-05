@@ -4,7 +4,10 @@
 // ---- Wire protocol version (spec §9 version handshake) ----
 
 /** Bump on any incompatible change to the game/control wire format. */
-export const PROTOCOL_VERSION = 1;
+// v2: added the `multiballBoost` SimEvent type (ticket #97). An older build
+// cannot decode it — `indexOfOrThrow` rejects unknown event types — so the
+// handshake refuses the mixed pair rather than desyncing mid-match.
+export const PROTOCOL_VERSION = 2;
 
 // ---- Input frame (the input→sim seam) ----
 
@@ -126,6 +129,12 @@ export type SimEventType =
   | "brickBreak"
   | "brickSilverHit"
   | "capsuleCatch"
+  /**
+   * Classic "D" multiball spawned faster balls (ticket #97). Separate from
+   * `capsuleCatch` so the effects layer can play the boost differently from an
+   * ordinary catch — the speed jump *is* the reward.
+   */
+  | "multiballBoost"
   | "roundClear"
   | "gameOver"
   | "attack"

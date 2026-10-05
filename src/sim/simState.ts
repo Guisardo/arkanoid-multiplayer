@@ -16,7 +16,11 @@ export interface BallState {
    * Drives the classic Arkanoid ceiling speed-up tier — see `sim/ballSpeed`.
    */
   ceilingHits: number;
-
+  /**
+   * Ticks left of the multiball spawn boost (ticket 97). Zero = no boost, so
+   * this field doubles as the boost timer and its presence flag.
+   */
+  boostTicks: number;
 }
 
 export interface CapsuleState {
@@ -35,7 +39,7 @@ export function makeBallState(): BallState {
     attachedTo: null,
     owner: null,
     ceilingHits: 0,
-
+    boostTicks: 0,
   };
 }
 
@@ -48,7 +52,7 @@ export function resetBallState(b: BallState): void {
   b.attachedTo = null;
   b.owner = null;
   b.ceilingHits = 0;
-
+  b.boostTicks = 0;
 }
 
 /** All-zero capsule (type falls back to the neutral `E`). */
@@ -71,9 +75,9 @@ export interface BallInit {
   vy?: number;
   attachedTo: number | null;
   owner: number | null;
-
+  /** Inherit for multiball children (ticket 96/97). */
   ceilingHits?: number;
-
+  boostTicks?: number;
 }
 
 /**
@@ -89,7 +93,7 @@ export function applyBallInit(b: BallState, init: BallInit): BallState {
   b.attachedTo = init.attachedTo;
   b.owner = init.owner;
   b.ceilingHits = init.ceilingHits ?? 0;
-
+  b.boostTicks = init.boostTicks ?? 0;
   return b;
 }
 
