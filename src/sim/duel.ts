@@ -18,6 +18,7 @@ import {
   PADDLE_VMAX,
   PADDLE_W,
   PADDLE_Y,
+  POOL_PREWARM,
   TICK_DT,
 } from "./constants";
 import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, type Box } from "./collision";
@@ -35,6 +36,18 @@ import {
 import type { LevelData } from "content/levelFormat";
 import { DUEL_DROP_BONUS } from "content/scoring";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
+import { Pool } from "./pool";
+import {
+  applyBallInit,
+  applyCapsuleInit,
+  makeBallState,
+  makeCapsuleState,
+  resetBallState,
+  resetCapsuleState,
+  type BallInit,
+  type BallState,
+  type CapsuleState,
+} from "./simState";
 
 const EVENT_RING_SIZE = 8;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
@@ -48,26 +61,11 @@ export function assertDuelRound(round: number): void {
 
 export type DuelBallModel = "shared" | "owned";
 
-interface BallState {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  attachedTo: number | null;
-  owner: number | null;
-}
-
 interface PaddleState {
   x: number;
   y: number;
   w: number;
   h: number;
-}
-
-interface CapsuleState {
-  x: number;
-  y: number;
-  type: CapsuleTypeId;
 }
 
 export interface DuelMatchResult {
@@ -113,6 +111,23 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
   const scriptRunner = new CapsuleScriptRunner(level.capsuleScript);
   let brickBreaks = 0;
 
+  // ADR 0006: pooled balls + capsules — multiball splits and script drops
+  // allocate nothing after prewarm.
+  const ballPool = new Pool<BallState>(makeBallState, resetBallState);
+  ballPool.prewarm(POOL_PREWARM.balls);
+  const capsulePool = new Pool<CapsuleState>(makeCapsuleState, resetCapsuleState);
+  capsulePool.prewarm(POOL_PREWARM.capsules);
+
+  function spawnBall(init: BallInit): BallState {
+    const b = applyBallInit(ballPool.acquire(), init);
+    balls.push(b);
+    return b;
+  }
+
+  function spawnCapsule(x: number, y: number, type: CapsuleState["type"]): void {
+    capsules.push(applyCapsuleInit(capsulePool.acquire(), x, y, type));
+  }
+
   // Paddles side-by-side: player 0 left half, player 1 right half.
   const paddles: [PaddleState, PaddleState] = [
     { x: FIELD_W / 4, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H },
@@ -127,11 +142,9 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
   function attachBall(player: number): void {
     const p = paddles[player];
     if (!p) return;
-    balls.push({
+    spawnBall({
       x: p.x,
       y: p.y - p.h / 2 - BALL_R,
-      vx: 0,
-      vy: 0,
       attachedTo: player,
       owner: player,
     });
@@ -338,7 +351,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     pushEvent("brickBreak", owner, index);
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
-    if (drop !== null) capsules.push({ x: at.x, y: at.y, type: drop });
+    if (drop !== null) spawnCapsule(at.x, at.y, drop);
     if (destructibleCount() === 0) {
       phase = "roundClear";
       pushEvent("roundClear", owner, -1);
@@ -377,6 +390,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
+
         }
         break;
       }
@@ -387,9 +401,15 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-            balls.push({ x: b.x, y: b.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, attachedTo: null, owner: b.owner });
+
+            spawnBall({
+              x: b.x, y: b.y,
+              vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+              attachedTo: null, owner: b.owner,
+            });
           }
         }
+
         break;
       }
       case "B":
@@ -409,13 +429,16 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       c.y += CAPSULE_FALL_SPEED * TICK_DT;
       if (c.y - CAPSULE_H / 2 > FIELD_H) {
         capsules.splice(i, 1);
+        capsulePool.release(c);
         continue;
       }
       for (let pi = 0; pi < paddles.length; pi++) {
         const p = paddles[pi as 0 | 1];
         if (aabbOverlap(c.x, c.y, CAPSULE_W, CAPSULE_H, p.x, p.y, p.w, p.h)) {
           capsules.splice(i, 1);
-          applyCapsule(c.type, pi as 0 | 1);
+          const caught = c.type;
+          capsulePool.release(c);
+          applyCapsule(caught, pi as 0 | 1);
           break;
         }
       }
@@ -469,6 +492,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           scores[opponent] += DUEL_DROP_BONUS;
           pushEvent("ballLoss", dropper, opponent);
           balls.splice(i, 1);
+          ballPool.release(b);
           if (balls.length === 0) {
             attachBall(dropper);
             phase = "serve";
@@ -527,7 +551,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       }
     },
     debugDropCapsule(x, y, type) {
-      capsules.push({ x, y, type });
+      spawnCapsule(x, y, type);
     },
   };
   return sim;

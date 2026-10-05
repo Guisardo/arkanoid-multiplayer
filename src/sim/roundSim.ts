@@ -14,6 +14,7 @@ import {
   PADDLE_VMAX,
   PADDLE_W,
   PADDLE_Y,
+  POOL_PREWARM,
   TICK_DT,
 } from "./constants";
 import {
@@ -38,25 +39,22 @@ import {
 import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS, EFFECTS_CLEAR_ON_BALL_LOSS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
+import { Pool } from "./pool";
+import {
+  applyBallInit,
+  applyCapsuleInit,
+  makeBallState,
+  makeCapsuleState,
+  resetBallState,
+  resetCapsuleState,
+  type BallInit,
+  type BallState,
+  type CapsuleState,
+} from "./simState";
 
 const EVENT_RING_SIZE = 8;
 /** Round 33 = Doh boss finale (ticket 49). */
 const BOSS_ROUND = 33;
-
-interface BallState {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  attachedTo: number | null;
-  owner: number | null;
-}
-
-interface CapsuleState {
-  x: number;
-  y: number;
-  type: LevelData["capsuleScript"][number]["capsule"];
-}
 
 export interface RoundSimOptions {
   lives: number;
@@ -120,6 +118,47 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   const scriptRunner = new CapsuleScriptRunner(level.capsuleScript);
   let brickBreaks = 0;
 
+  // ADR 0006: pooled balls + capsules. Steady-state play (multiball splits,
+  // script drops, ball loss) allocates nothing after prewarm.
+  const ballPool = new Pool<BallState>(makeBallState, resetBallState);
+  ballPool.prewarm(POOL_PREWARM.balls);
+  const capsulePool = new Pool<CapsuleState>(makeCapsuleState, resetCapsuleState);
+  capsulePool.prewarm(POOL_PREWARM.capsules);
+
+  function spawnBall(init: BallInit): BallState {
+    const b = applyBallInit(ballPool.acquire(), init);
+    balls.push(b);
+    return b;
+  }
+
+  function spawnCapsule(x: number, y: number, type: CapsuleState["type"]): void {
+    capsules.push(applyCapsuleInit(capsulePool.acquire(), x, y, type));
+  }
+
+  /** Return the ball at `index` to the pool. The caller removes it from `balls`. */
+  function releaseBall(b: BallState): void {
+    ballPool.release(b);
+  }
+
+  function releaseCapsule(c: CapsuleState): void {
+    capsulePool.release(c);
+  }
+
+  /** Empty the live ball list back into the pool (revive, boss kill, re-serve). */
+  function releaseAllBalls(): void {
+    while (balls.length > 0) {
+      const b = balls.pop();
+      if (b !== undefined) ballPool.release(b);
+    }
+  }
+
+  function releaseAllCapsules(): void {
+    while (capsules.length > 0) {
+      const c = capsules.pop();
+      if (c !== undefined) capsulePool.release(c);
+    }
+  }
+
   const paddle: Box & { edge: PaddleEdge } = {
     x: FIELD_W / 2,
     y: PADDLE_Y,
@@ -149,12 +188,10 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   }
 
   function attachBall(player: number): void {
-    balls.length = 0;
-    balls.push({
+    releaseAllBalls();
+    spawnBall({
       x: paddle.x,
       y: paddle.y - paddle.h / 2 - BALL_R,
-      vx: 0,
-      vy: 0,
       attachedTo: player,
       owner: player,
     });
@@ -323,7 +360,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
     if (drop !== null) {
-      capsules.push({ x: at.x, y: at.y, type: drop });
+      spawnCapsule(at.x, at.y, drop);
     }
     // Boss round (49): only the boss's death clears the round — clearing
     // every destructible brick while Doh lives does not (classic Doh fight).
@@ -359,6 +396,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             b.vx = (b.vx / speed) * target;
             b.vy = (b.vy / speed) * target;
           }
+
         }
         effects.set("S", 10_000);
         break;
@@ -373,7 +411,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-            balls.push({
+
+            spawnBall({
               x: b.x, y: b.y,
               vx: Math.cos(a) * speed,
               vy: Math.sin(a) * speed,
@@ -382,6 +421,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             });
           }
         }
+
         break;
       }
       case "B": {
@@ -420,6 +460,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       c.y += CAPSULE_FALL_SPEED * TICK_DT;
       if (c.y - CAPSULE_H / 2 > FIELD_H) {
         capsules.splice(i, 1);
+        releaseCapsule(c);
         continue;
       }
       if (
@@ -429,7 +470,9 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         )
       ) {
         capsules.splice(i, 1);
-        applyCapsule(c.type, player);
+        const caught = c.type;
+        releaseCapsule(c);
+        applyCapsule(caught, player);
       }
     }
   }
@@ -453,7 +496,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     },
 
     debugDropCapsule(x, y, type) {
-      capsules.push({ x, y, type });
+      spawnCapsule(x, y, type);
     },
 
     debugLoseBallsExcept(keepIndex) {
@@ -507,8 +550,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       // transferred — the giver's own lives are untouched.
       lives = 1;
       phase = "serve";
-      balls.length = 0;
-      capsules.length = 0;
+      releaseAllBalls();
+      releaseAllCapsules();
       effects.clear();
       paddle.w = paddleWidth();
       attachBall(0);
@@ -534,7 +577,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       // paddle so the teammate can catch it. High enough that it is
       // NOT caught on the drop tick (catch check runs in stepCapsules
       // during the same step that would otherwise splice it instantly).
-      capsules.push({ x: paddle.x, y: paddle.y - 40, type });
+      spawnCapsule(paddle.x, paddle.y - 40, type);
     },
 
     lastCaughtCapsule() {
@@ -572,7 +615,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       if (boss && !boss.dead) {
         const r = stepBoss(boss, tick, paddle);
         if (r.paddleDied) {
-          balls.length = 0; // force the ball-loss path below
+          releaseAllBalls(); // force the ball-loss path below
         }
       }
 
@@ -582,6 +625,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         const b = balls[i];
         if (b && b.attachedTo === null && b.y - BALL_R > FIELD_H) {
           balls.splice(i, 1);
+          releaseBall(b);
         }
       }
       if (balls.length === 0) {
