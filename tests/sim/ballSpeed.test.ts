@@ -67,15 +67,17 @@ describe("ceiling speed-up (ticket 96)", () => {
   });
 
   it("stays tunnel-safe at the highest round (physics-validation §9)", () => {
-    // The brick probe samples ±half a brick row around the ball, so a brick can
-    // only be missed if the ball travels more than BRICK_H/2 in one tick. The
-    // worst case is therefore every speed source at once: the highest base
+    // `probeBricks` takes the ball's own grid cell plus its eight neighbours, so
+    // a brick can only be missed if the ball crosses a *whole* cell in one tick.
+    // The worst case is therefore every speed source at once: the highest base
     // speed, both brick-count tiers, and every ceiling tier.
     const worst =
       getLevel(33).baseBallSpeed *
       1.08 *
       1.08 *
       ceilingSpeedMultiplier(CEILING_SPEEDUP.hitsPerTier * 1000);
-    expect(worst * TICK_DT).toBeLessThan(BRICK_H / 2);
+    expect(worst * TICK_DT).toBeLessThan(BRICK_H);
+    // And a wide margin, so raising a cap does not silently eat the budget.
+    expect(worst * TICK_DT).toBeLessThan(BRICK_H * 0.75);
   });
 });

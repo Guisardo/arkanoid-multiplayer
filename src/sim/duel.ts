@@ -50,6 +50,8 @@ import {
   type CapsuleState,
 } from "./simState";
 
+import { probeBricks } from "./brickProbe";
+
 const EVENT_RING_SIZE = 8;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
 export const DUEL_MAX_ROUND = 32;
@@ -280,26 +282,22 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       break;
     }
 
-    // Bricks.
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const hit = brickAt(b.x + dx * BRICK_W * 0.5, b.y + dy * BRICK_H * 0.5);
-        if (!hit) continue;
-        const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h);
-        if (res === null) continue;
-        const hitY = b.y;
-        b.x = res.x;
-        b.y = res.y;
-        const cell = bricks[hit.index] ?? BRICK_EMPTY;
-        if (isGoldCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          continue;
-        }
-        if (isDestructibleCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          hitBrick(hit.index, b.owner as 0 | 1);
-          return;
-        }
+    // Bricks: closest first (ticket 98).
+    for (const hit of probeBricks(b.x, b.y, brickAt)) {
+      const res = resolveCircleBoxOverlap(b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h);
+      if (res === null) continue;
+      const hitY = b.y;
+      b.x = res.x;
+      b.y = res.y;
+      const cell = bricks[hit.index] ?? BRICK_EMPTY;
+      if (isGoldCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        continue;
+      }
+      if (isDestructibleCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        hitBrick(hit.index, b.owner as 0 | 1);
+        return;
       }
     }
   }
@@ -403,7 +401,6 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-
             spawnBall({
               x: b.x, y: b.y,
               vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
@@ -411,7 +408,6 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             });
           }
         }
-        break;
 
         break;
       }
