@@ -77,6 +77,7 @@ vi.mock("render/touchOverlay", () => ({
 // ---- Test ----
 
 import { startSoloSession, type SoloSession } from "app/soloSession";
+import { Storage } from "persistence/storage";
 
 // jsdom lacks the Gamepad API — stub the poll surface (returns no pads).
 beforeEach(() => {
@@ -454,6 +455,39 @@ describe("solo session wiring", () => {
       const quitBtn = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Quit");
       quitBtn!.click();
       expect(quit).toBe(1);
+    });
+
+    it("pausing writes the episode record; quitting drops it (ticket 89)", async () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const s = await startSoloSession(host, 1, { onQuit: () => undefined });
+      sessions.push(s);
+      s.loop.advance(0);
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+      s.loop.advance(1000 / 60);
+      // Paused = Continuable, so a tab closed from the menu can be Continued.
+      expect(new Storage().readEpisode()).toMatchObject({ round: 1, phase: "playing" });
+      const menu = document.querySelector("[data-pause-menu]") as HTMLElement;
+      const quitBtn = [...menu.querySelectorAll("button")].find((b) => b.textContent === "Quit");
+      quitBtn!.click();
+      // Quitting is an explicit "I'm done": the landing's own boot must not
+      // immediately offer to Continue the run that was just quit.
+      expect(new Storage().readEpisode()).toBeNull();
+    });
+
+    it("continueEpisode boots the run on the saved round with the score penalty", async () => {
+      const store = new Storage();
+      store.writeEpisode({ round: 5, score: 5000, lives: 1, phase: "playing", timestamp: 1 });
+      const saved = store.readEpisode();
+      expect(saved).not.toBeNull();
+      if (saved === null) return;
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const s = await startSoloSession(host, 1, { continueEpisode: saved });
+      sessions.push(s);
+      expect(s.soloRound).toBe(5);
+      expect(s.soloScore).toBe(2000);
+      expect(s.soloPhase).toBe("playing");
     });
 
     it("episode complete (round 33 Doh clear) shows the complete end screen without Continue", async () => {

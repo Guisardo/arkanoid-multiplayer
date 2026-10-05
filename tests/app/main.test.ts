@@ -9,9 +9,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Ticket 89: typed as a rest parameter so a test can read the round / resumed
+// record off `mock.calls` without tripping the tuple-length check.
 const soloStart = vi
-  .fn(() => Promise.resolve({ app: {}, loop: {}, dispose: (): void => undefined }))
+  .fn(
+    (...args: unknown[]): Promise<{ app: object; loop: object; dispose: () => void }> => {
+      soloArgs.push(args);
+      return Promise.resolve({ app: {}, loop: {}, dispose: (): void => undefined });
+    },
+  )
   .mockName("startSoloSession");
+/** Every argument tuple the boot passed to `startSoloSession`, in order. */
+const soloArgs: unknown[][] = [];
 const botsScreenOpts: { onStart: (c: unknown) => void }[] = [];
 
 // ---- Fake WebRTC room (host side) ----
@@ -74,7 +83,9 @@ const flowInstances: { currentPhase: string }[] = [];
 const pausePresses: { host: boolean }[] = [];
 function applyMocks(): void {
   vi.doMock("app/soloSession", () => ({
-    startSoloSession: () => soloStart(),
+    // Ticket 89: forward the args so a test can assert which round (or which
+    // resumed record) the session was booted with.
+    startSoloSession: (...args: unknown[]) => soloStart(...args),
   }));
   // Ticket 56: versus-bots session layer — mock (jsdom cannot load Pixi).
   vi.doMock("app/versusBotsSession", () => ({
@@ -200,6 +211,7 @@ afterEach(() => {
   globalThis.localStorage.clear();
   botsScreenOpts.length = 0;
   soloStart.mockClear();
+  soloArgs.length = 0;
   fakeRooms.length = 0;
   lastRoom.room = null;
   guestConnections.clear();
@@ -292,6 +304,83 @@ describe("main boot (ticket 45)", () => {
     clickButton("Multiplayer");
     const text = document.body.textContent ?? "";
     expect(text).not.toContain("Enter the room code");
+  });
+});
+
+describe("boot-time episode resume (ticket 89)", () => {
+  /** Seed the composite save key with an in-progress (or terminal) episode. */
+  function seedEpisode(phase: "playing" | "gameOver" | "episodeComplete", round = 7, score = 4200): void {
+    globalThis.localStorage.setItem(
+      "arkanoid.save.v1",
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: 1,
+        deviceId: "seed",
+        soloEpisode: { round, score, lives: 2, phase, timestamp: 1 },
+      }),
+    );
+  }
+
+  async function settle(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("an interrupted run is offered back before the landing screen", async () => {
+    seedEpisode("playing");
+    await importMain();
+    expect(document.querySelector("[data-continue-episode]")).not.toBeNull();
+    expect(document.body.textContent ?? "").not.toContain("Versus bots");
+  });
+
+  it("Continue boots the solo session on the saved round with the record attached", async () => {
+    seedEpisode("playing", 7, 4200);
+    await importMain();
+    clickButton("Continue");
+    await settle();
+    expect(soloStart).toHaveBeenCalledTimes(1);
+    const args = soloArgs[0] ?? [];
+    expect(args[1]).toBe(7);
+    expect(args[2]).toMatchObject({
+      continueEpisode: { round: 7, score: 4200, phase: "playing" },
+    });
+  });
+
+  it("Restart drops the record and shows the landing instead", async () => {
+    seedEpisode("playing");
+    await importMain();
+    clickButton("Restart");
+    await settle();
+    expect(soloStart).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-continue-episode]")).toBeNull();
+    expect(document.body.textContent ?? "").toContain("Versus bots");
+    // The abandoned run must not come back on the next reload.
+    const doc = JSON.parse(globalThis.localStorage.getItem("arkanoid.save.v1") ?? "{}") as {
+      soloEpisode?: unknown;
+    };
+    expect(doc.soloEpisode).toBeUndefined();
+  });
+
+  it("a finished run is not offered — the landing comes up directly", async () => {
+    seedEpisode("gameOver");
+    await importMain();
+    expect(document.querySelector("[data-continue-episode]")).toBeNull();
+    expect(document.body.textContent ?? "").toContain("Versus bots");
+  });
+
+  it("a completed episode is not offered either", async () => {
+    seedEpisode("episodeComplete");
+    await importMain();
+    expect(document.querySelector("[data-continue-episode]")).toBeNull();
+  });
+
+  it("with no record the landing boots unchanged", async () => {
+    await importMain();
+    expect(document.querySelector("[data-continue-episode]")).toBeNull();
+    clickButton("Solo");
+    await settle();
+    expect(soloStart).toHaveBeenCalledTimes(1);
+    expect(soloArgs[0]?.[2]).not.toHaveProperty("continueEpisode");
   });
 });
 

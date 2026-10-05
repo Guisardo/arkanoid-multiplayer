@@ -61,8 +61,9 @@ export interface SoloProgress {
 export type EpisodePhase = "playing" | "gameOver" | "episodeComplete";
 
 /**
- * Optional mid-episode resume payload (ADR 0008 §5). Written by the solo
- * episode (ticket #89); declared here so the schema owns it and migrations
+ * Optional mid-episode record behind the boot prompt's **Continue** (ADR 0008
+ * §5, ticket 89). Written by the solo episode on round clear, game over, pause,
+ * and a 30 s heartbeat; declared here so the schema owns it and migrations
  * preserve it.
  */
 export interface EpisodeState {
@@ -71,6 +72,17 @@ export interface EpisodeState {
   lives: number;
   phase: EpisodePhase;
   timestamp: number;
+}
+
+/**
+ * A record is only Continuable while the run was still in progress. A finished
+ * record (game over, episode complete) stays on disk so the state stays
+ * truthful, but the boot prompt must not offer to Continue one.
+ */
+export function isContinuableEpisode(
+  state: EpisodeState | null | undefined,
+): state is EpisodeState {
+  return state !== null && state !== undefined && state.phase === "playing";
 }
 
 /** The whole save, one atomic value. */
