@@ -53,6 +53,8 @@ import {
   type CapsuleState,
 } from "./simState";
 
+import { probeBricks } from "./brickProbe";
+
 const EVENT_RING_SIZE = 8;
 /** Round 33 = Doh boss finale (ticket 49). */
 const BOSS_ROUND = 33;
@@ -277,28 +279,24 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       pushEvent("paddleBounce", player, -1);
     }
 
-    // bricks: probe cells around the ball
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const hit = brickAt(b.x + dx * BRICK_W * 0.5, b.y + dy * BRICK_H * 0.5);
-        if (!hit) continue;
-        const res = resolveCircleBoxOverlap(
-          b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h,
-        );
-        if (res === null) continue;
-        const hitY = b.y;
-        b.x = res.x;
-        b.y = res.y;
-        const cell = bricks[hit.index] ?? BRICK_EMPTY;
-        if (isGoldCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          continue;
-        }
-        if (isDestructibleCell(cell)) {
-          bounceOffBox(b, hit.box, res, hitY);
-          hitBrick(hit.index, cell, player);
-          return; // one brick per step
-        }
+    // bricks: probe the 3x3 neighbourhood, closest brick first (ticket 98).
+    for (const hit of probeBricks(b.x, b.y, brickAt)) {
+      const res = resolveCircleBoxOverlap(
+        b.x, b.y, BALL_R, hit.box.x, hit.box.y, hit.box.w, hit.box.h,
+      );
+      if (res === null) continue;
+      const hitY = b.y;
+      b.x = res.x;
+      b.y = res.y;
+      const cell = bricks[hit.index] ?? BRICK_EMPTY;
+      if (isGoldCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        continue;
+      }
+      if (isDestructibleCell(cell)) {
+        bounceOffBox(b, hit.box, res, hitY);
+        hitBrick(hit.index, cell, player);
+        return; // one brick per step
       }
     }
 
@@ -416,7 +414,6 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-
             spawnBall({
               x: b.x, y: b.y,
               vx: Math.cos(a) * speed,
@@ -426,6 +423,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             });
           }
         }
+
         break;
       }
       case "B": {
