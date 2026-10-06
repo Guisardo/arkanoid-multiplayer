@@ -16,3 +16,14 @@ export const CAPSULE_FALL_SPEED = 45;
 export const PADDLE_VMAX = 150;
 export const SIM_HZ = 60;
 export const TICK_DT = 1 / SIM_HZ;
+
+/**
+ * ADR 0006 pool prewarm sizes. Balls: 3 players × 3 multiball + serve buffer.
+ * Capsules: the script can fire 10 drops per round and they fall slowly.
+ * Boss projectiles: Doh fires 3 at a time in phase 2.
+ */
+export const POOL_PREWARM = {
+  balls: 12,
+  capsules: 24,
+  bossProjectiles: 8,
+} as const;

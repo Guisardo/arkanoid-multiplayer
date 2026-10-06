@@ -17,6 +17,7 @@ import {
   PADDLE_VMAX,
   PADDLE_W,
   PADDLE_Y,
+  POOL_PREWARM,
   TICK_DT,
 } from "./constants";
 import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, type Box } from "./collision";
@@ -35,6 +36,18 @@ import {
 import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
+import { Pool } from "./pool";
+import {
+  applyBallInit,
+  applyCapsuleInit,
+  makeBallState,
+  makeCapsuleState,
+  resetBallState,
+  resetCapsuleState,
+  type BallInit,
+  type BallState,
+  type CapsuleState,
+} from "./simState";
 
 const EVENT_RING_SIZE = 8;
 /** Ball speed scaling per player beyond 2 (spec: +5–8%; 6.5% mid). */
@@ -44,15 +57,6 @@ const BOSS_ROUND = 33;
 
 export type Placement = "A" | "B" | "C";
 export type SharedBallModel = "shared" | "perPlayer";
-
-interface BallState {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  attachedTo: number | null;
-  owner: number | null;
-}
 
 interface PaddleState {
   x: number;
@@ -66,12 +70,6 @@ interface PaddleState {
   /** Vertical paddles (placement B sides). */
   minY: number;
   maxY: number;
-}
-
-interface CapsuleState {
-  x: number;
-  y: number;
-  type: CapsuleTypeId;
 }
 
 export interface SharedFieldSim {
@@ -137,7 +135,32 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
   const scriptRunner = new CapsuleScriptRunner(level.capsuleScript);
   let brickBreaks = 0;
 
+  // ADR 0006: pooled balls + capsules. Per-player model serves up to 4 balls,
+  // so prewarm covers the widest steady state (4 serves + multiball splits).
+  const ballPool = new Pool<BallState>(makeBallState, resetBallState);
+  ballPool.prewarm(POOL_PREWARM.balls);
+  const capsulePool = new Pool<CapsuleState>(makeCapsuleState, resetCapsuleState);
+  capsulePool.prewarm(POOL_PREWARM.capsules);
+
   const paddles: PaddleState[] = makePaddles();
+
+  function spawnBall(init: BallInit): BallState {
+    const b = applyBallInit(ballPool.acquire(), init);
+    balls.push(b);
+    return b;
+  }
+
+  function spawnCapsule(x: number, y: number, type: CapsuleState["type"]): void {
+    capsules.push(applyCapsuleInit(capsulePool.acquire(), x, y, type));
+  }
+
+  /** Empty the live ball list back into the pool (boss kill / re-serve). */
+  function releaseAllBalls(): void {
+    while (balls.length > 0) {
+      const b = balls.pop();
+      if (b !== undefined) ballPool.release(b);
+    }
+  }
 
   // ---- Doh boss (ticket 49): round 33 only ----
   const boss: BossState | null = level.round === BOSS_ROUND ? createBossState() : null;
@@ -205,7 +228,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     else if (p.edge === "top") y = p.y + p.h / 2 + BALL_R;
     else if (p.edge === "left") x = p.x + p.w / 2 + BALL_R;
     else x = p.x - p.w / 2 - BALL_R;
-    balls.push({ x, y, vx: 0, vy: 0, attachedTo: player, owner: player });
+    spawnBall({ x, y, attachedTo: player, owner: player });
   }
 
   function destructibleCount(): number {
@@ -288,7 +311,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       }
     }
 
-    // Bricks (any direction).
+    // Bricks.
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const hit = brickAt(b.x + dx * BRICK_W * 0.5, b.y + dy * BRICK_H * 0.5);
@@ -378,7 +401,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     }
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
-    if (drop !== null) capsules.push({ x: at.x, y: at.y, type: drop });
+    if (drop !== null) spawnCapsule(at.x, at.y, drop);
     // Boss round (49): only the boss's death clears — bricks never do.
     if (destructibleCount() === 0 && !(boss && !boss.dead)) {
       phase = "roundClear";
@@ -409,20 +432,28 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
+
         }
         break;
       }
       case "M": {
-        // Multiball splits the capturing player's ball only.
+        // Multiball splits the capturing player's ball only. The spawned balls
+
         const mine = balls.filter((b) => b.attachedTo === null && (ballModel === "shared" || b.owner === catcher));
         for (const b of mine) {
           const speed = Math.hypot(b.vx, b.vy) || baseSpeed;
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
-            balls.push({ x: b.x, y: b.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, attachedTo: null, owner: b.owner });
+
+            spawnBall({
+              x: b.x, y: b.y,
+              vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+              attachedTo: null, owner: b.owner,
+            });
           }
         }
+
         break;
       }
       case "B":
@@ -443,13 +474,16 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       c.y += CAPSULE_FALL_SPEED * TICK_DT;
       if (c.y - CAPSULE_H / 2 > FIELD_H) {
         capsules.splice(i, 1);
+        capsulePool.release(c);
         continue;
       }
       for (const p of paddles) {
         if (p.edge !== "bottom") continue;
         if (aabbOverlap(c.x, c.y, CAPSULE_W, CAPSULE_H, p.x, p.y, p.w, p.h)) {
           capsules.splice(i, 1);
-          applyCapsule(c.type, paddles.indexOf(p));
+          const caught = c.type;
+          capsulePool.release(c);
+          applyCapsule(caught, paddles.indexOf(p));
           break;
         }
       }
@@ -545,7 +579,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         if (first) {
           const r = stepBoss(boss, tick, { x: first.x, y: first.y, w: first.w, h: first.h });
           if (r.paddleDied) {
-            balls.length = 0; // force the ball-loss path below
+            releaseAllBalls(); // force the ball-loss path below
           }
         }
       }
@@ -555,6 +589,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         const b = balls[i];
         if (b && b.attachedTo === null && b.y - BALL_R > FIELD_H) {
           balls.splice(i, 1);
+          ballPool.release(b);
         }
       }
       if (balls.length === 0) {
@@ -632,7 +667,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       }
     },
     debugDropCapsule(x, y, type) {
-      capsules.push({ x, y, type });
+      spawnCapsule(x, y, type);
     },
   };
   return sim;

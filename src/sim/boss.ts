@@ -1,9 +1,10 @@
 // Doh boss logic (ticket 49, spec §4/§5): round 33 boss finale.
 // Pure, deterministic, headless — no DOM/Pixi/network ever. All patterns
 // derive from tick count (zero RNG, capsule-script philosophy).
-import { FIELD_W, PADDLE_Y, TICK_DT } from "./constants";
+import { FIELD_W, PADDLE_Y, POOL_PREWARM, TICK_DT } from "./constants";
 import { aabbOverlap } from "./collision";
 import type { Box } from "./collision";
+import { Pool } from "./pool";
 
 /** Boss box: 48×32 moai at the field top (matches DOH_BOSS sprite, §13). */
 export const BOSS_W = 48;
@@ -34,6 +35,19 @@ export interface BossProjectile {
   vy: number;
 }
 
+/** All-zero projectile: the canonical starting shape for `Pool.acquire`. */
+export function makeBossProjectile(): BossProjectile {
+  return { x: 0, y: 0, vx: 0, vy: 0 };
+}
+
+/** Clear every projectile field (ADR 0006 reset contract). */
+export function resetBossProjectile(p: BossProjectile): void {
+  p.x = 0;
+  p.y = 0;
+  p.vx = 0;
+  p.vy = 0;
+}
+
 export interface BossState {
   x: number;
   y: number;
@@ -41,12 +55,22 @@ export interface BossState {
   /** 1 = opening, 2 = final tier (≤ BOSS_PHASE2_HP). */
   phase: 1 | 2;
   projectiles: BossProjectile[];
+  /** ADR 0006: pool backing `projectiles` — prewarmed, never exhausted. */
+  projectilePool: Pool<BossProjectile>;
   dead: boolean;
 }
 
 /** Boss box for collision (center-anchored, matches render anchor). */
 export function bossBox(b: BossState): Box {
   return { x: b.x, y: b.y, w: BOSS_W, h: BOSS_H };
+}
+
+/** Return every live projectile to the pool (boss death, round teardown). */
+function releaseAllProjectiles(b: BossState): void {
+  while (b.projectiles.length > 0) {
+    const p = b.projectiles.pop();
+    if (p !== undefined) b.projectilePool.release(p);
+  }
 }
 
 /** Deterministic fire pattern: aimed at paddle x with a fixed spread. */
@@ -60,21 +84,39 @@ export function spawnProjectiles(
   const len = Math.hypot(dx, dy) || 1;
   const speed = BOSS_PROJECTILE_SPEED;
   const base = { vx: (dx / len) * speed, vy: (dy / len) * speed };
-  b.projectiles.push({ x: b.x, y: b.y + BOSS_H / 2, vx: base.vx, vy: base.vy });
+  b.projectiles.push(initProjectile(b, b.x, b.y + BOSS_H / 2, base.vx, base.vy));
   if (b.phase === 2) {
     // Fixed ±20° spread — deterministic, no RNG.
     for (const spread of [Math.PI / 9, -Math.PI / 9]) {
       const a = Math.atan2(base.vy, base.vx) + spread;
-      b.projectiles.push({
-        x: b.x,
-        y: b.y + BOSS_H / 2,
-        vx: Math.cos(a) * speed,
-        vy: Math.sin(a) * speed,
-      });
+      b.projectiles.push(
+        initProjectile(
+          b,
+          b.x,
+          b.y + BOSS_H / 2,
+          Math.cos(a) * speed,
+          Math.sin(a) * speed,
+        ),
+      );
     }
   }
   // Pattern is tick-interval driven, not tick-seeded — tick kept for API symmetry.
   if (tick < 0) throw new Error("negative tick");
+}
+
+function initProjectile(
+  b: BossState,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+): BossProjectile {
+  const p = b.projectilePool.acquire();
+  p.x = x;
+  p.y = y;
+  p.vx = vx;
+  p.vy = vy;
+  return p;
 }
 
 /** Advance boss + projectiles one tick. Returns true if the paddle died. */
@@ -109,6 +151,7 @@ export function stepBoss(
     p.y += p.vy * TICK_DT;
     if (p.y - size / 2 > 256 || p.x < -size || p.x > FIELD_W + size) {
       b.projectiles.splice(i, 1);
+      b.projectilePool.release(p);
       continue;
     }
     if (
@@ -118,6 +161,7 @@ export function stepBoss(
       )
     ) {
       b.projectiles.splice(i, 1);
+      b.projectilePool.release(p);
       paddleDied = true;
     }
   }
@@ -131,7 +175,7 @@ export function hitBoss(b: BossState): boolean {
   if (b.hp <= BOSS_PHASE2_HP && b.phase === 1) b.phase = 2;
   if (b.hp <= 0) {
     b.dead = true;
-    b.projectiles.length = 0;
+    releaseAllProjectiles(b);
     return true;
   }
   return false;
@@ -139,12 +183,15 @@ export function hitBoss(b: BossState): boolean {
 
 /** Fresh boss state for round 33. */
 export function createBossState(): BossState {
+  const projectilePool = new Pool<BossProjectile>(makeBossProjectile, resetBossProjectile);
+  projectilePool.prewarm(POOL_PREWARM.bossProjectiles);
   return {
     x: FIELD_W / 2,
     y: BOSS_Y,
     hp: BOSS_MAX_HP,
     phase: 1,
     projectiles: [],
+    projectilePool,
     dead: false,
   };
 }
