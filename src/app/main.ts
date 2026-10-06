@@ -21,6 +21,8 @@ import { fetchIceConfig } from "signaling/iceConfig";
 import { deployEnvFromVite, signalingUrlFor, turnConfigured, type DeployEnv } from "app/deployEnv";
 import { CopyPasteHostScreen, CopyPasteGuestScreen } from "ui/copyPasteScreens";
 import { Storage } from "persistence/storage";
+import { isContinuableEpisode, type EpisodeState } from "persistence/saveDocument";
+import { ContinueEpisodeScreen } from "ui/continueEpisode";
 import { loadSettings } from "ui/settings";
 import { showSettings } from "app/settingsRoute";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
@@ -71,6 +73,31 @@ function openSettingsOverlay(flow?: MpFlow): void {
 
 function boot(): void {
   const prefill = codeFromUrl(globalThis.location.href);
+  // Ticket 89: a run interrupted by a crash / closed tab is offered as a
+  // Continue before the landing screen, because it is the reason the player
+  // came back. A record from a finished run is not continuable and never
+  // reaches this point.
+  const pending = storage.readEpisode();
+  if (isContinuableEpisode(pending)) {
+    const prompt = new ContinueEpisodeScreen({
+      host: appHost,
+      locale,
+      episode: pending,
+      onChoice: (choice) => {
+        prompt.close();
+        if (choice === "continue") openSolo(pending.round, pending);
+        else {
+          storage.clearEpisode();
+          showLanding(prefill);
+        }
+      },
+    });
+    return;
+  }
+  showLanding(prefill);
+}
+
+function showLanding(prefill: string | null): void {
   const landing = new LandingScreen({
     host: appHost,
     locale,
@@ -78,19 +105,25 @@ function boot(): void {
     onSettings: openSettingsOverlay,
     onChoice: (choice, joinCode) => {
       landing.close();
-      if (choice === "solo") {
-        void initAssets()
-          .then(() => startSoloSession(appHost, 1, { onQuit: boot }))
-          .then((session) => {
-            globalThis.__arkanoid = session;
-          });
-      } else if (choice === "versusBots") {
-        openVersusBots();
-      } else {
-        openMultiplayer(joinCode ?? undefined);
-      }
+      if (choice === "solo") openSolo(1);
+      else if (choice === "versusBots") openVersusBots();
+      else openMultiplayer(joinCode ?? undefined);
     },
   });
+}
+
+/** Boot the solo session; `continuing` is a record to Continue from (ticket 89). */
+function openSolo(round: number, continuing?: EpisodeState): void {
+  void initAssets()
+    .then(() =>
+      startSoloSession(appHost, round, {
+        onQuit: boot,
+        ...(continuing !== undefined ? { continueEpisode: continuing } : {}),
+      }),
+    )
+    .then((session) => {
+      globalThis.__arkanoid = session;
+    });
 }
 
 function openVersusBots(): void {

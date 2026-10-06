@@ -15,6 +15,7 @@ import { layoutField } from "render/layout";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
 import { Storage } from "persistence/storage";
+import type { EpisodeState } from "persistence/saveDocument";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
@@ -33,6 +34,11 @@ export interface SoloSessionOptions {
   enablePointer?: boolean;
   /** Quit from the pause menu / end screen: dispose, then this (default reload). */
   onQuit?: () => void;
+  /**
+   * Ticket 89: Continue a persisted in-progress run. Mutually exclusive with
+   * `round` — the record already carries the round it stopped on.
+   */
+  continueEpisode?: EpisodeState;
 }
 
 export interface SoloSession {
@@ -116,12 +122,19 @@ export async function startSoloSession(
   // Settings override + auto-detect (spec §14): stored language wins.
   const locale: Locale = opts.locale ?? resolveLocale(storage.loadAll().language, languages);
   // Ticket 36/53: the episode owns rounds 1–33, lives, Continue/Restart,
-  // records — the session renders whatever round it is on.
+  // records — the session renders whatever round it is on. Ticket 89: a
+  // `continueEpisode` record picks the run back up (round + score penalty, fresh
+  // lives); otherwise any stale record is dropped so a later crash cannot offer
+  // to Continue a run the player already abandoned.
+  const continuing = opts.continueEpisode;
   const episode: SoloEpisode = createSoloEpisode({
     storage,
     playerName: "Player 1",
-    ...(round > 1 ? { startRound: round } : {}),
+    ...(continuing !== undefined
+      ? { savedEpisode: continuing }
+      : { ...(round > 1 ? { startRound: round } : {}) }),
   });
+  if (continuing === undefined) storage.clearEpisode();
   const sim = episode;
 
   const keyboard = KeyboardAdapter.solo();
@@ -233,6 +246,10 @@ export async function startSoloSession(
 
   /** Quit from pause menu / end screen: dispose, then hand off (default reload). */
   const quitTo = (): void => {
+    // Ticket 89: quitting to the landing is an explicit "I'm done" — drop the
+    // record, or the landing's own boot would immediately offer to Continue the
+    // run the player just quit. An *abandoned* run is not Continuable.
+    episode.abandon();
     teardown();
     if (opts.onQuit !== undefined) opts.onQuit();
     else globalThis.location.reload();
@@ -280,6 +297,9 @@ export async function startSoloSession(
     if (paused || endScreen !== null) return;
     paused = true;
     loop.stop();
+    // Ticket 89: pausing writes the record, so a tab closed from here can be
+    // Continued.
+    episode.pause();
     pauseMenu = buildPauseMenu();
     canvasHost.appendChild(pauseMenu);
   }
@@ -289,6 +309,7 @@ export async function startSoloSession(
     pauseMenu?.remove();
     pauseMenu = null;
     paused = false;
+    episode.resume();
     loop.start();
   }
 

@@ -16,6 +16,7 @@ import {
   normalizeSettings,
   stateFromDocument,
   type DocumentMeta,
+  type EpisodeState,
   type FlatSaveState,
   type SaveDocument,
   type SaveSettings,
@@ -206,6 +207,36 @@ export class Storage {
       highScore: Math.max(doc.solo.highScore, Number.isFinite(score) ? score : 0),
       highestRound: Math.max(doc.solo.highestRound, Number.isFinite(round) ? round : 0),
     };
+    this.writeDocument(doc);
+  }
+
+  /**
+   * The in-progress solo episode (ticket 89), or null when there is none.
+   * Reads normalise like everything else: a corrupt record degrades to "no
+   * episode", which is the same outcome as never having played.
+   */
+  readEpisode(): EpisodeState | null {
+    return this.loadDocument().soloEpisode ?? null;
+  }
+
+  /**
+   * Persist the episode record inside the same atomic write as everything else,
+   * so a crash can never leave the episode ahead of (or behind) the settings.
+   */
+  writeEpisode(state: EpisodeState): void {
+    const doc = this.loadDocument();
+    doc.soloEpisode = state;
+    this.writeDocument(doc);
+  }
+
+  /**
+   * Drop the episode record. Called when a run starts fresh or is abandoned —
+   * a stale record would otherwise offer to Continue a run the player already
+   * walked away from.
+   */
+  clearEpisode(): void {
+    const doc = this.loadDocument();
+    delete doc.soloEpisode;
     this.writeDocument(doc);
   }
 
