@@ -32,8 +32,15 @@ test("settings: pause menu → Settings (Audio/Display), audio persists across r
   await expect(pauseMenu).toBeVisible({ timeout: 5_000 });
   await pauseMenu.locator("button", { hasText: "Resume" }).click();
 
-  // Reload — persisted value survives
+  // Reload — persisted value survives.
+  //
+  // Ticket 89: opening the pause menu above wrote the episode record, so this
+  // reload boots the Continue prompt instead of the landing. Restart drops the
+  // record and returns to the landing, which is the path this test wants — it
+  // is here to read the persisted slider, not to resume a run. Deleting these
+  // two lines "fixes" the test by breaking ticket 89.
   await page.reload();
+  await page.locator("[data-continue-choice='restart']").click();
   await page.locator("button", { hasText: "Solo" }).click();
   await page.waitForFunction(() => globalThis.__arkanoid !== undefined, null, { timeout: 15_000 });
   await page.keyboard.press("Escape");
