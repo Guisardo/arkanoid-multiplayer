@@ -37,7 +37,6 @@ import type { LevelData } from "content/levelFormat";
 import { CapsuleScriptRunner, CAPSULE_EFFECTS } from "./capsules";
 import { createBossState, stepBoss, hitBoss, bossBox, type BossState } from "./boss";
 import { Pool } from "./pool";
-import { ballSpeedFor, registerCeilingHit } from "./ballSpeed";
 import {
   applyBallInit,
   applyCapsuleInit,
@@ -49,7 +48,7 @@ import {
   type BallState,
   type CapsuleState,
 } from "./simState";
-
+import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
 const EVENT_RING_SIZE = 8;
@@ -263,6 +262,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     }
     b.x += b.vx * TICK_DT;
     b.y += b.vy * TICK_DT;
+    decayBoost(b);
 
     // Walls: placement B non-paddle edges are walls; bottom ALWAYS open.
     const hasLeftPaddle = paddles.some((p) => p.edge === "left");
@@ -432,27 +432,31 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             b.vx = (b.vx / speed) * baseSpeed;
             b.vy = (b.vy / speed) * baseSpeed;
           }
-        
+          b.boostTicks = 0;
         }
         break;
       }
       case "M": {
         // Multiball splits the capturing player's ball only. The spawned balls
-
+        // carry the classic temporary boost (ticket 97).
         const mine = balls.filter((b) => b.attachedTo === null && (ballModel === "shared" || b.owner === catcher));
         for (const b of mine) {
           const speed = Math.hypot(b.vx, b.vy) || baseSpeed;
           const baseAngle = Math.atan2(b.vy, b.vx);
           for (const spread of [Math.PI / 6, -Math.PI / 6]) {
             const a = baseAngle + spread;
+            // Boosted at the split, not at the next paddle touch (ticket #97).
             spawnBall({
               x: b.x, y: b.y,
-              vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+              vx: Math.cos(a) * speed * MULTIBALL_BOOST.factor,
+              vy: Math.sin(a) * speed * MULTIBALL_BOOST.factor,
               attachedTo: null, owner: b.owner,
+              ceilingHits: b.ceilingHits,
+              boostTicks: MULTIBALL_BOOST.ticks,
             });
           }
         }
-
+        if (mine.length > 0) pushEvent("multiballBoost", catcher, -1);
         break;
       }
       case "B":

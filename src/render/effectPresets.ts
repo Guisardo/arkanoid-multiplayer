@@ -146,7 +146,20 @@ export const EFFECT_RECIPES: Partial<Record<SimEventType, EffectRecipe>> = {
     paddleSquash: { scaleX: 1.1, scaleY: 1 / 1.1, duration: 0.15 },
     pop: { text: "CAPSULE", color: 0x44ff88, size: 1 },
   },
-
+  /**
+   * Classic "D" multiball spawns faster balls (ticket #97). Reads as an
+   * acceleration rather than a pickup: streaks out from the ball, a longer
+   * freeze on the split, and the speed is the announcement.
+   */
+  multiballBoost: {
+    trauma: 0.35,
+    hitStopFrames: 3,
+    anchor: "ball",
+    burst: { shape: "streak", count: 18, speed: 150, life: 0.45, gravity: 0, scale: 0.55, color: 0x88ccff },
+    flash: { color: 0x88ccff, intensity: 0.2, duration: 0.08 },
+    ballSquash: { scaleX: 1.35, scaleY: 1 / 1.35, duration: 0.2 },
+    pop: { text: "BOOST", color: 0x88ccff, size: 1.1 },
+  },
   roundClear: {
     trauma: 0.8,
     hitStopFrames: 8,

@@ -41,7 +41,7 @@ import { loadSettings, effectiveDpr } from "ui/settings";
 import type { LobbyState, LobbyMode } from "app/lobbyState";
 import type { Locale } from "ui/strings";
 import { t } from "ui/strings";
-import type { InputFrame, Snapshot } from "shared/protocol";
+import { PROTOCOL_VERSION, type InputFrame, type Snapshot } from "shared/protocol";
 import { skinByIndex } from "content/skins";
 import { SplitScreenView } from "render/splitScreen";
 import { RemoteStrip } from "render/remoteStrip";
@@ -227,7 +227,10 @@ export class MpFlow {
     } else {
       this.guestLobby = createGuestLobbySession(
         (msg) => this.channels?.guestControl(JSON.stringify(msg)),
-        1,
+        // The guest's advertised version *is* this build's version — a literal
+        // here would silently drift from `PROTOCOL_VERSION` on every bump and
+        // refuse every connection.
+        PROTOCOL_VERSION,
         {
           onState: (s) => {
             this.lobbyState = s;
