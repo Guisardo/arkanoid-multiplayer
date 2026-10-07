@@ -875,6 +875,7 @@ export class MpFlow {
     if (this.banner !== null) return;
     const div = document.createElement("div");
     div.className = "ld-root";
+    div.dataset.screen = "banner";
     div.style.position = "absolute";
     div.style.top = "0";
     div.style.left = "0";
@@ -901,6 +902,7 @@ export class MpFlow {
     if (degraded && this.throttleBanner === null) {
       const div = document.createElement("div");
       div.className = "ld-root";
+      div.dataset.screen = "throttle";
       div.style.position = "absolute";
       div.style.bottom = "0";
       div.style.left = "0";
@@ -1382,6 +1384,7 @@ export class MpFlow {
     this.teardownRender();
     const div = document.createElement("div");
     div.className = "ld-root";
+    div.dataset.screen = "fatal";
     const panel = document.createElement("div");
     panel.className = "ld-panel";
     const text = document.createElement("h2");

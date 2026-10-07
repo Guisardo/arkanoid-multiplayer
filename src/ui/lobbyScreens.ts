@@ -123,6 +123,10 @@ export class LandingScreen {
     ensureStyles();
     this.root = document.createElement("div");
     this.root.className = "ld-root";
+    // `.ld-root` is a shared look, not a unique identity — MpFlow's reconnect,
+    // throttle and fatal overlays reuse it. `data-screen` is what identifies
+    // *which* screen is on top, for tests and for anyone debugging the DOM.
+    this.root.dataset.screen = "landing";
     const panel = document.createElement("div");
     panel.className = "ld-panel";
 
@@ -202,6 +206,7 @@ export class RoomCodeScreen {
     this.opts = opts;
     this.root = document.createElement("div");
     this.root.className = "ld-root";
+    this.root.dataset.screen = "roomcode";
     const panel = document.createElement("div");
     panel.className = "ld-panel";
 
@@ -333,6 +338,7 @@ export class LobbyScreen {
 
     this.root = document.createElement("div");
     this.root.className = "ld-root";
+    this.root.dataset.screen = "lobby";
     const panel = document.createElement("div");
     panel.className = "ld-panel";
     panel.style.minWidth = "420px";

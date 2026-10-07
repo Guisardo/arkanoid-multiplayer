@@ -98,17 +98,26 @@ test("the particle pool is live and prewarmed per field", async ({ page }) => {
 test("effects expire on their own and leave nothing behind", async ({ page }) => {
   const errors = await bootSolo(page);
 
-  await page.evaluate(() => {
+  // Fire and sample inside ONE evaluate. debugFireEvent and the effectsState
+  // getter are both synchronous and rAF cannot interleave a single task, so this
+  // is the true peak. Reading the state in a second evaluate raced the play loop:
+  // trauma, flash and squash all begin decaying on the very next frame, so the
+  // sample depended on how long the round-trip took. `effectsState` builds a
+  // fresh object per read, so the captured peak cannot mutate under us.
+  const peak = await page.evaluate(() => {
     globalThis.__arkanoid!.debugFireEvent("bossDead", 0, -1);
+    return globalThis.__arkanoid!.effectsState;
   });
-  const peak = await page.evaluate(() => globalThis.__arkanoid!.effectsState);
+  // bossDead is a field-centre detonation: trauma, a long freeze, the ring
+  // burst, the flash and the reward label.
   expect(peak.trauma).toBeGreaterThan(0);
+  expect(peak.hitStopFrames).toBeGreaterThan(0);
   expect(peak.pops).toContain("BOSS CLEAR");
   expect(peak.flashAlpha).toBeGreaterThan(0);
 
-  // Poll the specific channels this event owns. A live round keeps firing
+  // Poll the specific channel this event owns. A live round keeps firing
   // brickBreak, so asserting "trauma === 0" would race the gameplay; asserting
-  // that *this* event's label and debris are gone cannot.
+  // that *this* event's label is gone cannot.
   await expect
     .poll(
       async () =>
@@ -116,10 +125,18 @@ test("effects expire on their own and leave nothing behind", async ({ page }) =>
       { timeout: 20_000 },
     )
     .toBe(false);
-  expect(peak.hitStopFrames).toBeGreaterThan(0);
-  expect(peak.ballScale.x).not.toBe(1);
 
-  // Squash eases back to exactly neutral on its own.
+  // Squash is asserted against bossHit, the recipe that actually carries a
+  // ballSquash. bossDead owns none, so asserting it here sampled whatever
+  // ambient paddle bounce happened to be in flight — which is why this
+  // assertion flaked toward a neutral 1.
+  const squashed = await page.evaluate(() => {
+    globalThis.__arkanoid!.debugFireEvent("bossHit", 0, -1);
+    return globalThis.__arkanoid!.effectsState.ballScale.x;
+  });
+  expect(squashed).not.toBeCloseTo(1, 3);
+
+  // And that squash eases back to exactly neutral on its own.
   await expect
     .poll(async () => (await page.evaluate(() => globalThis.__arkanoid!.effectsState)).ballScale.x, {
       timeout: 20_000,

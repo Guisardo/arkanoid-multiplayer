@@ -6,7 +6,10 @@
 import { expect, test } from "@playwright/test";
 
 test("lobby: two contexts connect via copy-paste, ready gate, countdown, match starts", async ({ browser }) => {
-  test.setTimeout(150_000);
+  // Budget: ~30 s for the real ICE + DTLS handshake on a loaded box, a countdown
+  // that stretches under timer throttling, then two SwiftShader WebGL inits
+  // waited on sequentially (hence the headroom over the per-assertion budgets).
+  test.setTimeout(300_000);
   const errors: string[] = [];
   const host = await browser.newContext();
   const guest = await browser.newContext();
@@ -62,9 +65,11 @@ test("lobby: two contexts connect via copy-paste, ready gate, countdown, match s
   await hostCp.locator("[data-copy-submit]").click();
 
   // Both sides land in the lobby, synced (guest visible on host).
-  const hostLobby = hostPage.locator(".ld-root", { hasText: "Lobby" });
+  // Scope to the lobby screen: the reconnect/throttle/fatal overlays reuse the
+  // `.ld-root` look, so a bare `.ld-root` locator also matches those.
+  const hostLobby = hostPage.locator('[data-screen="lobby"]', { hasText: "Lobby" });
   await expect(hostLobby).toBeVisible({ timeout: 15_000 });
-  const guestLobby = guestPage.locator(".ld-root", { hasText: "Lobby" });
+  const guestLobby = guestPage.locator('[data-screen="lobby"]', { hasText: "Lobby" });
   await expect(guestLobby).toBeVisible({ timeout: 15_000 });
   // Host sees 2 players (itself + the guest).
   await expect(hostLobby.locator("button", { hasText: "Ready" })).toHaveCount(2, { timeout: 10_000 });
@@ -77,13 +82,33 @@ test("lobby: two contexts connect via copy-paste, ready gate, countdown, match s
   await expect(hostLobby.locator("button", { hasText: "Ready" })).toHaveCount(2, { timeout: 10_000 });
 
   await hostLobby.locator("button", { hasText: "Start" }).click();
-  // Countdown 3-2-1 shows on both sides, then the match (canvas). The
-  // opaque lobby overlay must be gone — a canvas behind it would still
-  // count as "visible" to Playwright, so assert the overlay is hidden.
-  await expect(hostPage.locator("#app canvas")).toBeVisible({ timeout: 20_000 });
-  await expect(guestPage.locator("#app canvas")).toBeVisible({ timeout: 20_000 });
-  await expect(hostPage.locator(".ld-root")).toBeHidden({ timeout: 5_000 });
-  await expect(guestPage.locator(".ld-root")).toBeHidden({ timeout: 5_000 });
+
+  // Phase probe first, canvas second. Order matters for diagnosability, and
+  // both steps need a budget that survives a contended box:
+  //   - The countdown is 3 × setInterval(1000). A throttled interval stretches
+  //     it, so 3 s nominal can be well over 15 s when the machine is busy —
+  //     measured up to ~6.5 s here with two workers. 45 s leaves room without
+  //     hiding a genuine desync, which would never leave the lobby at all.
+  //   - Mounting the canvas then waits on Pixi's WebGL init, which runs on
+  //     SwiftShader in CI and took 2.5 s unloaded but ~17.5 s while three
+  //     browsers contended for the box.
+  // So a failure here is the handshake (a side never left the lobby); a failure
+  // at the next assertion is only a slow renderer.
+  await expect(hostPage.locator('[data-screen="lobby"]')).toBeHidden({ timeout: 45_000 });
+  await expect(guestPage.locator('[data-screen="lobby"]')).toBeHidden({ timeout: 45_000 });
+
+  // The opaque lobby overlay must be gone — a canvas behind it would still
+  // count as "visible" to Playwright, which is why the probe above is needed
+  // at all.
+  await expect(hostPage.locator("#app canvas")).toBeVisible({ timeout: 45_000 });
+  await expect(guestPage.locator("#app canvas")).toBeVisible({ timeout: 45_000 });
+
+  // A guest that stalls past the blind banner shows "Connection lost…", which
+  // is correct signal on a slow host and is why the probe above is scoped to the
+  // lobby screen. A *fatal* overlay is not correct signal under any timing, so
+  // assert neither side reached it.
+  await expect(hostPage.locator('[data-screen="fatal"]')).toHaveCount(0);
+  await expect(guestPage.locator('[data-screen="fatal"]')).toHaveCount(0);
 
   expect(errors).toEqual([]);
   await host.close();
