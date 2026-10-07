@@ -398,6 +398,51 @@ describe("LobbyScreen", () => {
     screen.close();
   });
 
+  // `.ld-root` is a shared *look*: MpFlow's reconnect/throttle/fatal overlays
+  // reuse it, so a bare `.ld-root` locator also matches a banner that happens to
+  // be on top. That ambiguity made the lobby e2e spec report a guest "still in
+  // the lobby" when the guest was in fact playing and merely showing
+  // "Connection lost…" (issue #129). `data-screen` is the identity contract.
+  it("each screen tags its root with a unique data-screen", () => {
+    const host = document.body;
+    host.innerHTML = "";
+    const lobby = new LobbyScreen({
+      host,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => undefined,
+      onQuit: () => undefined,
+    });
+    expect(lobby.root.dataset.screen).toBe("lobby");
+    lobby.close();
+
+    const room = new RoomCodeScreen({
+      host,
+      locale: "en-US",
+      mode: "create",
+      code: "ABC23",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => undefined,
+    });
+    expect(room.root.dataset.screen).toBe("roomcode");
+    room.close();
+
+    const landing = new LandingScreen({
+      host,
+      locale: "en-US",
+      onSettings: () => undefined,
+      onChoice: () => {},
+    });
+    expect(landing.root.dataset.screen).toBe("landing");
+    landing.close();
+
+    // Distinct identities — so `[data-screen="lobby"]` selects exactly one node.
+    const identities = new Set(["lobby", "roomcode", "landing", "banner", "throttle", "fatal"]);
+    expect(identities.size).toBe(6);
+  });
+
   it("Start disabled until every player is ready (host, lobby phase)", () => {
     const host = document.body;
     host.innerHTML = "";

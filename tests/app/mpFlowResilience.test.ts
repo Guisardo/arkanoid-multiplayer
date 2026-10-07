@@ -229,6 +229,12 @@ describe("mpFlow resilience wiring (ticket 47)", () => {
     const banners = document.querySelectorAll(".ld-title");
     const texts = [...banners].map((b) => b.textContent ?? "");
     expect(texts.some((t) => t.includes("Connection lost"))).toBe(true);
+    // The banner reuses the `.ld-root` *look*, so it must still be
+    // individually identifiable — otherwise a test (or a human) reading the
+    // DOM cannot tell "still in the lobby" from "playing, but the host went
+    // quiet", which is exactly the ambiguity behind issue #129.
+    expect(document.querySelectorAll('[data-screen="banner"]').length).toBe(1);
+    expect(document.querySelectorAll('[data-screen="lobby"]').length).toBe(0);
   }, 20000);
 
   it("guest blind state: banner clears when snapshots resume", async () => {
