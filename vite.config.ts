@@ -15,6 +15,19 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           assetFileNames: "assets/[name]-[hash][extname]",
+          // ADR 0007: one chunk per game mode, so a player downloads the mode
+          // they picked instead of every variant. Session creators import
+          // these modules dynamically (app/soloEpisode, app/hostGame,
+          // sim/versusBots), which is what keeps them out of the entry chunk.
+          manualChunks: {
+            "mode-duel": ["src/sim/duel.ts"],
+            "mode-sharedfield": ["src/sim/sharedField.ts"],
+            "mode-attack": ["src/sim/attackSession.ts", "src/sim/attack.ts"],
+            "mode-assist": ["src/sim/assistSession.ts"],
+            "mode-race": ["src/sim/multiField.ts"],
+            "mode-bots": ["src/sim/versusBots.ts"],
+            "mode-solo": ["src/sim/roundSim.ts", "src/app/soloSession.ts"],
+          },
         },
       },
     },

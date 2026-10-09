@@ -5,22 +5,23 @@
 // selector (session-wide, default Normal). Pause freely (coop semantics).
 // Pure composition — the variant sims stay the source of truth.
 import { createBot, type BotDifficulty, type BotSource } from "sim/bot";
-import { createRoundDuel, type DuelSim, type DuelOptions, type DuelMatchResult } from "sim/duel";
-import {
-  createMultiFieldSession,
-  type MatchConfig,
-  type MatchState,
-  type MultiFieldSession,
+import type { DuelSim, DuelOptions, DuelMatchResult } from "sim/duel";
+import type {
+  MatchConfig,
+  MatchState,
+  MultiFieldSession,
 } from "sim/multiField";
-import { createAttackSession, type AttackSession } from "sim/attackSession";
+import type { AttackSession } from "sim/attackSession";
+import type { AssistSession, AssistSessionOptions, AssistMatchState } from "sim/assistSession";
+import type { SharedFieldSim, SharedFieldOptions } from "sim/sharedField";
 import {
-  createAssistSession,
-  type AssistSession,
-  type AssistSessionOptions,
-  type AssistMatchState,
-} from "sim/assistSession";
-import { createSharedFieldSim, type SharedFieldSim, type SharedFieldOptions } from "sim/sharedField";
-import { getLevel } from "content/levels";
+  ATTACK_MAX_ROUND,
+  MAX_ROUND,
+  MIN_ROUND,
+  getLevelSync,
+  preloadLevels,
+  roundRange,
+} from "content/levels";
 import { DEFAULT_SKIN_ID } from "content/skins";
 import { assignSkinIndices, autoAssignBotSkins } from "content/skinSync";
 import type { InputFrame, Snapshot } from "shared/protocol";
@@ -105,7 +106,22 @@ export type VersusBotsEnd =
   | { kind: "sharedField"; cleared: boolean; round: number; teamScore: number }
   | { kind: "assist"; state: AssistMatchState };
 
-export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSession {
+/**
+ * Rounds a variant can reach (ADR 0007): Duel and shared field play the fixed
+ * round-1 layout, parallel assist walks the team's range, race/attack walk
+ * their selection range (attack stops at 32 — Doh is never selected).
+ */
+function roundsForVariant(
+  variant: BotVariant,
+  assistRange: { startRound: number; endRound: number },
+  config: MatchConfig,
+): number[] {
+  if (variant === "duel" || variant === "sharedField") return [1];
+  if (variant === "parallelAssist") return roundRange(assistRange.startRound, assistRange.endRound);
+  return roundRange(MIN_ROUND, variant === "attack" ? ATTACK_MAX_ROUND : (config.maxRound ?? MAX_ROUND));
+}
+
+export async function createVersusBotsSession(opts: VersusBotsOptions): Promise<VersusBotsSession> {
   const err = validateBotsSetup(opts.variant, opts.humans, opts.bots);
   if (err !== null) throw new Error(`invalid versus-bots setup: ${err}`);
   const difficulty: BotDifficulty = opts.difficulty ?? "normal";
@@ -151,8 +167,22 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
     return out;
   }
 
+  // ADR 0007: round data for the variant's range is fetched before the
+  // variant sim is built, so the variant sims (and their mid-match round
+  // advance) read rounds synchronously out of the cache.
+  const assistRange = opts.assistRange ?? { startRound: 1, endRound: 33 };
+  const matchConfig: MatchConfig = opts.matchConfig ?? {
+    structure: "oneOff",
+    bestOf: 1,
+    levelSelection: "hostPick",
+    hostPickRound: 1,
+    timeCapTicks: null,
+  };
+  await preloadLevels(roundsForVariant(opts.variant, assistRange, matchConfig));
+
   if (opts.variant === "duel") {
-    const sim: DuelSim = createRoundDuel(getLevel(1), {
+    const { createRoundDuel } = await import("sim/duel");
+    const sim: DuelSim = createRoundDuel(getLevelSync(1), {
       ballModel: opts.duelBallModel ?? "shared",
       timeCapTicks: null,
       playerNames: [names[0] ?? "You", names[1] ?? "Bot 1"],
@@ -189,7 +219,8 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
   }
 
   if (opts.variant === "sharedField") {
-    const sim: SharedFieldSim = createSharedFieldSim(getLevel(1), {
+    const { createSharedFieldSim } = await import("sim/sharedField");
+    const sim: SharedFieldSim = createSharedFieldSim(getLevelSync(1), {
       placement: opts.sharedField?.placement ?? "A",
       ballModel: opts.sharedField?.ballModel ?? "shared",
       playerCount: total as 2 | 3 | 4,
@@ -235,11 +266,11 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
   }
 
   if (opts.variant === "parallelAssist") {
-    const range = opts.assistRange ?? { startRound: 1, endRound: 33 };
+    const { createAssistSession } = await import("sim/assistSession");
     const sim: AssistSession = createAssistSession({
       playerCount: total,
-      startRound: range.startRound,
-      endRound: range.endRound,
+      startRound: assistRange.startRound,
+      endRound: assistRange.endRound,
       playerNames: names.slice(0, total),
       skinIndices,
       seed,
@@ -270,18 +301,12 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
     };
   }
 
-  // race + attack: multi-field seam.
-  const config: MatchConfig = opts.matchConfig ?? {
-    structure: "oneOff",
-    bestOf: 1,
-    levelSelection: "hostPick",
-    hostPickRound: 1,
-    timeCapTicks: null,
-  };
+  // race + attack: multi-field seam (ADR 0007: imported on demand).
   if (opts.variant === "attack") {
+    const { createAttackSession } = await import("sim/attackSession");
     const sim: AttackSession = createAttackSession({
       playerCount: total,
-      config,
+      config: matchConfig,
       playerNames: names.slice(0, total),
       skinIndices,
       seed,
@@ -313,9 +338,10 @@ export function createVersusBotsSession(opts: VersusBotsOptions): VersusBotsSess
     };
   }
 
+  const { createMultiFieldSession } = await import("sim/multiField");
   const sim: MultiFieldSession = createMultiFieldSession({
     playerCount: total,
-    config,
+    config: matchConfig,
     playerNames: names.slice(0, total),
     skinIndices,
     seed,

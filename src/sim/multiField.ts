@@ -5,7 +5,7 @@
 // timeout resolution.
 import { createRoundSim, type RoundSim } from "./roundSim";
 import type { LevelData } from "content/levelFormat";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
 
 export type MatchStructure = "bestOf" | "continuous" | "oneOff";
@@ -106,7 +106,7 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
   let phase: MatchState["phase"] = "playing";
   let tick = 0;
 
-  let level: LevelData = getLevel(round);
+  let level: LevelData = getLevelSync(round);
   let sims: RoundSim[] = makeSims();
 
   function makeSims(): RoundSim[] {
@@ -242,7 +242,7 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
   function advanceRound(): void {
     const nextIndex = round + 1;
     round = pickRound(config, nextIndex, nextRng());
-    level = getLevel(round);
+    level = getLevelSync(round);
     sims = makeSims();
   }
 

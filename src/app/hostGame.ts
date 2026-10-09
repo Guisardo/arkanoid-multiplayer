@@ -8,16 +8,13 @@
 // players' fields (single-field modes send the one field to everyone).
 // Malformed guest frames are dropped; a guest's channel close ends its slot
 // via remoteLeft semantics (rejoin is ticket 47).
-import {
-  createRoundDuel,
-  type DuelSim,
-} from "sim/duel";
-import { createMultiFieldSession, type MatchConfig, type MultiFieldSession } from "sim/multiField";
-import { createAttackSession, type AttackSession } from "sim/attackSession";
-import { createAssistSession, type AssistSession } from "sim/assistSession";
-import { createSharedFieldSim, type SharedFieldSim } from "sim/sharedField";
-import { getLevel } from "content/levels";
+import { ATTACK_MAX_ROUND, MAX_ROUND, MIN_ROUND, getLevelSync, preloadLevels, roundRange } from "content/levels";
 import type { LobbyConfig, LobbyMode } from "app/lobbyState";
+import type { DuelSim } from "sim/duel";
+import type { MultiFieldSession, MatchConfig } from "sim/multiField";
+import type { AttackSession } from "sim/attackSession";
+import type { AssistSession } from "sim/assistSession";
+import type { SharedFieldSim } from "sim/sharedField";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import { EMPTY_ACTIONS } from "shared/protocol";
 import { createDelayQueue } from "net/delayQueue";
@@ -136,13 +133,69 @@ interface ModeSim {
   over(): boolean;
 }
 
-function buildModeSim(opts: HostGameOptions): ModeSim {
+/**
+ * Rounds a mode can reach. Duel and shared field play the fixed round-1
+ * layout; the parallel modes walk a range (attack stops at 32 — Doh never
+ * selected). Preloading the range up front keeps the sync round-advance
+ * path (`getLevelSync`) inside the sims free of awaits.
+ */
+function roundsForMode(mode: LobbyMode): number[] {
+  if (mode === "duel" || mode === "sharedField") return [1];
+  const ceiling = mode === "attack" ? ATTACK_MAX_ROUND : MAX_ROUND;
+  return roundRange(MIN_ROUND, ceiling);
+}
+
+/** The mode sim modules, one dynamic import per mode (ADR 0007). */
+type ModeModule =
+  | typeof import("sim/duel")
+  | typeof import("sim/sharedField")
+  | typeof import("sim/assistSession")
+  | typeof import("sim/attackSession")
+  | typeof import("sim/multiField");
+
+/**
+ * ADR 0007: fetch the mode's chunk. A Duel lobby never downloads
+ * Race/Attack/Assist code (and vice versa) — only the picked mode's chunk
+ * is requested, and only once (module cache).
+ */
+function loadModeModule(mode: LobbyMode): Promise<ModeModule> {
+  switch (mode) {
+    case "duel":
+      return import("sim/duel");
+    case "sharedField":
+      return import("sim/sharedField");
+    case "parallelAssist":
+      return import("sim/assistSession");
+    case "attack":
+      return import("sim/attackSession");
+    case "race":
+      return import("sim/multiField");
+  }
+}
+
+/**
+ * Warm everything a mode needs without building a session: its round data
+ * and its sim chunk. The lobby countdown calls this on Start, so the 3 s
+ * wait covers the fetch instead of the first frame of play — the player
+ * sees a countdown, not a stall.
+ */
+export function warmMode(mode: LobbyMode): Promise<[void, ModeModule]> {
+  return Promise.all([preloadLevels(roundsForMode(mode)), loadModeModule(mode)]);
+}
+
+/**
+ * Build the mode's sim. All I/O happened before this point (rounds
+ * preloaded, module imported), so this stays synchronous and the sims keep
+ * reading rounds through `getLevelSync` on their round-advance path.
+ */
+function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
   const names = opts.players.map((p) => p.name);
   const skinIndices = opts.players.map((p) => p.skinIndex);
   const count = opts.players.length;
   switch (opts.mode) {
     case "duel": {
-      const sim: DuelSim = createRoundDuel(getLevel(1), {
+      const { createRoundDuel } = mod as typeof import("sim/duel");
+      const sim: DuelSim = createRoundDuel(getLevelSync(1), {
         ballModel: "shared",
         timeCapTicks: null,
         playerNames: [names[0] ?? "P1", names[1] ?? "P2"],
@@ -156,7 +209,8 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "sharedField": {
-      const sim: SharedFieldSim = createSharedFieldSim(getLevel(1), {
+      const { createSharedFieldSim } = mod as typeof import("sim/sharedField");
+      const sim: SharedFieldSim = createSharedFieldSim(getLevelSync(1), {
         placement: "A",
         ballModel: "shared",
         playerCount: count as 2 | 3 | 4,
@@ -171,6 +225,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "parallelAssist": {
+      const { createAssistSession } = mod as typeof import("sim/assistSession");
       const sim: AssistSession = createAssistSession({
         playerCount: count,
         startRound: 1,
@@ -186,6 +241,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "attack": {
+      const { createAttackSession } = mod as typeof import("sim/attackSession");
       const sim: AttackSession = createAttackSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -200,6 +256,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "race": {
+      const { createMultiFieldSession } = mod as typeof import("sim/multiField");
       const sim: MultiFieldSession = createMultiFieldSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -216,14 +273,19 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
   }
 }
 
-export function createHostGameSession(
+export async function createHostGameSession(
   opts: HostGameOptions,
   sendGame: SendGame,
   callbacks: HostGameCallbacks = {},
-): HostGameSession {
+): Promise<HostGameSession> {
   const snapshotHz = snapshotHzFor(opts.mode);
   const delayTicks = delayTicksFor(opts.mode);
-  const sim = buildModeSim(opts);
+  // ADR 0007: round data for the mode's range plus the mode sim's chunk —
+  // both fetched only when a match actually starts. `warmMode` may already
+  // have resolved both during the countdown; awaiting a settled promise
+  // costs nothing and keeps this the single entry point.
+  const [, mod] = await warmMode(opts.mode);
+  const sim = buildModeSim(opts, mod);
   const queue = createDelayQueue({ delay: delayTicks });
   const guard = createHostInputGuard();
 
