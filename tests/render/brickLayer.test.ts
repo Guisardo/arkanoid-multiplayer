@@ -351,9 +351,9 @@ describe("FieldView wiring (ticket 92)", () => {
     return view as unknown as ReturnType<typeof internals>;
   }
 
-  it("renders bricks inside the cached layer, capsules/ball/paddle stay dynamic", () => {
+  it("renders bricks inside the cached layer, capsules/ball/paddle stay dynamic", async () => {
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
-    const snap = createRoundSim(getLevel(1), { lives: 3, score: 0 }).snapshot();
+    const snap = createRoundSim(await getLevel(1), { lives: 3, score: 0 }).snapshot();
     view.sync(snap);
 
     const inner = internals(view);
@@ -377,9 +377,9 @@ describe("FieldView wiring (ticket 92)", () => {
     view.container.destroy({ children: true });
   });
 
-  it("an unchanged frame does not re-record the cached brick layer", () => {
+  it("an unchanged frame does not re-record the cached brick layer", async () => {
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(await getLevel(1), { lives: 3, score: 0 });
     view.sync(sim.snapshot());
     const inner = internals(view);
     const revision = inner.brickLayer.revision;
@@ -389,9 +389,9 @@ describe("FieldView wiring (ticket 92)", () => {
     view.container.destroy({ children: true });
   });
 
-  it("a broken brick re-records the layer exactly once", () => {
+  it("a broken brick re-records the layer exactly once", async () => {
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(await getLevel(1), { lives: 3, score: 0 });
     const base = sim.snapshot();
     view.sync(base);
     const inner = internals(view);
@@ -411,9 +411,9 @@ describe("FieldView wiring (ticket 92)", () => {
     view.container.destroy({ children: true });
   });
 
-  it("invalidate re-records the layer after a context restore", () => {
+  it("invalidate re-records the layer after a context restore", async () => {
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(await getLevel(1), { lives: 3, score: 0 });
     const snap = sim.snapshot();
     view.sync(snap);
     const inner = internals(view);
@@ -424,9 +424,9 @@ describe("FieldView wiring (ticket 92)", () => {
     view.container.destroy({ children: true });
   });
 
-  it("setReducedEffects re-records without the crack overlays", () => {
+  it("setReducedEffects re-records without the crack overlays", async () => {
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(await getLevel(1), { lives: 3, score: 0 });
     const snap = {
       ...sim.snapshot(),
       bricks: sim.snapshot().bricks.map((c, i) => (i < 6 ? 9 : c)),
