@@ -4,7 +4,7 @@
 // imports, so these tests prove the import happens at session creation, not
 // at module load.
 import { describe, expect, it, vi } from "vitest";
-import { EMPTY_ACTIONS, type InputFrame, type Snapshot } from "shared/protocol";
+import { EMPTY_ACTIONS, type Snapshot } from "shared/protocol";
 import { Storage, type StorageBackend } from "persistence/storage";
 import { createRoundDuel } from "sim/duel";
 import { createRoundSim } from "sim/roundSim";
@@ -16,9 +16,7 @@ import type { HostGamePlayer } from "app/hostGame";
 vi.mock("sim/duel", () => ({
   createRoundDuel: vi.fn((_level: LevelData, opts: { playerNames?: string[] }) => ({
     currentTick: 0,
-    step: (inputs: readonly InputFrame[]) => {
-      void inputs;
-    },
+    step: () => undefined,
     snapshot: () => snap(),
     getMatchResult: () => null,
     playerNames: opts.playerNames ?? [],
@@ -26,11 +24,9 @@ vi.mock("sim/duel", () => ({
 }));
 
 vi.mock("sim/roundSim", () => ({
-  createRoundSim: vi.fn((_level: LevelData) => ({
+  createRoundSim: vi.fn(() => ({
     currentTick: 0,
-    step: (inputs: readonly InputFrame[]) => {
-      void inputs;
-    },
+    step: () => undefined,
     snapshot: () => snap(),
     debugSetBall: () => undefined,
   })),
@@ -39,9 +35,7 @@ vi.mock("sim/roundSim", () => ({
 vi.mock("sim/multiField", () => ({
   createMultiFieldSession: vi.fn(() => ({
     playerCount: 1,
-    step: (inputs: readonly InputFrame[]) => {
-      void inputs;
-    },
+    step: () => undefined,
     snapshots: () => [snap()],
     state: () => ({
       round: 1,

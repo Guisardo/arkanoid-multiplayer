@@ -190,7 +190,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(() => { host.tick([]); }).not.toThrow();
   });
 
-  it("packMulti/unpackMulti round-trip", async () => {
+  it("packMulti/unpackMulti round-trip", () => {
     const a = new ArrayBuffer(3);
     const b = new ArrayBuffer(5);
     const out = packMulti([a, b]);
@@ -274,13 +274,13 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(xAt60).toBeLessThan(FIELD_W);
   });
 
-  it("progress wire round-trip", async () => {
+  it("progress wire round-trip", () => {
     const rows = [{ player: 1, score: 1234, round: 5, lives: 2, state: 0 }];
     const back = unpackProgress(packProgress(rows));
     expect(back).toEqual(rows);
   });
 
-  it("malformed multi/progress throw (guest treats as protocol error)", async () => {
+  it("malformed multi/progress throw (guest treats as protocol error)", () => {
     expect(() => unpackMulti(new ArrayBuffer(1))).toThrow(/malformed/);
     expect(() => unpackProgress(new ArrayBuffer(1))).toThrow(/malformed/);
   });
@@ -359,7 +359,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
 
   // ---- Ticket 47: guest blind-state + host rebind edges ----
 
-  it("guest blind-state: banner callback on silence, over on control close", async () => {
+  it("guest blind-state: banner callback on silence, over on control close", () => {
     const seen: string[] = [];
     const start = performance.now();
     const guest = createGuestGameSession(
@@ -434,7 +434,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     expect(sent.length).toBe(1);
   });
 
-  it("rejoin-refused parses from the wire (guest fatal path)", async () => {
+  it("rejoin-refused parses from the wire (guest fatal path)", () => {
     const refused = parseRejoinRefused(JSON.stringify({ type: "rejoin-refused", reason: "expired" }));
     expect(refused?.reason).toBe("expired");
     expect(parseRejoinRefused(JSON.stringify({ type: "ping", atMs: 1 }))).toBeNull();

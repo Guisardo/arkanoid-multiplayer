@@ -34,18 +34,22 @@ const levelCache = new Map<number, LevelData>();
  */
 const validated = new Set<number>();
 
-function roundFile(round: number): string {
-  return `./levels/round-${String(round).padStart(3, "0")}.json`;
-}
-
-/** Round data for a round, loaded (once) through the dynamic import. */
+/**
+ * Round data for a round, loaded (once) through the dynamic import. The
+ * specifier is a template literal on purpose: Vite globs it at build time
+ * and emits one fetchable JSON per round. A computed specifier (passing
+ * `roundFile(round)` to `import()`) would be invisible to the bundler and
+ * 404 in every production build.
+ */
 export async function getLevel(round: number): Promise<LevelData> {
   const cached = levelCache.get(round);
   if (cached !== undefined) return cached;
   if (!Number.isInteger(round) || round < MIN_ROUND || round > MAX_ROUND) {
     throw new Error(`no level data for round ${String(round)}`);
   }
-  const mod = (await import(roundFile(round))) as { default: LevelData };
+  const mod = (await import(`./levels/round-${String(round).padStart(3, "0")}.json`)) as {
+    default: LevelData;
+  };
   const level = mod.default;
   levelCache.set(round, level);
   if (!validated.has(round)) {

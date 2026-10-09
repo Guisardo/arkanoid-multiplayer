@@ -19,14 +19,22 @@ export default defineConfig(({ mode }) => {
           // they picked instead of every variant. Session creators import
           // these modules dynamically (app/soloEpisode, app/hostGame,
           // sim/versusBots), which is what keeps them out of the entry chunk.
-          manualChunks: {
-            "mode-duel": ["src/sim/duel.ts"],
-            "mode-sharedfield": ["src/sim/sharedField.ts"],
-            "mode-attack": ["src/sim/attackSession.ts", "src/sim/attack.ts"],
-            "mode-assist": ["src/sim/assistSession.ts"],
-            "mode-race": ["src/sim/multiField.ts"],
-            "mode-bots": ["src/sim/versusBots.ts"],
-            "mode-solo": ["src/sim/roundSim.ts", "src/app/soloSession.ts"],
+          // Keyed by module id, not by a static name map: Rollup keeps the
+          // chunk boundaries the dynamic imports already define, so there are
+          // no empty facade chunks and no code duplicated between a facade
+          // and its target.
+          manualChunks(id) {
+            if (!id.includes("/src/") && !id.includes("\\src\\")) return;
+            const normalized = id.replaceAll("\\", "/");
+            if (normalized.includes("src/sim/duel.ts")) return "mode-duel";
+            if (normalized.includes("src/sim/sharedField.ts")) return "mode-sharedfield";
+            if (normalized.includes("src/sim/attackSession.ts") || normalized.includes("src/sim/attack.ts")) {
+              return "mode-attack";
+            }
+            if (normalized.includes("src/sim/assistSession.ts")) return "mode-assist";
+            if (normalized.includes("src/sim/multiField.ts")) return "mode-race";
+            if (normalized.includes("src/sim/versusBots.ts")) return "mode-bots";
+            if (normalized.includes("src/sim/roundSim.ts")) return "mode-solo";
           },
         },
       },

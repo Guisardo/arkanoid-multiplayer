@@ -95,31 +95,31 @@ async function resumed(store: ReturnType<typeof backend>): Promise<Awaited<Retur
 }
 
 describe("isContinuableEpisode", () => {
-  it("only an in-progress run is resumable", async () => {
+  it("only an in-progress run is resumable", () => {
     expect(isContinuableEpisode(record(3, 100))).toBe(true);
     expect(isContinuableEpisode(record(3, 100, "gameOver"))).toBe(false);
     expect(isContinuableEpisode(record(3, 100, "episodeComplete"))).toBe(false);
   });
 
-  it("null / undefined are never resumable", async () => {
+  it("null / undefined are never resumable", () => {
     expect(isContinuableEpisode(null)).toBe(false);
     expect(isContinuableEpisode(undefined)).toBe(false);
   });
 });
 
 describe("Storage episode record (ADR 0008, ticket 89)", () => {
-  it("reads null when nothing was ever written", async () => {
+  it("reads null when nothing was ever written", () => {
     expect(reloaded(backend()).readEpisode()).toBeNull();
   });
 
-  it("round-trips the record through the composite key", async () => {
+  it("round-trips the record through the composite key", () => {
     const store = backend();
     const storage = reloaded(store);
     storage.writeEpisode(record(7, 4200));
     expect(reloaded(store).readEpisode()).toMatchObject({ round: 7, score: 4200, phase: "playing" });
   });
 
-  it("writes inside the same atomic document as the settings", async () => {
+  it("writes inside the same atomic document as the settings", () => {
     const store = backend();
     const storage = reloaded(store);
     storage.savePartial({ name: "Ada" });
@@ -133,7 +133,7 @@ describe("Storage episode record (ADR 0008, ticket 89)", () => {
     expect(doc.soloEpisode.round).toBe(2);
   });
 
-  it("clearEpisode drops the record but keeps everything else", async () => {
+  it("clearEpisode drops the record but keeps everything else", () => {
     const store = backend();
     const storage = reloaded(store);
     storage.savePartial({ name: "Ada" });
@@ -145,7 +145,7 @@ describe("Storage episode record (ADR 0008, ticket 89)", () => {
     expect(after.loadAll()).toMatchObject({ name: "Ada", soloHighScore: 1234, soloHighestRound: 5 });
   });
 
-  it("a corrupt record reads as no episode rather than throwing", async () => {
+  it("a corrupt record reads as no episode rather than throwing", () => {
     const store = backend();
     const storage = reloaded(store);
     storage.savePartial({ name: "Ada" });

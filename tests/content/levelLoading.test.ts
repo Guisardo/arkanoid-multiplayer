@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { availableRounds, getLevel, getLevelSync, preloadLevels, ATTACK_MAX_ROUND } from "content/levels";
+import { availableRounds, getLevel, ATTACK_MAX_ROUND } from "content/levels";
 
 describe("lazy level loading (ADR 0007)", () => {
   it("availableRounds stays sync and lists every shipped round", () => {

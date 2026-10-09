@@ -145,20 +145,13 @@ function roundsForMode(mode: LobbyMode): number[] {
   return roundRange(MIN_ROUND, ceiling);
 }
 
-/** The mode sim modules, one dynamic import per mode (ADR 0007). */
-type ModeModule =
-  | typeof import("sim/duel")
-  | typeof import("sim/sharedField")
-  | typeof import("sim/assistSession")
-  | typeof import("sim/attackSession")
-  | typeof import("sim/multiField");
-
 /**
  * ADR 0007: fetch the mode's chunk. A Duel lobby never downloads
  * Race/Attack/Assist code (and vice versa) — only the picked mode's chunk
- * is requested, and only once (module cache).
+ * is requested, and only once (the ES module registry caches it, so the
+ * session creator's own import a moment later resolves instantly).
  */
-function loadModeModule(mode: LobbyMode): Promise<ModeModule> {
+function loadModeModule(mode: LobbyMode): Promise<unknown> {
   switch (mode) {
     case "duel":
       return import("sim/duel");
@@ -179,22 +172,22 @@ function loadModeModule(mode: LobbyMode): Promise<ModeModule> {
  * wait covers the fetch instead of the first frame of play — the player
  * sees a countdown, not a stall.
  */
-export function warmMode(mode: LobbyMode): Promise<[void, ModeModule]> {
-  return Promise.all([preloadLevels(roundsForMode(mode)), loadModeModule(mode)]);
+export async function warmMode(mode: LobbyMode): Promise<void> {
+  await Promise.all([preloadLevels(roundsForMode(mode)), loadModeModule(mode)]);
 }
 
 /**
- * Build the mode's sim. All I/O happened before this point (rounds
- * preloaded, module imported), so this stays synchronous and the sims keep
- * reading rounds through `getLevelSync` on their round-advance path.
+ * Build the mode's sim. All I/O happens here (round data preloaded, module
+ * imported), and each case reads its rounds through `getLevelSync` so the
+ * sims' mid-match round advance needs no await on the step path.
  */
-function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
+async function buildModeSim(opts: HostGameOptions): Promise<ModeSim> {
   const names = opts.players.map((p) => p.name);
   const skinIndices = opts.players.map((p) => p.skinIndex);
   const count = opts.players.length;
   switch (opts.mode) {
     case "duel": {
-      const { createRoundDuel } = mod as typeof import("sim/duel");
+      const { createRoundDuel } = await import("sim/duel");
       const sim: DuelSim = createRoundDuel(getLevelSync(1), {
         ballModel: "shared",
         timeCapTicks: null,
@@ -209,7 +202,7 @@ function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
       };
     }
     case "sharedField": {
-      const { createSharedFieldSim } = mod as typeof import("sim/sharedField");
+      const { createSharedFieldSim } = await import("sim/sharedField");
       const sim: SharedFieldSim = createSharedFieldSim(getLevelSync(1), {
         placement: "A",
         ballModel: "shared",
@@ -225,7 +218,7 @@ function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
       };
     }
     case "parallelAssist": {
-      const { createAssistSession } = mod as typeof import("sim/assistSession");
+      const { createAssistSession } = await import("sim/assistSession");
       const sim: AssistSession = createAssistSession({
         playerCount: count,
         startRound: 1,
@@ -241,7 +234,7 @@ function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
       };
     }
     case "attack": {
-      const { createAttackSession } = mod as typeof import("sim/attackSession");
+      const { createAttackSession } = await import("sim/attackSession");
       const sim: AttackSession = createAttackSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -256,7 +249,7 @@ function buildModeSim(opts: HostGameOptions, mod: ModeModule): ModeSim {
       };
     }
     case "race": {
-      const { createMultiFieldSession } = mod as typeof import("sim/multiField");
+      const { createMultiFieldSession } = await import("sim/multiField");
       const sim: MultiFieldSession = createMultiFieldSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -284,8 +277,8 @@ export async function createHostGameSession(
   // both fetched only when a match actually starts. `warmMode` may already
   // have resolved both during the countdown; awaiting a settled promise
   // costs nothing and keeps this the single entry point.
-  const [, mod] = await warmMode(opts.mode);
-  const sim = buildModeSim(opts, mod);
+  await warmMode(opts.mode);
+  const sim = await buildModeSim(opts);
   const queue = createDelayQueue({ delay: delayTicks });
   const guard = createHostInputGuard();
 
