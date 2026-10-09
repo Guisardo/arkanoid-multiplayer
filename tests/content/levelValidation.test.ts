@@ -217,23 +217,23 @@ describe("assertValidLevel — fail fast at level load (ticket 113)", () => {
 });
 
 describe("every shipped round validates (ticket 113)", () => {
-  it("all 33 rounds pass validation with zero errors", () => {
+  it("all 33 rounds pass validation with zero errors", async () => {
     expect(availableRounds()).toHaveLength(33);
     for (const round of availableRounds()) {
-      const errors = validateLevel(getLevel(round));
+      const errors = validateLevel(await getLevel(round));
       expect(errors, `round ${String(round)}: ${JSON.stringify(errors)}`).toEqual([]);
     }
   });
 
-  it("loading any round never throws — validation is satisfied by the data", () => {
+  it("loading any round never throws — validation is satisfied by the data", async () => {
     for (const round of availableRounds()) {
-      expect(() => getLevel(round), `round ${String(round)}`).not.toThrow();
+      await expect(getLevel(round), `round ${String(round)}`).resolves.toMatchObject({ round });
     }
   });
 
-  it("each round's script stays inside the declared bounds", () => {
+  it("each round's script stays inside the declared bounds", async () => {
     for (const round of availableRounds()) {
-      const level = getLevel(round);
+      const level = await getLevel(round);
       expect(level.capsuleScript.length, `round ${String(round)}`).toBeGreaterThanOrEqual(CAPSULE_SCRIPT_MIN);
       expect(level.capsuleScript.length, `round ${String(round)}`).toBeLessThanOrEqual(CAPSULE_SCRIPT_MAX);
       for (const entry of level.capsuleScript) {

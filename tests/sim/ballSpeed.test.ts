@@ -14,7 +14,7 @@ import {
 } from "sim/ballSpeed";
 import { makeBallState } from "sim/simState";
 import { BRICK_H, TICK_DT } from "sim/constants";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 
 describe("ceiling speed-up (ticket 96)", () => {
   it("no contacts → no tier, multiplier exactly 1", () => {
@@ -75,7 +75,7 @@ describe("ceiling speed-up (ticket 96)", () => {
     // case is therefore every speed source at once: the highest base speed,
     // both brick-count tiers, every ceiling tier, and the multiball boost.
     const worst =
-      getLevel(33).baseBallSpeed *
+      getLevelSync(33).baseBallSpeed *
       1.08 *
       1.08 *
       ceilingSpeedMultiplier(CEILING_SPEEDUP.hitsPerTier * 1000) *

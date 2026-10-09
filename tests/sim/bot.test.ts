@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { createBot, BOT_PARAMS } from "sim/bot";
 import { assignBotSkins } from "sim/botSkins";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import { createDelayQueue } from "net/delayQueue";
 import type { InputFrame, Snapshot } from "shared/protocol";
 
 /** Drive a sim with the bot until phase change or tick cap. */
 function playRound(difficulty: "easy" | "normal" | "hard", seed: number, maxTicks: number) {
-  const level = getLevel(1);
+  const level = getLevelSync(1);
   const sim = createRoundSim(level, { lives: 99, score: 0 });
   const bot = createBot(0, difficulty, seed);
   let tick = 0;
@@ -68,7 +68,7 @@ describe("bot plays a full round", () => {
   });
 
   it("engagement thresholds differ visibly: hard reacts high, easy reacts low", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     // Ball descending at a given height, far from the paddle: does the bot move?
     const reacts = (difficulty: "easy" | "normal" | "hard", ballY: number): boolean => {
       const sim = createRoundSim(level, { lives: 99, score: 0 });
@@ -87,7 +87,7 @@ describe("bot plays a full round", () => {
   });
 
   it("launch timing lands inside each difficulty's range", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     for (const [difficulty, min, max] of [
       ["easy", 60, 240],
       ["normal", 67, 127],
@@ -109,7 +109,7 @@ describe("bot plays a full round", () => {
   });
 
   it("deterministic: same seed + same state sequence → identical frames", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     const run = (): InputFrame[] => {
       const sim = createRoundSim(level, { lives: 99, score: 0 });
       const bot = createBot(0, "normal", 7);
@@ -130,7 +130,7 @@ describe("bot plays a full round", () => {
   });
 
   it("bot frames enter the same delay queue as a human local player (D=0)", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     const sim = createRoundSim(level, { lives: 99, score: 0 });
     const bot = createBot(0, "normal", 3);
     const q = createDelayQueue({ delay: 0 });
@@ -147,7 +147,7 @@ describe("bot plays a full round", () => {
 
 describe("bot frame shape", () => {
   it("produces the identical InputFrame shape as a keyboard adapter (parity)", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     const sim = createRoundSim(level, { lives: 99, score: 0 });
     const bot = createBot(0, "normal", 5);
     const frame = bot.sampleFrame(0, sim.snapshot());
@@ -159,7 +159,7 @@ describe("bot frame shape", () => {
   });
 
   it("launches the attached ball within the timing range", () => {
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     const sim = createRoundSim(level, { lives: 99, score: 0 });
     const bot = createBot(0, "hard", 9);
     let launchedAt = -1;

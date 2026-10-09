@@ -127,7 +127,7 @@ export async function startSoloSession(
   // lives); otherwise any stale record is dropped so a later crash cannot offer
   // to Continue a run the player already abandoned.
   const continuing = opts.continueEpisode;
-  const episode: SoloEpisode = createSoloEpisode({
+  const episode: SoloEpisode = await createSoloEpisode({
     storage,
     playerName: "Player 1",
     ...(continuing !== undefined

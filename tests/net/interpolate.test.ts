@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createInterpolator } from "net/interpolate";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import type { Snapshot } from "shared/protocol";
 
 let tickCounter = 0;
 function fakeSnapshot(tick = ++tickCounter): Snapshot {
-  const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+  const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
   const snap = sim.snapshot();
   snap.tick = tick;
   return snap;
