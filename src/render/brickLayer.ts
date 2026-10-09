@@ -276,11 +276,10 @@ export class BrickLayer {
     for (let i = 0; i < cells; i++) {
       const cell = bricks[i] ?? 0;
       if (cell === 0) continue;
-      const gfx = this.acquire(mounted);
-      mounted++;
       // Shared context — the pooled Graphics only carries the placement.
       const context = cache.contextForCell(cell);
-      if (gfx.context !== context) gfx.context = context;
+      const gfx = this.acquire(mounted, context);
+      mounted++;
       // Cell origin in field units; the body sits at (0.5, 0.5) inside it,
       // which lands exactly where fieldView drew it before the layer existed.
       gfx.position.set(
@@ -303,11 +302,16 @@ export class BrickLayer {
   }
 
   /** The nth pooled brick Graphics — grown on demand, reused forever. */
-  private acquire(n: number): Graphics {
+  private acquire(n: number, context: GraphicsContext): Graphics {
     let gfx = this.pool[n];
     if (gfx === undefined) {
-      gfx = new Graphics();
+      // Built around the shared context: Pixi then treats the geometry as
+      // borrowed, so the brick owns none of its own and nothing in destroy()
+      // can reach the variants other fields are still drawing.
+      gfx = new Graphics({ context });
       this.pool.push(gfx);
+    } else if (gfx.context !== context) {
+      gfx.context = context;
     }
     gfx.visible = true;
     return gfx;

@@ -14,7 +14,7 @@
 // Node has no GPU: real Pixi objects run headless (instruction lists only),
 // and draw calls are counted with the model below rather than
 // `renderer.renderingInfo`.
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   BRICK_CONTEXT_COUNT,
   BRICK_TIER_COUNT,
@@ -155,6 +155,20 @@ describe("BrickLayer — one cached render group per field", () => {
     layer.destroy();
   });
 
+  it("the pool holds no per-brick geometry of its own", () => {
+    const layer = new BrickLayer({ theme: DEFAULT_THEME });
+    layer.sync(grid(() => 2));
+    const [brick] = layer.view.children;
+    // Pixi gives every `new Graphics()` a private GraphicsContext. A brick that
+    // only carries the shared variant geometry must be built *around* that
+    // context, or the field allocates one dead geometry (with its own Texture,
+    // TextureStyle and Bounds) per brick — 234 of them for a full wall, which
+    // is exactly the cost ADR 0005 removes.
+    const owned = (brick as unknown as { _ownedContext?: unknown })._ownedContext;
+    expect(owned).toBeUndefined();
+    layer.destroy();
+  });
+
   it("records each variant once, however many bricks or fields use it", () => {
     const layer = new BrickLayer({ theme: DEFAULT_THEME });
     // Tiers 1..6, gold, every silver hit-state, and an uncolored cell.
@@ -240,6 +254,27 @@ describe("BrickLayer — one cached render group per field", () => {
 
     layer.sync(silverHit);
     expect(layer.revision).toBe(3);
+    layer.destroy();
+  });
+
+  it("marks the cached texture stale on a re-record, never on a static frame", () => {
+    const layer = new BrickLayer({ theme: DEFAULT_THEME });
+    // The layer's own signal that the cached texture is stale is Pixi's
+    // `updateCacheTexture()`. `revision` only counts rebuilds; this asserts the
+    // renderer is actually told to re-record — without it the cached wall would
+    // freeze on screen while the scene graph changed underneath it.
+    const invalidate = vi.spyOn(layer.view, "updateCacheTexture");
+
+    layer.sync(grid(() => 1));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    layer.sync(grid(() => 1)); // static frame — texture stays valid
+    layer.sync(grid(() => 1));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    layer.sync(grid((i) => (i === 3 ? 0 : 1))); // a brick broke
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    invalidate.mockRestore();
     layer.destroy();
   });
 
