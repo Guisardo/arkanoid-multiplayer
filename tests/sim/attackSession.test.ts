@@ -3,7 +3,7 @@ import { createAttackSession } from "sim/attackSession";
 import { ALL_TRIGGERS_ON, DEFAULT_ATTACK_TUNING, type AttackTriggerToggles } from "sim/attack";
 import { BRICK_COLS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 
 function frame(
   player: number,
@@ -440,7 +440,7 @@ describe("attack session: level-clear trigger (continuous only)", () => {
     // to the next round's fresh layout, so compare against that round's own
     // destructible count.
     const round2 = session.snapshots()[1]!.round;
-    const level2 = getLevel(round2);
+    const level2 = getLevelSync(round2);
     const freshCount = level2.grid.join("").split("").filter((c) => c !== "." && c !== "G").length;
     expect(destructibleCount(session.snapshots()[1]!.bricks)).toBe(freshCount + 3);
   });
@@ -458,7 +458,7 @@ describe("attack session: level-clear trigger (continuous only)", () => {
     // No level-clear rain: P1's field is the next round's fresh layout —
     // exactly the destructible count of that round's level, nothing extra.
     const round2 = session.snapshots()[1]!.round;
-    const level2 = getLevel(round2);
+    const level2 = getLevelSync(round2);
     const expected = level2.grid.join("").split("").filter((c) => c !== "." && c !== "G").length;
     expect(destructibleCount(session.snapshots()[1]!.bricks)).toBe(expected);
   });

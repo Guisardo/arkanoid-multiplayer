@@ -50,14 +50,14 @@ import { resetBrickContexts, type BrickLayer } from "render/brickLayer";
 import { FieldView } from "render/fieldView";
 import { layoutField } from "render/layout";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import type { Snapshot } from "shared/protocol";
 
 const layout = layoutField({ x: 0, y: 0, w: 800, h: 600 });
 
 /** Snapshot with an owned ball + silver bricks (glow + crack paths). */
 function busySnapshot(): Snapshot {
-  const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+  const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
   const snap = sim.snapshot();
   return {
     ...snap,

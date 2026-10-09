@@ -10,9 +10,9 @@ const players: HostGamePlayer[] = [
   { player: 1, name: "Guest", skinIndex: 1, guestIndex: 0 },
 ];
 
-function makeSession() {
+async function makeSession() {
   const sends: ArrayBuffer[] = [];
-  const session = createHostGameSession(
+  const session = await createHostGameSession(
     {
       mode: "sharedField",
       config: {
@@ -35,8 +35,8 @@ function makeSession() {
 }
 
 describe("hostGame pause (ticket 48)", () => {
-  it("paused tick: sim frozen, snapshots keep broadcasting", () => {
-    const { session, sends } = makeSession();
+  it("paused tick: sim frozen, snapshots keep broadcasting", async () => {
+    const { session, sends } = await makeSession();
     sends.length = 0;
     session.setPaused(true);
     const before = session.snapshots()[0];
@@ -52,8 +52,8 @@ describe("hostGame pause (ticket 48)", () => {
     session.dispose();
   });
 
-  it("paused tick: guest input is dropped, resume accepts it again", () => {
-    const { session } = makeSession();
+  it("paused tick: guest input is dropped, resume accepts it again", async () => {
+    const { session } = await makeSession();
     session.setPaused(true);
     // A paused guest's binary input must not enter the delay queue.
     // (No observable throw; the proof is the frozen sim below.)
@@ -67,8 +67,8 @@ describe("hostGame pause (ticket 48)", () => {
     session.dispose();
   });
 
-  it("setPaused is idempotent (double pause, double resume)", () => {
-    const { session } = makeSession();
+  it("setPaused is idempotent (double pause, double resume)", async () => {
+    const { session } = await makeSession();
     session.setPaused(true);
     session.setPaused(true);
     const before = session.snapshots()[0];
@@ -82,11 +82,11 @@ describe("hostGame pause (ticket 48)", () => {
     session.dispose();
   });
 
-  it("paused broadcasts keep the guest silence monitor fed (wire proof)", () => {
+  it("paused broadcasts keep the guest silence monitor fed (wire proof)", async () => {
     // The broadcast path is the same one the silence monitor watches:
     // verify sends continue while paused over a long window (12 s worth
     // of ticks would trip the monitor if silent).
-    const { session, sends } = makeSession();
+    const { session, sends } = await makeSession();
     sends.length = 0;
     session.setPaused(true);
     for (let i = 0; i < 60 * 13; i++) session.tick([]);
@@ -96,8 +96,8 @@ describe("hostGame pause (ticket 48)", () => {
     session.dispose();
   });
 
-  it("guestBinary while paused is ignored (no crash, no queue entry)", () => {
-    const { session } = makeSession();
+  it("guestBinary while paused is ignored (no crash, no queue entry)", async () => {
+    const { session } = await makeSession();
     session.setPaused(true);
     // Malformed + well-formed input both dropped silently while paused.
     expect(() => {

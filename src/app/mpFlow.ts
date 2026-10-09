@@ -18,6 +18,7 @@ import {
   createHostGameSession,
   delayTicksFor,
   snapshotHzFor,
+  warmMode,
   type HostGameSession,
   type HostGamePlayer,
 } from "app/hostGame";
@@ -600,6 +601,11 @@ export class MpFlow {
     this.lobby.startCountdown();
     this.phase = "countdown";
     this.opts.onCountdown?.(3);
+    // ADR 0007: fetch the mode's chunk and round data DURING the countdown,
+    // so the wait the player already accepts covers the load instead of the
+    // first frame of play. A failure here is not fatal — the launch awaits
+    // the same warm-up and reports it then.
+    void warmMode(state.config.mode).catch(() => undefined);
     let remaining = 3;
     const timer = globalThis.setInterval(() => {
       remaining--;
@@ -607,12 +613,14 @@ export class MpFlow {
       this.opts.onCountdown?.(Math.max(0, remaining));
       if (remaining <= 0) {
         globalThis.clearInterval(timer);
-        this.launchMatchAsHost();
+        // ADR 0007: the host session creator lazy-loads the mode sim and its
+        // round range, so the launch is async now.
+        void this.launchMatchAsHost();
       }
     }, 1000);
   }
 
-  private launchMatchAsHost(): void {
+  private async launchMatchAsHost(): Promise<void> {
     if (this.lobby === null) return;
     const state = this.lobby.state();
     // Deterministic slot order: lobby players sorted by id → sim index.
@@ -628,7 +636,7 @@ export class MpFlow {
     const sendGame = (gi: number, buf: ArrayBuffer): void => {
       this.channels?.hostToGuest(gi, buf);
     };
-    this.game = createHostGameSession(
+    this.game = await createHostGameSession(
       { mode: state.config.mode, config: state.config, players, hostLocalPlayers: hostLocal },
       sendGame,
       { onMatchEnd: (end) => { this.hostMatchEnd(end); } },

@@ -96,8 +96,9 @@ export async function startVersusBotsSession(
   });
   const app = shell.app;
 
-  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0.
-  const sim: Sim = createVersusBotsSession({
+  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0. ADR 0007: the
+  // variant sim is imported on demand inside the creator.
+  const sim: Sim = await createVersusBotsSession({
     variant: opts.variant,
     humans: 1,
     bots: opts.bots,

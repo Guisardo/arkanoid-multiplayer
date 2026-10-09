@@ -10,8 +10,7 @@
 // reload, so a player can never dodge the score penalty by reloading.
 // App-level composition — the sim stays a pure round engine.
 import type { RoundSim } from "sim/roundSim";
-import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { availableRounds, getLevelSync, preloadLevels } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import type { Storage } from "persistence/storage";
 import type { EpisodeState } from "persistence/saveDocument";
@@ -66,7 +65,13 @@ export interface SoloEpisodeOptions {
   now?: () => number;
 }
 
-export function createSoloEpisode(opts: SoloEpisodeOptions): SoloEpisode {
+/**
+ * ADR 0007: the episode is an async creator now. It lazy-imports the round
+ * sim (the solo player never downloads the multiplayer variants) and
+ * preloads every round the run can still reach, so the sim can be rebuilt
+ * synchronously on a round clear without an await on the hot path.
+ */
+export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloEpisode> {
   const storage = opts.storage;
   const now = opts.now ?? (() => Date.now());
   const saved = opts.savedEpisode;
@@ -82,10 +87,17 @@ export function createSoloEpisode(opts: SoloEpisodeOptions): SoloEpisode {
   /** Tick of the last heartbeat write (0 = never). */
   let lastSaveTick = 0;
 
+  // Round sim (ADR 0007): loaded on demand, then reused for the run.
+  const { createRoundSim } = await import("sim/roundSim");
+  // Rounds this run can still reach — fetched up front so a round clear
+  // rebuilds the sim synchronously. Restart jumps back to round 1, so the
+  // whole episode range is warmed, not just the tail from the start round.
+  await preloadLevels(availableRounds());
+
   let sim: RoundSim = makeSim();
 
   function makeSim(): RoundSim {
-    return createRoundSim(getLevel(round), {
+    return createRoundSim(getLevelSync(round), {
       lives: SOLO_START_LIVES,
       score,
       playerName: opts.playerName ?? "Player 1",
