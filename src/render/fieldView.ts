@@ -4,12 +4,11 @@
 // glow = render-time tint layer over the white-base ball skin (readability
 // gate — never the sole ownership signal).
 import { BitmapText, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
-import { cellSilverHits, type Snapshot } from "shared/protocol";
-import { BRICK_COLS, BRICK_ROWS, FIELD_H, FIELD_W } from "shared/gridConstants";
+import type { Snapshot } from "shared/protocol";
+import { FIELD_H, FIELD_W } from "shared/gridConstants";
 import { ownerColor } from "shared/playerColors";
 import { capDpr, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
-import { diffBricks } from "./sceneSync";
 import { spriteTexture } from "./spriteSheet";
 import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
 import { format, t, type Locale } from "ui/strings";
@@ -17,7 +16,7 @@ import { DEFAULT_SKIN, getSkin, type PlayerSkin } from "content/skins";
 import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
 import { pillFor } from "content/capsulePills";
 import { paintFieldBackground } from "./themeBackground";
-import { crackSegments } from "./brickCracks";
+import { BrickLayer } from "./brickLayer";
 import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule, paintBoss } from "./skinPainter";
 import { DOH_BOSS } from "content/bosses";
 import { BOSS_PROJECTILE_SIZE } from "shared/protocol";
@@ -53,7 +52,8 @@ export class FieldView {
   private readonly paddleGfx = new Graphics();
   private readonly ballGfx = new Graphics();
   private readonly capsuleGfx = new Graphics();
-  private readonly brickGfx = new Graphics();
+  /** ADR 0005: the static brick wall — one cached render group. */
+  private readonly brickLayer: BrickLayer;
   private readonly bossGfx = new Graphics();
   private readonly paddleSprite: Sprite | null;
   private readonly ballSprite: Sprite | null;
@@ -66,7 +66,6 @@ export class FieldView {
   /** Per-player skin UUIDs (single-field multi-paddle render, ticket 56). */
   private readonly skinIds: readonly string[] | undefined;
   private readonly theme: FieldTheme;
-  private prevBricks: number[] | null = null;
   private lives = -1;
   private score = -1;
   private round = -1;
@@ -137,8 +136,11 @@ export class FieldView {
     // the field about its middle instead of whipping it around the top-left.
     this.shakeLayer.pivot.set(FIELD_W / 2, FIELD_H / 2);
     this.shakeLayer.position.set(FIELD_W / 2, FIELD_H / 2);
+    // ADR 0005: the brick wall is a cached render group, mounted first so the
+    // dynamic layers (capsules, paddles, balls, boss) always draw over it.
+    this.brickLayer = new BrickLayer({ theme: this.theme, reducedEffects: this.reducedEffects });
     this.shakeLayer.addChild(
-      this.brickGfx,
+      this.brickLayer.view,
       this.capsuleGfx,
       this.paddleGfx,
       this.ballGfx,
@@ -187,12 +189,9 @@ export class FieldView {
       snap.players.find((p) => p.player === this.player) ?? snap.players[0];
     if (!player) return;
 
-    // Bricks: incremental diff redraw
-    const diff = diffBricks(this.prevBricks ?? new Array(snap.bricks.length).fill(0), snap.bricks);
-    if (diff.added.length + diff.removed.length + diff.changed.length > 0) {
-      this.redrawBricks(snap.bricks);
-    }
-    this.prevBricks = [...snap.bricks];
+    // Bricks: ADR 0005 static layer. The layer owns its own diff against the
+    // grid it last recorded, so an unchanged frame costs nothing.
+    this.brickLayer.sync(snap.bricks);
 
     // Paddles: EVERY player on this field (single-field variants — duel/
     // sharedField — carry all players in one snapshot, ticket 56). Own
@@ -301,38 +300,6 @@ export class FieldView {
     this.syncEffects(snap);
   }
 
-  private redrawBricks(bricks: readonly number[]): void {
-    this.brickGfx.clear();
-    const set = this.theme.brickSet;
-    for (let i = 0; i < bricks.length && i < BRICK_COLS * BRICK_ROWS; i++) {
-      const cell = bricks[i] ?? 0;
-      if (cell === 0) continue;
-      const col = i % BRICK_COLS;
-      const row = Math.floor(i / BRICK_COLS);
-      const x = col * 16 + 0.5;
-      const y = 20 + row * 8 + 0.5;
-      this.brickGfx.rect(x, y, 15, 7).fill(this.brickColor(cell));
-      // Silver hit-state crack overlay (procedural tint+crack, spec §13).
-      // Reduced effects (ticket 54): cracks skipped — hit state stays
-      // readable through the silver tint itself.
-      if (cellSilverHits(cell) !== null && !this.reducedEffects) {
-        for (const seg of crackSegments(cell, set.crackStyle)) {
-          this.brickGfx
-            .moveTo(x + seg.x1, y + seg.y1)
-            .lineTo(x + seg.x2, y + seg.y2)
-            .stroke({ width: 0.5, color: 0x101018 });
-        }
-      }
-    }
-  }
-
-  private brickColor(cell: number): number {
-    const set = this.theme.brickSet;
-    if (cell === 13) return set.goldColor;
-    if (cell > 8 && cell < 13) return set.silverColor;
-    return set.tierColors[cell] ?? 0xffffff;
-  }
-
   // ---- visual effects (ADR 0009) -------------------------------------------
 
   /**
@@ -382,10 +349,12 @@ export class FieldView {
    * partial GPU state). Also used when reduced-effects toggles live.
    */
   invalidate(): void {
-    this.prevBricks = null;
     this.lives = -1;
     this.score = -1;
     this.round = -1;
+    // ADR 0005: the cached brick wall holds GPU-side texture state, so it is
+    // re-recorded from the snapshot too.
+    this.brickLayer.reset();
     // A context restore / rejoin drops transient effect state too (audit §7):
     // a stranded particle burst or stuck flash would survive the resync.
     this.effects.reset();
@@ -397,6 +366,8 @@ export class FieldView {
     this.reducedEffects = reduced;
     if (this.bgSprite !== null) this.bgSprite.visible = !reduced;
     this.effects.setReducedEffects(reduced);
+    // The brick layer records a crack-free variant set in reduced mode.
+    this.brickLayer.setReducedEffects(reduced);
     this.invalidate();
   }
 }
