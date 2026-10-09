@@ -1,74 +1,29 @@
-import level1 from "./levels/round-001.json";
-import level2 from "./levels/round-002.json";
-import level3 from "./levels/round-003.json";
-import level4 from "./levels/round-004.json";
-import level5 from "./levels/round-005.json";
-import level6 from "./levels/round-006.json";
-import level7 from "./levels/round-007.json";
-import level8 from "./levels/round-008.json";
-import level9 from "./levels/round-009.json";
-import level10 from "./levels/round-010.json";
-import level11 from "./levels/round-011.json";
-import level12 from "./levels/round-012.json";
-import level13 from "./levels/round-013.json";
-import level14 from "./levels/round-014.json";
-import level15 from "./levels/round-015.json";
-import level16 from "./levels/round-016.json";
-import level17 from "./levels/round-017.json";
-import level18 from "./levels/round-018.json";
-import level19 from "./levels/round-019.json";
-import level20 from "./levels/round-020.json";
-import level21 from "./levels/round-021.json";
-import level22 from "./levels/round-022.json";
-import level23 from "./levels/round-023.json";
-import level24 from "./levels/round-024.json";
-import level25 from "./levels/round-025.json";
-import level26 from "./levels/round-026.json";
-import level27 from "./levels/round-027.json";
-import level28 from "./levels/round-028.json";
-import level29 from "./levels/round-029.json";
-import level30 from "./levels/round-030.json";
-import level31 from "./levels/round-031.json";
-import level32 from "./levels/round-032.json";
-import level33 from "./levels/round-033.json";
 import { assertValidLevel, type LevelData } from "./levelFormat";
 
-// Round registry (33 rounds land across tickets 31/35).
-const LEVELS: Record<number, LevelData> = {
-  1: level1,
-  2: level2,
-  3: level3,
-  4: level4,
-  5: level5,
-  6: level6,
-  7: level7,
-  8: level8,
-  9: level9,
-  10: level10,
-  11: level11,
-  12: level12,
-  13: level13,
-  14: level14,
-  15: level15,
-  16: level16,
-  17: level17,
-  18: level18,
-  19: level19,
-  20: level20,
-  21: level21,
-  22: level22,
-  23: level23,
-  24: level24,
-  25: level25,
-  26: level26,
-  27: level27,
-  28: level28,
-  29: level29,
-  30: level30,
-  31: level31,
-  32: level32,
-  33: level33,
-} as Record<number, LevelData>;
+/**
+ * ADR 0007: rounds are no longer statically imported into the bundle. Round
+ * data lives in one JSON file per round, loaded on demand through a dynamic
+ * import and cached in memory for the rest of the page's life, so the initial
+ * bundle carries the level registry (a static round list) but none of the
+ * grids.
+ *
+ * Two access paths:
+ * - `getLevel(round)` — async, the only path that can load a round. Returns a
+ *   promise so callers can await the fetch.
+ * - `getLevelSync(round)` — the sync fallback for code that runs on the hot
+ *   path (a sim advancing to the next round mid-match, headless tests). It
+ *   reads the in-memory cache and throws when the round has not been
+ *   preloaded; session creators warm their range with `preloadLevels` before
+ *   they build anything.
+ */
+
+/** First shipped round (ticket 31). */
+export const MIN_ROUND = 1;
+/** Last shipped round (ticket 35): 33 rounds, Doh at 33. */
+export const MAX_ROUND = 33;
+
+/** In-memory cache: one entry per round already fetched this page life. */
+const levelCache = new Map<number, LevelData>();
 
 /**
  * Ticket 113: rounds are validated the first time they are loaded, so a level
@@ -79,9 +34,24 @@ const LEVELS: Record<number, LevelData> = {
  */
 const validated = new Set<number>();
 
-export function getLevel(round: number): LevelData {
-  const level = LEVELS[round];
-  if (!level) throw new Error(`no level data for round ${String(round)}`);
+/**
+ * Round data for a round, loaded (once) through the dynamic import. The
+ * specifier is a template literal on purpose: Vite globs it at build time
+ * and emits one fetchable JSON per round. A computed specifier (passing
+ * `roundFile(round)` to `import()`) would be invisible to the bundler and
+ * 404 in every production build.
+ */
+export async function getLevel(round: number): Promise<LevelData> {
+  const cached = levelCache.get(round);
+  if (cached !== undefined) return cached;
+  if (!Number.isInteger(round) || round < MIN_ROUND || round > MAX_ROUND) {
+    throw new Error(`no level data for round ${String(round)}`);
+  }
+  const mod = (await import(`./levels/round-${String(round).padStart(3, "0")}.json`)) as {
+    default: LevelData;
+  };
+  const level = mod.default;
+  levelCache.set(round, level);
   if (!validated.has(round)) {
     assertValidLevel(level);
     validated.add(round);
@@ -89,8 +59,39 @@ export function getLevel(round: number): LevelData {
   return level;
 }
 
+/**
+ * Sync fallback: the cached instance, or a throw naming the round that still
+ * needs `await getLevel(round)`. Used where a level must be read inside a
+ * synchronous step (round advance) after the session creator preloaded it.
+ */
+export function getLevelSync(round: number): LevelData {
+  const level = levelCache.get(round);
+  if (level === undefined) {
+    throw new Error(`round ${String(round)} not loaded — await getLevel(${String(round)}) or preloadLevels first`);
+  }
+  return level;
+}
+
+/** Warm the cache for a set of rounds ahead of building a sim over them. */
+export async function preloadLevels(rounds: readonly number[]): Promise<void> {
+  await Promise.all(rounds.map((round) => getLevel(round)));
+}
+
+/** The static round list — sync, so pickers can offer rounds with no fetch. */
 export function availableRounds(): number[] {
-  return Object.keys(LEVELS).map(Number).sort((a, b) => a - b);
+  return roundRange(MIN_ROUND, MAX_ROUND);
+}
+
+/** Every shipped round in an inclusive range (clamped, ascending). */
+export function roundRange(from: number, to: number): number[] {
+  const rounds: number[] = [];
+  for (let round = Math.max(MIN_ROUND, from); round <= Math.min(MAX_ROUND, to); round++) rounds.push(round);
+  return rounds;
+}
+
+/** Every round of the episode an assist team (or a solo run) can reach. */
+export function episodeRounds(): number[] {
+  return availableRounds();
 }
 
 /** Attack draws rounds 1–32 only — round 33 (Doh) never selected (spec §4:

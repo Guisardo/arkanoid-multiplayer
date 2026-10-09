@@ -8,16 +8,13 @@
 // players' fields (single-field modes send the one field to everyone).
 // Malformed guest frames are dropped; a guest's channel close ends its slot
 // via remoteLeft semantics (rejoin is ticket 47).
-import {
-  createRoundDuel,
-  type DuelSim,
-} from "sim/duel";
-import { createMultiFieldSession, type MatchConfig, type MultiFieldSession } from "sim/multiField";
-import { createAttackSession, type AttackSession } from "sim/attackSession";
-import { createAssistSession, type AssistSession } from "sim/assistSession";
-import { createSharedFieldSim, type SharedFieldSim } from "sim/sharedField";
-import { getLevel } from "content/levels";
+import { ATTACK_MAX_ROUND, MAX_ROUND, MIN_ROUND, getLevelSync, preloadLevels, roundRange } from "content/levels";
 import type { LobbyConfig, LobbyMode } from "app/lobbyState";
+import type { DuelSim } from "sim/duel";
+import type { MultiFieldSession, MatchConfig } from "sim/multiField";
+import type { AttackSession } from "sim/attackSession";
+import type { AssistSession } from "sim/assistSession";
+import type { SharedFieldSim } from "sim/sharedField";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import { EMPTY_ACTIONS } from "shared/protocol";
 import { createDelayQueue } from "net/delayQueue";
@@ -136,13 +133,62 @@ interface ModeSim {
   over(): boolean;
 }
 
-function buildModeSim(opts: HostGameOptions): ModeSim {
+/**
+ * Rounds a mode can reach. Duel and shared field play the fixed round-1
+ * layout; the parallel modes walk a range (attack stops at 32 — Doh never
+ * selected). Preloading the range up front keeps the sync round-advance
+ * path (`getLevelSync`) inside the sims free of awaits.
+ */
+function roundsForMode(mode: LobbyMode): number[] {
+  if (mode === "duel" || mode === "sharedField") return [1];
+  const ceiling = mode === "attack" ? ATTACK_MAX_ROUND : MAX_ROUND;
+  return roundRange(MIN_ROUND, ceiling);
+}
+
+/**
+ * ADR 0007: fetch the mode's chunk. A Duel lobby never downloads
+ * Race/Attack/Assist code (and vice versa) — only the picked mode's chunk
+ * is requested, and only once (the ES module registry caches it, so the
+ * session creator's own import a moment later resolves instantly).
+ */
+function loadModeModule(mode: LobbyMode): Promise<unknown> {
+  switch (mode) {
+    case "duel":
+      return import("sim/duel");
+    case "sharedField":
+      return import("sim/sharedField");
+    case "parallelAssist":
+      return import("sim/assistSession");
+    case "attack":
+      return import("sim/attackSession");
+    case "race":
+      return import("sim/multiField");
+  }
+}
+
+/**
+ * Warm everything a mode needs without building a session: its round data
+ * and its sim chunk. The lobby countdown calls this on Start, so the 3 s
+ * wait covers the fetch instead of the first frame of play — the player
+ * sees a countdown, not a stall.
+ */
+export async function warmMode(mode: LobbyMode): Promise<void> {
+  await Promise.all([preloadLevels(roundsForMode(mode)), loadModeModule(mode)]);
+}
+
+/**
+ * Build the mode's sim. All I/O happens here (round data preloaded, module
+ * imported), and each case reads its rounds through `getLevelSync` so the
+ * sims' mid-match round advance needs no await on the step path.
+ */
+async function buildModeSim(opts: HostGameOptions): Promise<ModeSim> {
   const names = opts.players.map((p) => p.name);
   const skinIndices = opts.players.map((p) => p.skinIndex);
   const count = opts.players.length;
   switch (opts.mode) {
     case "duel": {
-      const sim: DuelSim = createRoundDuel(getLevel(1), {
+      const { createRoundDuel } = await import("sim/duel");
+      const sim: DuelSim = createRoundDuel(getLevelSync(1), {
         ballModel: "shared",
         timeCapTicks: null,
         playerNames: [names[0] ?? "P1", names[1] ?? "P2"],
@@ -156,7 +202,8 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "sharedField": {
-      const sim: SharedFieldSim = createSharedFieldSim(getLevel(1), {
+      const { createSharedFieldSim } = await import("sim/sharedField");
+      const sim: SharedFieldSim = createSharedFieldSim(getLevelSync(1), {
         placement: "A",
         ballModel: "shared",
         playerCount: count as 2 | 3 | 4,
@@ -171,6 +218,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "parallelAssist": {
+      const { createAssistSession } = await import("sim/assistSession");
       const sim: AssistSession = createAssistSession({
         playerCount: count,
         startRound: 1,
@@ -186,6 +234,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "attack": {
+      const { createAttackSession } = await import("sim/attackSession");
       const sim: AttackSession = createAttackSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -200,6 +249,7 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
       };
     }
     case "race": {
+      const { createMultiFieldSession } = await import("sim/multiField");
       const sim: MultiFieldSession = createMultiFieldSession({
         playerCount: count,
         config: matchConfigFromLobby(opts.config),
@@ -216,14 +266,19 @@ function buildModeSim(opts: HostGameOptions): ModeSim {
   }
 }
 
-export function createHostGameSession(
+export async function createHostGameSession(
   opts: HostGameOptions,
   sendGame: SendGame,
   callbacks: HostGameCallbacks = {},
-): HostGameSession {
+): Promise<HostGameSession> {
   const snapshotHz = snapshotHzFor(opts.mode);
   const delayTicks = delayTicksFor(opts.mode);
-  const sim = buildModeSim(opts);
+  // ADR 0007: round data for the mode's range plus the mode sim's chunk —
+  // both fetched only when a match actually starts. `warmMode` may already
+  // have resolved both during the countdown; awaiting a settled promise
+  // costs nothing and keeps this the single entry point.
+  await warmMode(opts.mode);
+  const sim = await buildModeSim(opts);
   const queue = createDelayQueue({ delay: delayTicks });
   const guard = createHostInputGuard();
 
