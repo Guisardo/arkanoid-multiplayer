@@ -32,6 +32,7 @@ import { reducePause, pauseAllowedFor, UNPAUSED, type PauseState } from "app/pau
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 import { PauseOverlay } from "ui/pauseOverlay";
 import { QuitConfirm } from "ui/quitConfirm";
@@ -147,6 +148,8 @@ export class MpFlow {
   private ladder: PerfLadder = createPerfLadder(0);
   /** Rolling frame-budget stats (sim/sync/render split). */
   private frameStats = new FrameStats();
+  /** Ticket 102: dev-only heap source for the ?perf=1 overlay. */
+  private readonly memoryProbe = createMemoryProbe();
   /** Dev perf overlay (?perf=1). */
   private perfOverlay: PerfOverlay | null = null;
   /** Last snapshot→scene sync duration (ms, measured in render). */
@@ -771,12 +774,19 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
+        // Ticket 102: memory telemetry — the cached wall textures are the term
+        // the ladder actually scales.
+        const memory = sampleMemoryStats(
+          this.memoryProbe,
+          cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+        );
         this.perfOverlay?.update({
           stats: this.frameStats.view,
           dpr: this.ladder.rung.dpr,
           renderEvery: this.ladder.rung.renderEvery,
           drawCalls: null,
-          textureMb: null,
+          textureMb: memory.textureMb,
+          memory,
         });
       },
     });
@@ -1218,12 +1228,19 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
+        // Ticket 102: memory telemetry — the cached wall textures are the term
+        // the ladder actually scales.
+        const memory = sampleMemoryStats(
+          this.memoryProbe,
+          cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+        );
         this.perfOverlay?.update({
           stats: this.frameStats.view,
           dpr: this.ladder.rung.dpr,
           renderEvery: this.ladder.rung.renderEvery,
           drawCalls: null,
-          textureMb: null,
+          textureMb: memory.textureMb,
+          memory,
         });
       },
     });

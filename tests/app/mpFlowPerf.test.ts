@@ -259,6 +259,12 @@ describe("mpFlow perf wiring (ticket 54)", () => {
       const text = document.querySelector("[data-perf-overlay]")?.textContent ?? "";
       expect(text).toContain("fps");
       expect(text).toContain("sim");
+      // Ticket 102: the match overlay reports memory telemetry too.
+      expect(text).toContain("tex ");
+      expect(text).toMatch(/heap (\?|[\d.]+MB)/);
+      // Texture memory stays inside the 64 MB ceiling the line advertises.
+      const texMb = Number(/tex ([\d.]+)MB/.exec(text)?.[1] ?? "NaN");
+      expect(texMb).toBeLessThan(64);
     } finally {
       window.history.replaceState(null, "", original);
     }

@@ -161,8 +161,12 @@ _Avoid_: Checkpoint, resume, extra life
 ### Performance & Rendering
 
 **Perf ladder**:
-A 4-rung automatic quality degradation system: DPR 2.0→1.5→1.0→30 fps (degraded), with hysteresis (0.75 s sustained load to step down, 4 s headroom to step up). Triggered by frame-time budget exceedance.
+A 4-rung automatic quality degradation system: DPR 2.0→1.5→1.0→30 fps (degraded), with hysteresis (0.75 s sustained load to step down, 4 s headroom to step up). Triggered by frame-time budget exceedance. The degraded rung also halves the cached brick-wall texture resolution.
 _Avoid_: Quality settings (manual), dynamic resolution (implies continuous)
+
+**Memory telemetry**:
+Dev-only readout of the JS heap (from `performance.memory`, null where absent) and the estimated texture memory, shown in the perf overlay and checked against the 64 MB texture ceiling. Debugging aid — never a user-facing metric.
+_Avoid_: Memory stats (vague), RAM monitor
 
 **Reduced effects**:
 A GPU-saving render mode that skips decorative layers: background tile, owner glow rings, silver brick cracks. Toggled per-field via `DisplaySettings.reducedEffects`; also auto-enabled on perf ladder rung 3 (degraded).

@@ -13,7 +13,7 @@ unit tests; the numbers below can only be measured on real hardware.
 1. Build + deploy (or `npm run preview` over the device's network).
 2. Open the game with **`?perf=1`** — the dev overlay shows per frame:
    `fps`, `sim` (≤2 ms), `sync` (≤3 ms), `render` (≤5 ms), `total`
-   (≤10 ms), `dpr`, `draw` (<20), `tex` (≤64 MB).
+   (≤10 ms), `dpr`, `draw` (<20), `tex` (≤64 MB), `heap` (JS heap MB).
 3. Test solo first, then a 2-field match (versus bots, Race, 2 fields =
    the worst local case), then a remote session (host device = worst
    case: sim + 3-guest serialization + render).
@@ -31,8 +31,14 @@ unit tests; the numbers below can only be measured on real hardware.
 - [ ] `total` ≤10 ms sustained; ≤8 ms preferred (thermal headroom).
 - [ ] `draw` <20 per frame at full content (≤10 expected — one atlas,
       uniform blend; a number near 20 means batching broke).
-- [ ] `tex` ≤64 MB (the shipped set is ~0.1 MB — anything larger means a
-      texture leak or unbounded atlas growth).
+- [ ] `tex` ≤64 MB (the shipped set is ~0.1 MB plus the cached field walls
+      — anything larger means a texture leak or unbounded atlas growth).
+- [ ] `heap` climbs monotonically across a long session without ever
+      spiking (Chromium only; `?` where `performance.memory` is absent —
+      Firefox/Safari). A sawtooth that never returns to baseline is a leak.
+- [ ] A 20-minute continuous Attack match holds steady `heap`: the
+      destroyed-brick history is capped at 500 entries, so it cannot grow
+      without bound (ticket 102).
 
 ### Fallback ladder
 
@@ -43,6 +49,9 @@ unit tests; the numbers below can only be measured on real hardware.
       60 Hz (ball physics identical; only sharpness changes).
 - [ ] Sustained overload reaches the 30 fps rung: the explicit
       "Reduced performance mode" banner appears (never silent).
+- [ ] The 30 fps rung also downscales the cached brick-wall texture to
+      half resolution (a quarter of its bytes) — `tex` visibly drops when
+      the rung engages, and rises back on recovery (ticket 102).
 - [ ] 30 fps rung: every other rendered frame skipped, sim still 60 Hz
       (fast ball moves 2 sim ticks per frame — expected, playable floor).
 - [ ] Recovery: when load drops, the ladder climbs back (lazy, ~4 s per
@@ -78,6 +87,12 @@ unit tests; the numbers below can only be measured on real hardware.
 
 - Ladder step-down/recovery/hysteresis logic — unit-tested
   (`tests/app/perfLadder.test.ts`).
+- Ladder texture resolution per rung (ticket 102) — unit-tested
+  (`tests/app/perfLadder.test.ts`, `tests/render/brickLayerTextureResolution.test.ts`).
+- Memory telemetry + the 64 MB ceiling (ticket 102) — unit-tested
+  (`tests/app/memoryStats.test.ts`, `tests/app/perfOverlay.test.ts`).
+- Destroyed-brick history cap (ticket 102) — unit-tested
+  (`tests/sim/destroyedHistory.test.ts`).
 - 30 fps rung keeps sim at fixed 60 Hz — unit-tested
   (`tests/app/loop.test.ts`).
 - Budget constants + texture estimator + draw-call counter — unit-tested
