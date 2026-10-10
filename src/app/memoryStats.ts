@@ -49,7 +49,7 @@ export interface MemoryStats {
  * Build a probe over an optional `performance`-shaped source. Pass nothing and
  * it reads the global; pass a fake and it reads that.
  */
-export function createMemoryProbe(source?: PerformanceWithMemory | undefined): MemoryProbe {
+export function createMemoryProbe(source?: PerformanceWithMemory): MemoryProbe {
   return {
     get heapUsedMb(): number | null {
       const memory = (source ?? globalPerformance())?.memory;

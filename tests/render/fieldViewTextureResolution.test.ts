@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import { FieldView } from "render/fieldView";
 import { SplitScreenView } from "render/splitScreen";
 import { layoutField } from "render/layout";
-import { DEFAULT_THEME } from "content/themes";
 
 function makeFieldView(textureResolution?: number): FieldView {
   return new FieldView({
