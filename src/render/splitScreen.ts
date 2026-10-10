@@ -20,27 +20,36 @@ export interface SplitScreenOptions {
   themeId?: string;
   /** Ticket 54: reduced-effects mode on every field. */
   reducedEffects?: boolean;
+  /**
+   * Ticket 102: initial cached-wall texture resolution for every field. The
+   * perf ladder's degraded rung passes 0.5; it also survives resize rebuilds,
+   * which construct fresh FieldViews.
+   */
+  textureResolution?: number;
 }
 
 export class SplitScreenView {
   readonly container = new Container();
-  private views: FieldView[] = [];
+  private fields: FieldView[] = [];
   private readonly opts: SplitScreenOptions;
+  /** Ticket 102: live cached-wall texture resolution, reapplied on rebuild. */
+  private wallResolution: number;
 
   constructor(opts: SplitScreenOptions) {
     this.opts = opts;
+    this.wallResolution = opts.textureResolution ?? 1;
     this.rebuild();
   }
 
   private rebuild(): void {
-    for (const v of this.views) {
+    for (const v of this.fields) {
       // Destroy the effects orchestrator first: it owns pooled particles and
       // BitmapText nodes that the container teardown would otherwise leak.
       v.visualEffects.destroy();
       v.container.destroy({ children: true });
     }
     this.container.removeChildren();
-    this.views = [];
+    this.fields = [];
     const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length);
     for (let i = 0; i < this.opts.players.length; i++) {
       const region = regions[i];
@@ -57,8 +66,9 @@ export class SplitScreenView {
         skinIds: this.opts.skinIds,
         themeId: this.opts.themeId,
         reducedEffects: this.opts.reducedEffects ?? false,
+        textureResolution: this.wallResolution,
       });
-      this.views.push(view);
+      this.fields.push(view);
       this.container.addChild(view.container);
     }
   }
@@ -71,8 +81,8 @@ export class SplitScreenView {
 
   /** Sync each field with its snapshot (index-aligned). */
   sync(snapshots: readonly Snapshot[]): void {
-    for (let i = 0; i < this.views.length && i < snapshots.length; i++) {
-      const view = this.views[i];
+    for (let i = 0; i < this.fields.length && i < snapshots.length; i++) {
+      const view = this.fields[i];
       const snap = snapshots[i];
       if (view && snap) view.sync(snap);
     }
@@ -85,7 +95,7 @@ export class SplitScreenView {
    * let each FieldView measure its own wall clock.
    */
   tickEffects(dt?: number): void {
-    for (const v of this.views) {
+    for (const v of this.fields) {
       if (dt === undefined) v.tickEffectsAuto();
       else v.tickEffects(dt);
     }
@@ -93,11 +103,11 @@ export class SplitScreenView {
 
   /** A field's live effect state — read by tests and session diagnostics. */
   effectsStateOf(index: number): EffectsState | null {
-    return this.views[index]?.effectsState ?? null;
+    return this.fields[index]?.effectsState ?? null;
   }
 
   get fieldCount(): number {
-    return this.views.length;
+    return this.fields.length;
   }
 
   /**
@@ -114,11 +124,26 @@ export class SplitScreenView {
 
   /** Ticket 54: context-restore resync — invalidate every field's caches. */
   invalidate(): void {
-    for (const v of this.views) v.invalidate();
+    for (const v of this.fields) v.invalidate();
   }
 
   /** Ticket 54: live reduced-effects toggle on every field. */
   setReducedEffects(reduced: boolean): void {
-    for (const v of this.views) v.setReducedEffects(reduced);
+    for (const v of this.fields) v.setReducedEffects(reduced);
+  }
+
+  /**
+   * Ticket 102: cached-wall texture resolution on every field. A degraded
+   * rung must downscale ALL fields — leaving one at full resolution would keep
+   * its cache at full size and forfeit part of the memory saving.
+   */
+  setTextureResolution(resolution: number): void {
+    this.wallResolution = resolution;
+    for (const v of this.fields) v.setTextureResolution(resolution);
+  }
+
+  /** The live fields — read by tests and session diagnostics. */
+  get views(): readonly FieldView[] {
+    return this.fields;
   }
 }

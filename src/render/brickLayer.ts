@@ -172,6 +172,12 @@ export interface BrickLayerOptions {
   theme: FieldTheme;
   /** Ticket 54: skip the silver crack overlays entirely. */
   reducedEffects?: boolean;
+  /**
+   * Ticket 102: resolution the cached wall texture is recorded at. 1 keeps
+   * the renderer resolution; the perf ladder's degraded rung passes 0.5 for a
+   * quarter of the texture bytes. Ignored when ≤ 0 (never a zero-size cache).
+   */
+  textureResolution?: number;
 }
 
 /**
@@ -184,6 +190,8 @@ export class BrickLayer {
   readonly view: Container;
   private readonly theme: FieldTheme;
   private reducedEffects: boolean;
+  /** Ticket 102: resolution the cached wall texture is recorded at. */
+  private textureResolution: number;
   /** Recycled brick Graphics, grown on demand and reused across re-records. */
   private readonly pool: Graphics[] = [];
   private used = 0;
@@ -193,10 +201,11 @@ export class BrickLayer {
   constructor(opts: BrickLayerOptions) {
     this.theme = opts.theme;
     this.reducedEffects = opts.reducedEffects ?? false;
+    this.textureResolution = sanitizeResolution(opts.textureResolution);
     this.view = new Container({ isRenderGroup: true });
     // ADR 0005: the wall is static between brick changes, so it renders once
     // into its own texture and is blitted as one draw call.
-    this.view.cacheAsTexture(true);
+    this.view.cacheAsTexture({ resolution: this.textureResolution });
   }
 
   /** Bricks currently mounted in the layer. */
@@ -224,6 +233,35 @@ export class BrickLayer {
     if (this.reducedEffects === reduced) return;
     this.reducedEffects = reduced;
     this.grid = null;
+  }
+
+  /**
+   * Ticket 102: live texture-resolution change (perf ladder). Pixi has no
+   * way to resize an existing cache, so the cached wall is torn down and the
+   * next sync() re-records it at the new resolution. Dropping the grid is
+   * what forces that re-record: without it the diff would match and the
+   * stale full-resolution texture would stay on screen.
+   */
+  setTextureResolution(resolution: number): void {
+    const next = sanitizeResolution(resolution);
+    if (this.textureResolution === next) return;
+    this.textureResolution = next;
+    this.view.cacheAsTexture({ resolution: next });
+    this.grid = null;
+  }
+
+  /** Resolution the cached wall texture is currently recorded at. */
+  get cacheResolution(): number {
+    return this.textureResolution;
+  }
+
+  /**
+   * True when the cached grid has been dropped and the next sync() must
+   * re-record. Read by tests and by the memory telemetry to explain a
+   * pending texture allocation.
+   */
+  get gridDropped(): boolean {
+    return this.grid === null;
   }
 
   /** Toggle texture caching (perf A/B in the field and tests). */
@@ -316,6 +354,16 @@ export class BrickLayer {
     gfx.visible = true;
     return gfx;
   }
+}
+
+/**
+ * A cache resolution must be a positive number: 0 or negative would ask
+ * Pixi for a zero/negative-size texture. Anything unusable falls back to
+ * full resolution, which is always safe.
+ */
+function sanitizeResolution(resolution: number | undefined): number {
+  if (resolution === undefined || !Number.isFinite(resolution) || resolution <= 0) return 1;
+  return resolution;
 }
 
 /** Draw calls for `bricks` children inside a container, cached or not. */

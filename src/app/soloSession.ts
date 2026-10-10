@@ -22,6 +22,7 @@ import type { SettingsScreen } from "ui/settingsScreen";
 import { EndScreen, soloEnd } from "ui/endScreens";
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats, estimateTextureBytes, textureWithinBudget } from "app/frameStats";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 
@@ -478,6 +479,12 @@ export async function startSoloSession(
         renderEvery: ladder.rung.renderEvery,
         drawCalls: null,
         textureMb: textureMbEstimate,
+        // Ticket 102: heap + the cached wall textures, the term the ladder
+        // actually scales.
+        memory: sampleMemoryStats(
+          memoryProbe,
+          textureMbBytes + cachedWallBytes(views.length, ladder.rung.textureResolution),
+        ),
       });
     },
   });
@@ -488,6 +495,8 @@ export async function startSoloSession(
     const rung = ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves the cached wall texture.
+    for (const v of views) v.setTextureResolution(rung.textureResolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }
@@ -550,6 +559,9 @@ export async function startSoloSession(
     // tiny PNGs), but the check is the contract.
     throw new Error("texture budget exceeded by shipped assets");
   }
+  // Ticket 102: dev-only memory telemetry for the ?perf=1 overlay.
+  const textureMbBytes = textureMbEstimate * 1024 * 1024;
+  const memoryProbe = createMemoryProbe();
   let lastSyncMs = 0;
 
   const onResize = (): void => {

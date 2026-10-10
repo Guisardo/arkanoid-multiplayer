@@ -48,6 +48,7 @@ vi.mock("render/fieldView", () => ({
     sync = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();
   },
@@ -63,6 +64,7 @@ vi.mock("render/splitScreen", () => ({
     resize = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     regionOf = () => ({ x: 0, y: 0, w: 400, h: 600 });
     constructor(opts: { players: number[] }) {
       const holder = this.constructor as unknown as { lastPlayers: number[] | null };

@@ -43,6 +43,12 @@ export interface FieldViewOptions {
    * sprite). Measurably fewer Graphics ops per frame.
    */
   reducedEffects?: boolean;
+  /**
+   * Ticket 102: resolution the cached brick wall is recorded at. The perf
+   * ladder passes 0.5 on the explicit degraded rung (a quarter of the texture
+   * bytes); absent → 1, the renderer resolution.
+   */
+  textureResolution?: number;
 }
 
 export class FieldView {
@@ -72,6 +78,8 @@ export class FieldView {
   private readonly nameText: BitmapText;
   /** Ticket 54: reduced-effects mode (decorative layers skipped). */
   private reducedEffects: boolean;
+  /** Ticket 102: cached-wall texture resolution (perf ladder degraded rung). */
+  private wallResolution: number;
   /** ADR 0009: one effects orchestrator per field (split-screen isolated). */
   private readonly effects: VisualEffects;
   /** Shake target, pivoted on the field center and parented by fieldContainer. */
@@ -93,6 +101,7 @@ export class FieldView {
     this.skinIds = opts.skinIds;
     this.theme = getTheme(opts.themeId ?? null) ?? DEFAULT_THEME;
     this.reducedEffects = opts.reducedEffects ?? false;
+    this.wallResolution = opts.textureResolution ?? 1;
 
     const s = this.layout.scale;
     // HUD strip above the field
@@ -138,7 +147,11 @@ export class FieldView {
     this.shakeLayer.position.set(FIELD_W / 2, FIELD_H / 2);
     // ADR 0005: the brick wall is a cached render group, mounted first so the
     // dynamic layers (capsules, paddles, balls, boss) always draw over it.
-    this.brickLayer = new BrickLayer({ theme: this.theme, reducedEffects: this.reducedEffects });
+    this.brickLayer = new BrickLayer({
+      theme: this.theme,
+      reducedEffects: this.reducedEffects,
+      textureResolution: this.wallResolution,
+    });
     this.shakeLayer.addChild(
       this.brickLayer.view,
       this.capsuleGfx,
@@ -369,6 +382,23 @@ export class FieldView {
     // The brick layer records a crack-free variant set in reduced mode.
     this.brickLayer.setReducedEffects(reduced);
     this.invalidate();
+  }
+
+  /**
+   * Ticket 102: live cached-wall texture resolution (perf ladder). Kept in a
+   * field so a resize rebuild — which constructs fresh FieldViews — inherits
+   * the resolution the session is currently on instead of snapping back to
+   * full while the ladder sits degraded.
+   */
+  get textureResolution(): number {
+    return this.wallResolution;
+  }
+
+  /** Ticket 102: downscale (or restore) this field's cached wall texture. */
+  setTextureResolution(resolution: number): void {
+    if (this.wallResolution === resolution) return;
+    this.wallResolution = resolution;
+    this.brickLayer.setTextureResolution(resolution);
   }
 }
 
