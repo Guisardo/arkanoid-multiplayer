@@ -1,0 +1,9 @@
+perf(render): downscale cached wall texture on the degraded rung
+
+Ticket 102. The perf ladder rung now carries textureResolution: rungs 0..2
+keep 1, the explicit degraded rung (30 fps) drops to 0.5 — a quarter of the
+cached brick-wall texture bytes for identical content. Render-only, so the
+fixed 60 Hz sim is untouched.
+
+BrickLayer grows setTextureResolution(), which re-arms Pixi's cacheAsTexture
+and drops the cached grid so the next sync re-records at the new resolution.
