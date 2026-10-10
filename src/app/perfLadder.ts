@@ -66,7 +66,9 @@ export function createPerfLadder(startRung = 0): PerfLadder {
       return { rung, slowStreak, fastStreak };
     },
     get rung(): PerfRung {
-      return PERF_RUNGS[rung] ?? { dpr: 2, renderEvery: 1, degraded: false };
+      return (
+        PERF_RUNGS[rung] ?? { dpr: 2, renderEvery: 1, textureResolution: 1, degraded: false }
+      );
     },
     get changed(): boolean {
       return changed;

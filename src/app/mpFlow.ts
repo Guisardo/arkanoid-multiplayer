@@ -938,6 +938,9 @@ export class MpFlow {
     const rung = this.ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     this.shell?.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves every field's cached wall
+    // texture — a quarter of the bytes, for identical visual content.
+    this.split?.setTextureResolution(rung.textureResolution);
     this.loop?.setRenderEvery(rung.renderEvery);
     this.updateDegradedBanner(rung.degraded);
   }

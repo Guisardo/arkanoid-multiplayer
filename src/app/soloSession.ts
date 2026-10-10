@@ -488,6 +488,8 @@ export async function startSoloSession(
     const rung = ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves the cached wall texture.
+    for (const v of views) v.setTextureResolution(rung.textureResolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }

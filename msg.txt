@@ -1,9 +1,10 @@
-perf(render): downscale cached wall texture on the degraded rung
+feat(render): carry the ladder's texture resolution to every field
 
-Ticket 102. The perf ladder rung now carries textureResolution: rungs 0..2
-keep 1, the explicit degraded rung (30 fps) drops to 0.5 — a quarter of the
-cached brick-wall texture bytes for identical content. Render-only, so the
-fixed 60 Hz sim is untouched.
+Ticket 102. FieldView and SplitScreenView accept and expose a cached-wall
+texture resolution; SplitScreenView remembers it so a resize rebuild
+inherits the current rung instead of snapping back to full. All three
+sessions push rung.textureResolution in applyLadderRung(), next to the
+existing resolution + render cadence, so the degraded rung actually
+downscales the texture rather than only declaring it.
 
-BrickLayer grows setTextureResolution(), which re-arms Pixi's cacheAsTexture
-and drops the cached grid so the next sync re-records at the new resolution.
+Sim rate untouched: the ladder is render-only.
