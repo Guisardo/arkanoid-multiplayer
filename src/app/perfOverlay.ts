@@ -58,7 +58,7 @@ export class PerfOverlay {
         inputs.memory?.textureOverBudget === true ? " !" : ""
       }`,
     );
-    this.setMemoryLine(inputs.memory ?? null);
+    this.setMemoryLine(inputs.memory ?? null, set);
   }
 
   /**
@@ -67,7 +67,7 @@ export class PerfOverlay {
    * means the browser does not expose `performance.memory` — shown as `?`,
    * never 0 (a real 0 MB heap would be its own bug report).
    */
-  private setMemoryLine(memory: MemoryStats | null): void {
+  private setMemoryLine(memory: MemoryStats | null, set: (key: string, text: string) => void): void {
     const line = this.lines["heap"];
     if (line === undefined) return;
     if (memory === null) {
@@ -76,7 +76,7 @@ export class PerfOverlay {
       return;
     }
     const heap = memory.heapUsedMb === null ? "?" : `${memory.heapUsedMb.toFixed(1)}MB`;
-    line.textContent = `heap ${heap}${memory.heapWarning ? " !" : ""}`;
+    set("heap", `heap ${heap}${memory.heapWarning ? " !" : ""}`);
   }
 
   close(): void {
