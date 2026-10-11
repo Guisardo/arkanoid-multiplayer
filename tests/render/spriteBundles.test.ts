@@ -50,31 +50,49 @@ const spritesheet = {
 
 /** Every bundle name requested, in order, so deferral is observable. */
 const bundleCalls: string[] = [];
-/** Bundle names whose load should reject, to drive the fallback path. */
+/** Bundle names the (mock) manifest does not declare, to drive the fallback. */
 let failBundles = new Set<string>();
+/** Whether the `atlas` alias resolves — Pixi's real post-load signal. */
+let atlasPresent = true;
+/** How many times `Assets.init` was called — it must never exceed 1. */
+let initCalls = 0;
 
 vi.mock("pixi.js", async () => {
   const actual = await vi.importActual<typeof PixiModule>("pixi.js");
   return {
     ...actual,
     Assets: {
-      init: vi.fn(() => Promise.resolve()),
+      init: vi.fn(() => {
+        initCalls += 1;
+        return Promise.resolve();
+      }),
+      // Pixi's real `loadBundle` does NOT reject for a bundle the manifest
+      // does not declare — it logs "not found in the Cache" and RESOLVES.
+      // Modelling that is the whole point: a try/catch fallback never fires
+      // against real Pixi, so the loader must key on the outcome instead.
       loadBundle: vi.fn((name: string) => {
         bundleCalls.push(name);
-        return failBundles.has(name) ? Promise.reject(new Error(`404 ${name}`)) : Promise.resolve();
+        if (failBundles.has(name)) {
+          atlasPresent = false;
+          return Promise.resolve();
+        }
+        atlasPresent = true;
+        return Promise.resolve();
       }),
-      get: vi.fn(() => [spritesheet]),
+      get: vi.fn(() => (atlasPresent ? [spritesheet] : [])),
       add: vi.fn(() => {}),
       load: vi.fn(() => Promise.resolve(actual.Texture.WHITE)),
     },
   };
 });
 
-const { ensureGameplayAssets, gameplayAssetsLoaded, spriteDebugState, spriteTexture } =
+const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, spriteDebugState, spriteTexture } =
   await import("render/spriteSheet");
 
 beforeEach(() => {
   bundleCalls.length = 0;
+  initCalls = 0;
+  atlasPresent = true;
   failBundles = new Set();
   // The module-level "already loaded" flag survives between tests, so reset the
   // cache through the public seam rather than re-importing.
@@ -107,14 +125,16 @@ describe("progressive bundles (ticket 87)", () => {
 
   it("degrades to procedural geometry when no bundle can load", async () => {
     // Neither the progressive name nor the legacy name exists — the worst
-    // case. Must still resolve; the match starts on geometry.
-    failBundles = new Set(["gameplay", "boot", "default"]);
+    // case. Pixi does not reject here, it just leaves the cache empty, so the
+    // observable signal is a missing texture rather than a thrown error.
+    failBundles = new Set(["gameplay", "default"]);
     await expect(ensureGameplayAssets()).resolves.toBeUndefined();
-    expect(spriteDebugState().error).toBeInstanceOf(Error);
+    expect(spriteTexture("ball-red.png")).toBeNull();
+    expect(spriteDebugState().atlasResolved).toBe(false);
   });
 
   it("keeps retrying after a total failure so a later match can still get art", async () => {
-    failBundles = new Set(["gameplay", "boot", "default"]);
+    failBundles = new Set(["gameplay", "default"]);
     await ensureGameplayAssets();
     failBundles = new Set();
     await ensureGameplayAssets();
@@ -141,6 +161,18 @@ describe("progressive bundles (ticket 87)", () => {
     await expect(ensureGameplayAssets()).resolves.toBeUndefined();
     expect(bundleCalls).toContain("default");
     expect(spriteDebugState().error).toBeNull();
+    expect(spriteTexture("ball-red.png")).not.toBeNull();
+  });
+
+  it("initialises the Assets pipeline exactly once across both entry points", async () => {
+    // `initAssets` and `ensureGameplayAssets` run CONCURRENTLY at match start.
+    // `Assets.init` is not idempotent: the second call logs "AssetManager
+    // already initialized" and leaves the cache unpopulated, so the atlas
+    // silently vanishes and every particle prewarm fails for the session.
+    await Promise.all([initAssets(), ensureGameplayAssets()]);
+    await initAssets();
+    expect(initCalls).toBe(1);
+    // And the atlas still resolves afterwards, which is what actually broke.
     expect(spriteTexture("ball-red.png")).not.toBeNull();
   });
 });

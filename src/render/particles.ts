@@ -33,14 +33,39 @@ function burstAngle(i: number, count: number): number {
 }
 
 export class ParticleSystem {
-  /** Node-guarded: null when no atlas frame is loaded (tests, load failure). */
-  private readonly container: ParticleContainer | null;
+  /**
+   * Node-guarded: null until the atlas resolves, and null for good if it never
+   * does. Not readonly and not resolved in the constructor — see
+   * `activeContainer`.
+   */
+  private container: ParticleContainer | null = null;
   private readonly pool: LiveParticle[] = [];
   private readonly live: LiveParticle[] = [];
 
   constructor() {
-    this.container = makeContainer();
-    if (this.container !== null) this.prewarm(PARTICLE_POOL);
+    this.ensurePooled();
+  }
+
+  /**
+   * Fill the pool so that free + live equals `PARTICLE_POOL`.
+   *
+   * Idempotent and callable more than once. It must not live only in the
+   * constructor: ticket 87 defers the gameplay bundle, so a `FieldView` — and
+   * with it this system — can be built while the atlas is still in flight. A
+   * constructor-only prewarm silently gave up in that window and left the pool
+   * empty for the rest of the session, so every burst was dropped.
+   *
+   * The cap is on pool + live together, not the pool alone: particles are lent
+   * out of the pool to `live` for their whole life and returned on retire, so
+   * topping the pool up to PARTICLE_POOL while some are in flight would push the
+   * real total past the budget and quietly allocate mid-match.
+   */
+  ensurePooled(): void {
+    const missing = PARTICLE_POOL - this.pool.length - this.live.length;
+    if (missing <= 0) return;
+    const container = this.activeContainer;
+    if (container === null) return;
+    this.prewarm(missing);
   }
 
   get activeCount(): number {
@@ -49,11 +74,6 @@ export class ParticleSystem {
 
   get pooledCount(): number {
     return this.pool.length;
-  }
-
-  /** Scene node to mount, or null when the atlas is unavailable. */
-  get view(): ParticleContainer | null {
-    return this.container;
   }
 
   private prewarm(n: number): void {
@@ -81,9 +101,27 @@ export class ParticleSystem {
     return spriteTexture(first);
   }
 
-  /** Emit a burst at a field-unit position. Pool exhaustion drops the burst. */
+  /**
+   * The `ParticleContainer`, created on first use.
+   *
+   * Deliberately lazy. Ticket 87 defers the gameplay bundle, so this system can
+   * be constructed before the particle atlas has landed — and caching a `null`
+   * container from that window would strand the field without particles for the
+   * whole session. Resolving on demand means the container appears as soon as
+   * the bundle does, and stays `null` only when the atlas genuinely never loads.
+   */
+  private get activeContainer(): ParticleContainer | null {
+    this.container ??= makeContainer();
+    return this.container;
+  }
+
+  /** Scene node to mount, or null when the atlas is unavailable. */
+  get view(): ParticleContainer | null {
+    return this.activeContainer;
+  }
   burst(at: FieldPoint, recipe: BurstRecipe): void {
-    if (this.container === null || this.pool.length === 0) return;
+    const container = this.activeContainer;
+    if (container === null || this.pool.length === 0) return;
     const texture = this.frameTexture(recipe);
     if (texture === null) return;
     for (let i = 0; i < recipe.count; i++) {
@@ -106,15 +144,21 @@ export class ParticleSystem {
       slot.life = recipe.life;
       slot.maxLife = recipe.life;
       slot.spin = recipe.gravity === 0 ? 0 : 6;
-      this.container.addParticle(p);
+      container.addParticle(p);
       this.live.push(slot);
     }
     // Frame UVs and colors changed outside the container's static buffers.
-    this.container.update();
+    container.update();
   }
 
   /** Advance every live particle. `frozen` holds them in place (hit-stop). */
   update(dt: number, frozen: boolean): void {
+    // Deferred bundle (#87): the atlas can land after this system was built, so
+    // top the pool up here. `update` runs every frame, and `ensurePooled` is a
+    // no-op once full, so this costs one comparison — but it must NOT be done
+    // in `burst`, which would refill the pool mid-burst and resurrect the
+    // "pool exhaustion drops particles" invariant the pool exists to provide.
+    this.ensurePooled();
     if (this.live.length === 0) return;
     if (frozen) return;
     for (let i = this.live.length - 1; i >= 0; i--) {

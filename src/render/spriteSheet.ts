@@ -79,14 +79,23 @@ const GAMEPLAY_BUNDLE = "gameplay";
 const LEGACY_BUNDLE = "default";
 
 /**
- * Test-only reset for the gameplay-bundle cache. Exported alongside the loader
- * rather than through `import.meta` so the intent stays explicit; the module
- * caches across `initAssets` calls by design.
+ * Test-only reset for ALL per-page module state: the gameplay-bundle
+ * bookkeeping, the memoised `Assets.init`, the frame cache and the last error.
+ *
+ * Exported alongside the loader rather than through `import.meta` so the intent
+ * stays explicit. All of it persists across calls by design — that is what
+ * makes "initialises exactly once" and "never clears the frame cache on reload"
+ * true in the browser — but it also means every test file has to clear it
+ * between cases or the first test's cached atlas answers for all the rest.
  */
 export const gameplayAssetsLoaded = {
   reset(): void {
     gameplayLoaded = false;
     gameplayInFlight = null;
+    assetsInitPromise = null;
+    loaded.clear();
+    atlasResolved = false;
+    lastError = null;
   },
 };
 
@@ -102,22 +111,19 @@ let gameplayInFlight: Promise<void> | null = null;
 /**
  * Load a named bundle, falling back to the single-bundle manifest.
  *
- * Pixi rejects `loadBundle` for a name the manifest does not declare, so
- * every progressive-bundle call has to tolerate that rather than assume the
- * two-bundle manifest exists.
+ * The fallback is keyed on the OUTCOME, not on an exception: Pixi's
+ * `loadBundle` does not reject for a bundle the manifest does not declare. It
+ * logs "Asset id atlas was not found in the Cache" and resolves, so a
+ * try/catch fallback never fires and the atlas silently stays unresolved. So
+ * request the preferred name, then check whether the atlas actually arrived;
+ * only if it did not, try the legacy name.
  */
 async function loadBundleTolerant(name: string): Promise<void> {
-  try {
-    await Assets.loadBundle(name);
-    return;
-  } catch (err) {
-    try {
-      await Assets.loadBundle(LEGACY_BUNDLE);
-    } catch {
-      // Report the ORIGINAL failure: "no such bundle" is the actionable one.
-      throw err;
-    }
-  }
+  await Assets.loadBundle(name);
+  if (pickAtlasTable(Assets.get(ATLAS_ALIAS)) !== null) return;
+  // The preferred bundle is absent (the committed manifest declares only
+  // `default`), so ask for that instead.
+  await Assets.loadBundle(LEGACY_BUNDLE);
 }
 
 /**
@@ -138,8 +144,18 @@ export async function ensureGameplayAssets(): Promise<void> {
       await initAssetsPipeline();
       await loadBundleTolerant(GAMEPLAY_BUNDLE);
       await registerAtlasFrames();
-      gameplayLoaded = true;
-      lastError = null;
+      // Only a bundle that ACTUALLY produced frames counts as loaded. Pixi
+      // resolves `loadBundle` for a name the manifest does not declare, so
+      // reaching this point does not prove the atlas arrived — and marking it
+      // loaded anyway would pin the session to procedural geometry with no
+      // retry, so a later match could never pick art back up after a
+      // transient network failure.
+      if (atlasResolved) {
+        gameplayLoaded = true;
+        lastError = null;
+      } else {
+        lastError = new Error(`[spriteSheet] ${GAMEPLAY_BUNDLE} bundle produced no atlas frames`);
+      }
     } catch (err) {
       // Deliberately does NOT set gameplayLoaded: a transient network failure
       // should not permanently pin the game to procedural art for the session.
@@ -233,17 +249,36 @@ export async function initAssets(): Promise<void> {
 }
 
 /**
- * Point Pixi at the manifest.
+ * Point Pixi at the manifest, exactly once per page.
  *
  * AssetPack's `output` is `public/assets`, so the manifest's own `src` entries
  * are bare filenames and need a matching `basePath` (see `assetsUrl`).
  *
- * Also tolerates a manifest with no `boot` bundle: #86 shipped a single
- * `default` bundle, and a freshly-cloned checkout that has not re-run
- * `npm run assetpack` must still boot rather than 404 into the SPA.
+ * `Assets.init` is NOT idempotent: calling it twice logs "AssetManager already
+ * initialized" and, worse, leaves the cache unpopulated — so a second caller's
+ * `loadBundle` then resolves nothing and the atlas silently vanishes. Both
+ * `initAssets` and `ensureGameplayAssets` need the pipeline, and they run
+ * concurrently at match start, so the init is memoised and shared here.
+ *
+ * A FAILED init is deliberately NOT memoised: caching the rejection would pin
+ * the page to procedural geometry for the rest of the session after one
+ * transient network failure, with no way to retry.
  */
+let assetsInitPromise: Promise<void> | null = null;
+
 async function initAssetsPipeline(): Promise<void> {
-  await Assets.init({ manifest: assetsUrl("manifest.json"), basePath: assetsUrl("") });
+  assetsInitPromise ??= Assets.init({
+    manifest: assetsUrl("manifest.json"),
+    basePath: assetsUrl(""),
+  });
+  try {
+    await assetsInitPromise;
+  } catch (err) {
+    // Drop the memo so a later caller can try again rather than replaying the
+    // same rejection forever.
+    assetsInitPromise = null;
+    throw err;
+  }
 }
 
 /** Cut the atlas frames into the module-level texture cache. */

@@ -62,6 +62,38 @@ describe("ParticleSystem — pool", () => {
     ps.destroy();
     primeFrames();
   });
+
+  it("prewarms on demand when the atlas arrives after construction", () => {
+    // Ticket 87 defers the gameplay bundle, so a FieldView — and with it this
+    // ParticleSystem — can be built while the atlas is still in flight. Prewarm
+    // that only ran in the constructor left the pool permanently empty: bursts
+    // silently dropped for the rest of the session.
+    for (const name of Object.values(SPRITE_PATHS.particles)) {
+      rememberTexture(name, null as never);
+    }
+    const ps = new ParticleSystem();
+    expect(ps.pooledCount).toBe(0);
+
+    // The bundle lands, then the play loop ticks once — which is where the pool
+    // recovers.
+    primeFrames();
+    ps.update(1 / 60, false);
+    expect(ps.pooledCount).toBe(PARTICLE_POOL);
+
+    // And the pool is actually usable, not just the right size.
+    ps.burst({ x: 1, y: 1 }, recipe());
+    expect(ps.activeCount).toBeGreaterThan(0);
+    ps.destroy();
+  });
+
+  it("does not grow past the pool size if the atlas lands repeatedly", () => {
+    const ps = new ParticleSystem();
+    primeFrames();
+    ps.ensurePooled();
+    ps.ensurePooled();
+    expect(ps.pooledCount).toBe(PARTICLE_POOL);
+    ps.destroy();
+  });
 });
 
 describe("ParticleSystem — bursts", () => {
