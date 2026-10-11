@@ -48,6 +48,7 @@ import { skinByIndex } from "content/skins";
 import { SplitScreenView } from "render/splitScreen";
 import { RemoteStrip } from "render/remoteStrip";
 import { createAppShell, type AppShell } from "render/appShell";
+import { ensureGameplayAssets } from "render/spriteSheet";
 import { EndScreen, type StandingRow, type CoopOutcome } from "ui/endScreens";
 
 /** Channel pair seam — real WebRTC in production, loopback in tests. */
@@ -1028,6 +1029,11 @@ export class MpFlow {
     this.teardownRender();
     const app = this.shell?.app;
     if (app === undefined) return;
+    // Ticket 87: the field is about to draw sprites, so start the deferred
+    // bundle now. Deliberately not awaited — field construction is synchronous
+    // and `spriteTexture` resolves frames lazily, so the first frame renders
+    // from procedural geometry and upgrades when the bundle lands.
+    void ensureGameplayAssets();
     this.localFieldFilter = localPlayers;
     const single = mode === "duel" || mode === "sharedField";
     const fields = single ? [localPlayers[0] ?? 0] : localPlayers;

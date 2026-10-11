@@ -3,7 +3,7 @@
 // opens the room-code flow (create: host room + lobby; join: signaling
 // guest + lobby) and drives MpFlow over real WebRTC channels.
 import { startSoloSession } from "app/soloSession";
-import { initAssets } from "render/spriteSheet";
+import { ensureGameplayAssets, initAssets } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
 import { startVersusBotsSession } from "app/versusBotsSession";
@@ -124,6 +124,10 @@ function openSolo(round: number, continuing?: EpisodeState): void {
     .then((session) => {
       globalThis.__arkanoid = session;
     });
+  // Ticket 87: pull the deferred bundle in without blocking match start.
+  // `spriteTexture` resolves lazily, so the round begins on procedural
+  // geometry and upgrades when the bundle lands.
+  void ensureGameplayAssets();
 }
 
 function openVersusBots(): void {
@@ -133,6 +137,9 @@ function openVersusBots(): void {
     locale,
     onStart: (config) => {
       screen.root.remove();
+      // Ticket 87: deferred bundle requested at match start, not awaited —
+      // the match begins on procedural geometry and upgrades when it lands.
+      void ensureGameplayAssets();
       // Ticket 56: real versus match — human plays, bots play.
       void startVersusBotsSession(appHost, {
         variant: config.variant,
@@ -156,6 +163,9 @@ function openVersusBots(): void {
 /** Rematch: same config, fresh session (ticket 56 end-screen flow). */
 function openVersusBotsWith(config: VersusBotsConfig): void {
   void initAssets();
+  // Ticket 87: a rematch re-enters the match, so re-request the deferred bundle.
+  // This is a cache hit in the common case, so it costs nothing.
+  void ensureGameplayAssets();
   void startVersusBotsSession(appHost, {
     variant: config.variant,
     bots: config.bots,

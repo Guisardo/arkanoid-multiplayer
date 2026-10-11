@@ -176,8 +176,12 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
   async fetchItem(key: string): Promise<string | null> {
     await this.opened;
     if (this.db === null) return this.mirror.get(key) ?? null;
+    // Annotate at the transaction boundary: `IDBDatabase.transaction` is typed
+    // loosely enough that the chained `.get()` arrives as `IDBRequest<any>`,
+    // which would defeat the `request<T>` signature below.
+    const tx: IDBTransaction = this.db.transaction(this.storeName, "readonly");
     const record = await this.request<SaveRecord | undefined>(
-      this.db.transaction(this.storeName, "readonly").objectStore(this.storeName).get(key),
+      tx.objectStore(this.storeName).get(key) as IDBRequest<SaveRecord | undefined>,
     );
     if (record === undefined) return null;
     this.mirror.set(key, record.value);

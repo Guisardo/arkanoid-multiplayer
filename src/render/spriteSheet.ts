@@ -56,6 +56,104 @@ const ALL_FRAMES: readonly string[] = [
 const ATLAS_ALIAS = "atlas";
 
 /**
+ * Bundle names (ADR 0004, ticket 87).
+ *
+ * #86 packed every frame into ONE atlas under a single `default` bundle, and
+ * that has to stay: frames cut from one image share a `TextureSource`, which
+ * is what lets `ParticleContainer` batch the whole effect layer in a single
+ * draw call. Splitting the atlas per bundle would give each bundle its own
+ * source and blow that budget. (Verified: re-tagging the source folder to
+ * `{gameplay}` stops the texture packer running at all and unbundles every
+ * frame into its own asset — the opposite of what we want.)
+ *
+ * So the split here is about *when* a bundle is requested, not what it holds.
+ * `boot` is what the landing/menu draws; `gameplay` is deferred until a match
+ * is created, so first paint does not wait on game textures.
+ *
+ * `default` is what the shipped manifest actually declares, so it is the
+ * fallback: a checkout that has not re-run `npm run assetpack` still boots
+ * with art instead of degrading to procedural geometry.
+ */
+const BOOT_BUNDLE = "boot";
+const GAMEPLAY_BUNDLE = "gameplay";
+const LEGACY_BUNDLE = "default";
+
+/**
+ * Test-only reset for the gameplay-bundle cache. Exported alongside the loader
+ * rather than through `import.meta` so the intent stays explicit; the module
+ * caches across `initAssets` calls by design.
+ */
+export const gameplayAssetsLoaded = {
+  reset(): void {
+    gameplayLoaded = false;
+    gameplayInFlight = null;
+  },
+};
+
+/** True once the gameplay bundle has loaded successfully this page. */
+let gameplayLoaded = false;
+
+/**
+ * The in-flight gameplay load, so concurrent callers (a rematch racing a
+ * first start, say) share one fetch instead of racing to start several.
+ */
+let gameplayInFlight: Promise<void> | null = null;
+
+/**
+ * Load a named bundle, falling back to the single-bundle manifest.
+ *
+ * Pixi rejects `loadBundle` for a name the manifest does not declare, so
+ * every progressive-bundle call has to tolerate that rather than assume the
+ * two-bundle manifest exists.
+ */
+async function loadBundleTolerant(name: string): Promise<void> {
+  try {
+    await Assets.loadBundle(name);
+    return;
+  } catch (err) {
+    try {
+      await Assets.loadBundle(LEGACY_BUNDLE);
+    } catch {
+      // Report the ORIGINAL failure: "no such bundle" is the actionable one.
+      throw err;
+    }
+  }
+}
+
+/**
+ * Load the gameplay bundle, if it is not already loaded.
+ *
+ * Call this at match creation, not at boot. Never throws: a missing gameplay
+ * bundle degrades to procedural geometry so a match can still start, which is
+ * the same contract `initAssets` has.
+ */
+export async function ensureGameplayAssets(): Promise<void> {
+  if (gameplayLoaded) return;
+  // Share the in-flight load. A caller arriving mid-load must not start a
+  // second fetch of the same bytes.
+  if (gameplayInFlight) return gameplayInFlight;
+
+  gameplayInFlight = (async () => {
+    try {
+      await initAssetsPipeline();
+      await loadBundleTolerant(GAMEPLAY_BUNDLE);
+      await registerAtlasFrames();
+      gameplayLoaded = true;
+      lastError = null;
+    } catch (err) {
+      // Deliberately does NOT set gameplayLoaded: a transient network failure
+      // should not permanently pin the game to procedural art for the session.
+      lastError = err;
+      console.warn(`[spriteSheet] ${GAMEPLAY_BUNDLE} bundle failed; using procedural art`, err);
+    } finally {
+      gameplayInFlight = null;
+    }
+  })();
+
+  return gameplayInFlight;
+}
+
+/**
  * AssetPack's `output` is `public/assets`, so everything it emits sits under
  * `assets/` in the served tree. Both the manifest URL *and* Pixi's `basePath`
  * need that prefix: the manifest's own `src` entries are bare filenames, so
@@ -124,17 +222,36 @@ export async function initAssets(): Promise<void> {
   lastError = null;
   atlasResolved = false;
   try {
-    await Assets.init({ manifest: assetsUrl("manifest.json"), basePath: assetsUrl("") });
-    await Assets.loadBundle("default");
-    const atlas = pickAtlasTable(Assets.get(ATLAS_ALIAS));
-    if (atlas === null) return;
-    await registerFrames(atlas);
-    atlasResolved = loaded.size > 0;
+    await initAssetsPipeline();
+    await loadBundleTolerant(BOOT_BUNDLE);
+    await registerAtlasFrames();
   } catch (err) {
     // Missing manifest/bundle must never break the game — geometry fallback covers it.
     lastError = err;
     console.warn("[spriteSheet] atlas load failed; using procedural art", err);
   }
+}
+
+/**
+ * Point Pixi at the manifest.
+ *
+ * AssetPack's `output` is `public/assets`, so the manifest's own `src` entries
+ * are bare filenames and need a matching `basePath` (see `assetsUrl`).
+ *
+ * Also tolerates a manifest with no `boot` bundle: #86 shipped a single
+ * `default` bundle, and a freshly-cloned checkout that has not re-run
+ * `npm run assetpack` must still boot rather than 404 into the SPA.
+ */
+async function initAssetsPipeline(): Promise<void> {
+  await Assets.init({ manifest: assetsUrl("manifest.json"), basePath: assetsUrl("") });
+}
+
+/** Cut the atlas frames into the module-level texture cache. */
+async function registerAtlasFrames(): Promise<void> {
+  const atlas = pickAtlasTable(Assets.get(ATLAS_ALIAS));
+  if (atlas === null) return;
+  await registerFrames(atlas);
+  atlasResolved = loaded.size > 0;
 }
 
 /**

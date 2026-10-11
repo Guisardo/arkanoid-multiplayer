@@ -98,6 +98,11 @@ export function createSaveChannel(env: SaveChannelEnvironment): SaveChannel | nu
     // Locked-down / private contexts throw on construction.
     return null;
   }
+  // `BroadcastLike` types `postMessage` as required, so ESLint flags the
+  // optional chain as unnecessary. The chain stays: `createChannel` is injected,
+  // and a factory returning `undefined` (or a half-built object) is a real
+  // failure mode we must degrade to "no cross-tab sync", not throw on.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (typeof channel?.postMessage !== "function") return null;
 
   let listener: ((message: SaveMessage) => void) | null = null;

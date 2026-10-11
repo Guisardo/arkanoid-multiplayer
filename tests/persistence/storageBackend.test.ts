@@ -11,6 +11,15 @@
 // IndexedDB is a system boundary, so it is injected as one: a small fake
 // factory passed through `StorageEnvironment`. The production code only ever
 // talks to the browser API.
+//
+// IMPORTANT — why these cases use `fetchItem` rather than `getItem`:
+// `getItem`/`setItem` are synchronous by contract and read/write an in-process
+// mirror, because IndexedDB itself is async. A test that only round-trips the
+// mirror would pass even if the database were never consulted at all, so the
+// round-trip cases below read back through `fetchItem` — the one method that
+// actually issues an IndexedDB `get` — and share one fake origin across two
+// backend instances to prove the value reached the database rather than a
+// per-instance cache.
 import { describe, expect, it } from "vitest";
 import {
   createDefaultStorageBackend,
@@ -22,8 +31,10 @@ import { Storage } from "persistence/storage";
 import { COMPOSITE_KEY } from "persistence/saveDocument";
 
 /** A promise request, as `IDBRequest` behaves for the calls used here. */
-class FakeRequest<T> {
-  result: T | undefined = undefined;
+class FakeRequest {
+  /** The success value. Untyped because only the tests read it back. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  result: any = undefined;
   error: unknown = null;
   onsuccess: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -35,9 +46,6 @@ class FakeRequest<T> {
   }
 }
 
-/** Every object-store name the fake has been asked to create. */
-const STORE_NAMES = new Set<string>();
-
 /** An object store: the one put/get/delete surface the backend needs. */
 class FakeStore {
   readonly data = new Map<string, { key: string; value: string }>();
@@ -46,8 +54,8 @@ class FakeStore {
     // The backend creates an index on open; this seam never reads it.
   }
 
-  put(record: { key: string; value: string }): FakeRequest<string> {
-    const req = new FakeRequest<string>();
+  put(record: { key: string; value: string }): FakeRequest {
+    const req = new FakeRequest();
     this.data.set(record.key, record);
     queueMicrotask(() => {
       req.result = record.key;
@@ -56,8 +64,8 @@ class FakeStore {
     return req;
   }
 
-  get(key: string): FakeRequest<{ key: string; value: string } | undefined> {
-    const req = new FakeRequest<{ key: string; value: string } | undefined>();
+  get(key: string): FakeRequest {
+    const req = new FakeRequest();
     queueMicrotask(() => {
       req.result = this.data.get(key);
       req.settle();
@@ -65,8 +73,8 @@ class FakeStore {
     return req;
   }
 
-  delete(key: string): FakeRequest<undefined> {
-    const req = new FakeRequest<undefined>();
+  delete(key: string): FakeRequest {
+    const req = new FakeRequest();
     this.data.delete(key);
     queueMicrotask(() => {
       req.result = undefined;
@@ -83,7 +91,7 @@ class FakeTransaction {
   onabort: (() => void) | null = null;
 
   /** The store is addressed by name; one name is all this fake has. */
-  objectStore(_name: string): FakeStore {
+  objectStore(..._ignored: readonly unknown[]): FakeStore {
     return this.store;
   }
 
@@ -95,17 +103,19 @@ class FakeTransaction {
 /**
  * An IndexedDB-shaped database. The single object store is created during the
  * upgrade transaction and shared by every later transaction, so a value written
- * by one `Storage` instance reads back from the next — the property the real
+ * by one backend instance reads back from the next — the property the real
  * database gives us and the point of the seam.
  */
 class FakeDatabase {
   private store: FakeStore | null = null;
   readonly transactions: FakeTransaction[] = [];
 
-  /** Names the backend asks about when creating its store. */
+  /** The names the backend asked about when creating its store. */
+  readonly createdStores: string[] = [];
+
+  /** Names the backend asks about when checking for an existing store. */
   get objectStoreNames(): { contains(name: string): boolean } {
-    const store = this.store;
-    return { contains: (name: string) => store !== null && STORE_NAMES.has(name) };
+    return { contains: (name: string) => this.createdStores.includes(name) };
   }
 
   private ensureStore(): FakeStore {
@@ -115,12 +125,13 @@ class FakeDatabase {
 
   createObjectStore(name: string): FakeStore {
     const store = this.ensureStore();
-    STORE_NAMES.add(name);
+    this.createdStores.push(name);
     store.createIndex();
     return store;
   }
 
-  transaction(_names: string[], _mode?: string): FakeTransaction {
+  // The store name and mode are part of the real API but the fake has one store.
+  transaction(..._ignored: readonly unknown[]): FakeTransaction {
     const shared = this.ensureStore();
     const tx = new FakeTransaction();
     tx.objectStore = () => shared;
@@ -137,15 +148,15 @@ interface FakeOptions {
   openErrors?: boolean;
 }
 
-/** One fake environment can hand out several databases, like one origin. */
+/** One fake origin: many databases by name, shared across backend instances. */
 function fakeOrigin(opts: FakeOptions = {}): {
   env: StorageEnvironment;
   databases: Map<string, FakeDatabase>;
 } {
   const databases = new Map<string, FakeDatabase>();
   const factory = {
-    open(name: string, _version: number): unknown {
-      const req = new FakeRequest<FakeDatabase>();
+    open(name: string, ..._ignored: readonly unknown[]): unknown {
+      const req = new FakeRequest();
       queueMicrotask(() => {
         if (opts.openErrors === true) {
           req.error = new Error("SecurityError");
@@ -198,7 +209,7 @@ function memoryStorage(): StorageEnvironment["localStorage"] & MemoryStorage {
     removeItem: (key) => {
       store.delete(key);
     },
-  } as StorageEnvironment["localStorage"] & MemoryStorage;
+  };
 }
 
 /** Environment whose IndexedDB open fails AND whose localStorage throws. */
@@ -221,41 +232,61 @@ function hostileEnvironment(): StorageEnvironment {
 
 describe("IndexedDbStorageBackend — read/write (ticket 103)", () => {
   it("stores a value under the composite key and reads it back", async () => {
-    const backend = new IndexedDbStorageBackend(fakeEnvironment());
-    await backend.setItem(COMPOSITE_KEY, '{"schemaVersion":1}');
-    expect(await backend.getItem(COMPOSITE_KEY)).toBe('{"schemaVersion":1}');
+    const { env } = fakeOrigin();
+    const backend = new IndexedDbStorageBackend(env);
+    await backend.ready();
+    backend.setItem(COMPOSITE_KEY, '{"schemaVersion":1}');
+    // Read through the DATABASE, not the mirror: this is what proves the
+    // write actually reached IndexedDB.
+    expect(await backend.fetchItem(COMPOSITE_KEY)).toBe('{"schemaVersion":1}');
   });
 
   it("reads a key that was never written as null", async () => {
     const backend = new IndexedDbStorageBackend(fakeEnvironment());
-    expect(await backend.getItem("never.written")).toBeNull();
+    await backend.ready();
+    expect(await backend.fetchItem("never.written")).toBeNull();
   });
 
   it("removes a value, so a later read is null", async () => {
     const backend = new IndexedDbStorageBackend(fakeEnvironment());
-    await backend.setItem(COMPOSITE_KEY, "x");
-    await backend.removeItem(COMPOSITE_KEY);
-    expect(await backend.getItem(COMPOSITE_KEY)).toBeNull();
+    await backend.ready();
+    backend.setItem(COMPOSITE_KEY, "x");
+    expect(await backend.fetchItem(COMPOSITE_KEY)).toBe("x");
+    backend.removeItem(COMPOSITE_KEY);
+    expect(await backend.fetchItem(COMPOSITE_KEY)).toBeNull();
   });
 
   it("overwrites a value in place rather than accumulating records", async () => {
-    const backend = new IndexedDbStorageBackend(fakeEnvironment());
-    await backend.setItem(COMPOSITE_KEY, "first");
-    await backend.setItem(COMPOSITE_KEY, "second");
-    expect(await backend.getItem(COMPOSITE_KEY)).toBe("second");
+    const { env } = fakeOrigin();
+    const backend = new IndexedDbStorageBackend(env);
+    await backend.ready();
+    backend.setItem(COMPOSITE_KEY, "first");
+    backend.setItem(COMPOSITE_KEY, "second");
+    expect(await backend.fetchItem(COMPOSITE_KEY)).toBe("second");
+  });
+
+  it("persists across backend instances over the same origin", async () => {
+    // The property the mirror alone cannot prove: one page load writes, a
+    // second reads the value back out of the database.
+    const { env } = fakeOrigin();
+    const first = new IndexedDbStorageBackend(env);
+    await first.ready();
+    first.setItem(COMPOSITE_KEY, "persisted");
+    await first.fetchItem(COMPOSITE_KEY); // drain the in-flight put
+
+    const second = new IndexedDbStorageBackend(env);
+    await second.ready();
+    expect(await second.fetchItem(COMPOSITE_KEY)).toBe("persisted");
   });
 
   it("is a drop-in StorageBackend: Storage's atomic save round-trips through it", async () => {
     const backend = new IndexedDbStorageBackend(fakeEnvironment());
-    await backend.setItem(COMPOSITE_KEY, "seed");
-    // A second backend over the same environment = a second page load.
-    const reloaded = new IndexedDbStorageBackend(fakeEnvironment());
-    // Both share nothing, so prove via one instance used as Storage's backend.
+    await backend.ready();
     const storage = new Storage(backend, { deviceId: "device-fixed", now: () => 1_700_000_000_000 });
     storage.savePartial({ name: "Lucas", soloHighScore: 4200 });
     expect(storage.loadAll().name).toBe("Lucas");
     expect(storage.loadAll().soloHighScore).toBe(4200);
-    expect(reloaded.kind).toBe("indexeddb");
+    expect(backend.kind).toBe("indexeddb");
   });
 });
 
@@ -295,11 +326,11 @@ describe("createDefaultStorageBackend — fallback (ticket 103)", () => {
   });
 
   it("the localStorage fallback still reads and writes", async () => {
-    const env = fakeEnvironment({ openErrors: true });
-    const backend = createDefaultStorageBackend(env);
+    const env = fakeOrigin({ openErrors: true });
+    const backend = createDefaultStorageBackend(env.env);
     await backend.ready();
-    await backend.setItem("k", "v");
-    expect(await backend.getItem("k")).toBe("v");
+    backend.setItem("k", "v");
+    expect(backend.getItem("k")).toBe("v");
   });
 
   it("degrades to an in-memory backend when nothing at all works (still boots)", async () => {
@@ -314,7 +345,7 @@ describe("createDefaultStorageBackend — fallback (ticket 103)", () => {
 });
 
 describe("localStorageBackend (ticket 103)", () => {
-  it("wraps the injected localStorage as a StorageBackend", async () => {
+  it("wraps the injected localStorage as a StorageBackend", () => {
     const local = memoryStorage();
     const backend = localStorageBackend({ localStorage: local });
     expect(backend.kind).toBe("localstorage");

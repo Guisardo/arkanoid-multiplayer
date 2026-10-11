@@ -177,7 +177,9 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
     const a = channel({ createChannel: () => bus.create() });
     a.close();
-    expect(() => a.publish(COMPOSITE_KEY, "value")).not.toThrow();
+    expect(() => {
+      a.publish(COMPOSITE_KEY, "value");
+    }).not.toThrow();
   });
 });
 
