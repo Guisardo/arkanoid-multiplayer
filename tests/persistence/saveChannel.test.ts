@@ -86,11 +86,22 @@ async function settle(): Promise<void> {
   await Promise.resolve();
 }
 
+/**
+ * `createSaveChannel` returns null when the environment has no BroadcastChannel.
+ * Every case here injects a working factory, so a null here is a test bug — fail
+ * loudly instead of letting `a.publish` be a null dereference.
+ */
+function channel(env: Parameters<typeof createSaveChannel>[0]): SaveChannel {
+  const ch = createSaveChannel(env);
+  if (!ch) throw new Error("expected a SaveChannel from the injected factory");
+  return ch;
+}
+
 describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
   it("reports a write made by another tab", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
-    const b = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
+    const b = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     b.onExternalWrite((m) => seen.push(m));
 
@@ -103,7 +114,7 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
 
   it("does NOT deliver a tab's own write back to itself", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite((m) => seen.push(m));
 
@@ -116,9 +127,9 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
 
   it("fans a write out to every other tab on the channel", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
-    const b = createSaveChannel({ createChannel: () => bus.create() });
-    const c = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
+    const b = channel({ createChannel: () => bus.create() });
+    const c = channel({ createChannel: () => bus.create() });
     const seenB: SaveMessage[] = [];
     const seenC: SaveMessage[] = [];
     b.onExternalWrite((m) => seenB.push(m));
@@ -134,12 +145,12 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
   it("isolates tabs on a different channel name", async () => {
     const ours = new FakeBus(SAVE_CHANNEL_NAME);
     const theirs = new FakeBus("some.other.app");
-    const a = createSaveChannel({ createChannel: () => ours.create() });
-    const other = createSaveChannel({ createChannel: () => theirs.create() });
+    const a = channel({ createChannel: () => ours.create() });
+    const other = channel({ createChannel: () => theirs.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite((m) => seen.push(m));
 
-    other.publish(COMPOSITE_KEY, message(1_000, "tab-x"));
+    other.publish(COMPOSITE_KEY, message(1_000, "tab-x").value);
     await settle();
 
     expect(seen).toEqual([]);
@@ -147,8 +158,8 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
 
   it("stops reporting after close()", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
-    const b = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
+    const b = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite((m) => seen.push(m));
 
@@ -164,7 +175,7 @@ describe("SaveChannel — cross-tab delivery (ticket 103)", () => {
 
   it("publishing after close() is a no-op, not a throw", () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
     a.close();
     expect(() => a.publish(COMPOSITE_KEY, "value")).not.toThrow();
   });
@@ -196,8 +207,8 @@ describe("parseSaveMessage — garbage from another tab (ticket 103)", () => {
 
   it("forwards a save whose VALUE is garbage, leaving the JSON decision to the conflict layer", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
-    const b = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
+    const b = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite((m) => seen.push(m));
 
@@ -212,7 +223,7 @@ describe("parseSaveMessage — garbage from another tab (ticket 103)", () => {
 
   it("drops a malformed ENVELOPE posted directly on the bus, not via publish", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite((m) => seen.push(m));
 
@@ -262,8 +273,8 @@ describe("createSaveChannel — absence is not an error (ticket 103)", () => {
 
   it("survives a listener that throws, and keeps notifying the rest", async () => {
     const bus = new FakeBus(SAVE_CHANNEL_NAME);
-    const a = createSaveChannel({ createChannel: () => bus.create() });
-    const b = createSaveChannel({ createChannel: () => bus.create() });
+    const a = channel({ createChannel: () => bus.create() });
+    const b = channel({ createChannel: () => bus.create() });
     const seen: SaveMessage[] = [];
     a.onExternalWrite(() => {
       throw new Error("listener exploded");
