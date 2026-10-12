@@ -8,7 +8,7 @@
 // players' fields (single-field modes send the one field to everyone).
 // Malformed guest frames are dropped; a guest's channel close ends its slot
 // via remoteLeft semantics (rejoin is ticket 47).
-import { ATTACK_MAX_ROUND, MAX_ROUND, MIN_ROUND, getLevelSync, preloadLevels, roundRange } from "content/levels";
+import { ATTACK_MAX_ROUND, MAX_ROUND, getLevelSync, preloadLevels, selectableRounds } from "content/levels";
 import type { LobbyConfig, LobbyMode } from "app/lobbyState";
 import type { DuelSim } from "sim/duel";
 import type { MultiFieldSession, MatchConfig } from "sim/multiField";
@@ -135,14 +135,17 @@ interface ModeSim {
 
 /**
  * Rounds a mode can reach. Duel and shared field play the fixed round-1
- * layout; the parallel modes walk a range (attack stops at 32 — Doh never
- * selected). Preloading the range up front keeps the sync round-advance
- * path (`getLevelSync`) inside the sims free of awaits.
+ * layout; the parallel modes walk the range `multiField.pickRound` selects
+ * within, which is what keeps the sims' synchronous `getLevelSync` round-advance
+ * off the await path.
+ *
+ * Attack never selects Doh (round 33), so it clamps the config the way
+ * `attackSession` does — same rule, so the preload cannot disagree with the
+ * picker.
  */
 function roundsForMode(mode: LobbyMode): number[] {
   if (mode === "duel" || mode === "sharedField") return [1];
-  const ceiling = mode === "attack" ? ATTACK_MAX_ROUND : MAX_ROUND;
-  return roundRange(MIN_ROUND, ceiling);
+  return selectableRounds(mode === "attack" ? ATTACK_MAX_ROUND : MAX_ROUND);
 }
 
 /**
@@ -274,9 +277,13 @@ export async function createHostGameSession(
   const snapshotHz = snapshotHzFor(opts.mode);
   const delayTicks = delayTicksFor(opts.mode);
   // ADR 0007: round data for the mode's range plus the mode sim's chunk —
-  // both fetched only when a match actually starts. `warmMode` may already
-  // have resolved both during the countdown; awaiting a settled promise
-  // costs nothing and keeps this the single entry point.
+  // both fetched only when a match actually starts. The countdown already
+  // kicked `warmMode` off, and `preloadLevels`/`loadModeModule` are memoised
+  // per level list / module registry, so awaiting here re-uses the in-flight
+  // work rather than refetching. Awaiting is still required, not optional:
+  // a direct `createHostGameSession` call (no countdown) depends on it, and
+  // `buildModeSim` reads levels through `getLevelSync`, which throws on a
+  // cold cache.
   await warmMode(opts.mode);
   const sim = await buildModeSim(opts);
   const queue = createDelayQueue({ delay: delayTicks });

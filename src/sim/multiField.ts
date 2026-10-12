@@ -5,7 +5,7 @@
 // timeout resolution.
 import { createRoundSim, type RoundSim } from "./roundSim";
 import type { LevelData } from "content/levelFormat";
-import { getLevelSync } from "content/levels";
+import { getLevelSync, MAX_ROUND } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
 
 export type MatchStructure = "bestOf" | "continuous" | "oneOff";
@@ -22,6 +22,17 @@ export interface MatchConfig {
   hostPickRound?: number;
   /** Round ceiling for level selection (e.g. Attack excludes Doh, 33). */
   maxRound?: number;
+}
+
+/**
+ * The highest round `pickRound` can select under `cfg`.
+ *
+ * The preload ranges in `app/hostGame` and `sim/versusBots` derive their round
+ * sets from `selectableRounds` in `content/levels`, which applies this same
+ * ceiling rule — see the note there on why the two must never diverge.
+ */
+export function roundCeiling(cfg: MatchConfig): number {
+  return cfg.maxRound ?? MAX_ROUND;
 }
 
 export interface MultiFieldSession {
@@ -121,7 +132,7 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
   }
 
   function pickRound(cfg: MatchConfig, roundIndex: number, seed: number): number {
-    const ceiling = cfg.maxRound ?? 33;
+    const ceiling = roundCeiling(cfg);
     switch (cfg.levelSelection) {
       case "hostPick": {
         const picked = cfg.hostPickRound ?? 1;

@@ -1,10 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { getLevel, availableRounds, assertAttackRound, ATTACK_MAX_ROUND } from "content/levels";
+import {
+  getLevel,
+  availableRounds,
+  assertAttackRound,
+  selectableRounds,
+  roundRange,
+  MAX_ROUND,
+  MIN_ROUND,
+  ATTACK_MAX_ROUND,
+} from "content/levels";
 import { validateLevel } from "content/levelFormat";
 import { CHAR_TIER, TIER_SCORE, DUEL_DROP_BONUS } from "content/scoring";
 import { createRoundSim } from "sim/roundSim";
 import { BRICK_COLS, BRICK_ROWS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
+
+describe("selectableRounds — the picker/preload contract", () => {
+  // The invariant this function exists to protect: the sims advance rounds
+  // synchronously through `getLevelSync`, so a round that was selectable but
+  // not preloaded throws mid-match and ends a live game. These cases pin the
+  // derivation so neither the picker nor a preload range can drift alone.
+
+  it("defaults to the whole shipped range", () => {
+    expect(selectableRounds()).toEqual(availableRounds());
+    expect(selectableRounds()).toEqual(roundRange(MIN_ROUND, MAX_ROUND));
+  });
+
+  it("clamps to an explicit ceiling", () => {
+    expect(selectableRounds(ATTACK_MAX_ROUND)).toEqual(roundRange(1, 32));
+    // Attack never selects Doh — the round-33 boss.
+    expect(selectableRounds(ATTACK_MAX_ROUND)).not.toContain(MAX_ROUND);
+  });
+
+  it("clamps out-of-range ceilings instead of returning nothing", () => {
+    expect(selectableRounds(0)).toEqual([]);
+    expect(selectableRounds(999)).toEqual(roundRange(MIN_ROUND, MAX_ROUND));
+  });
+
+  it("covers every round a picker with that ceiling can hand out", () => {
+    // The property the preload depends on, stated directly: whatever the
+    // ceiling, the set is exactly MIN..ceiling, so nothing in it can be
+    // selectable-but-absent.
+    for (const ceiling of [1, 5, ATTACK_MAX_ROUND, MAX_ROUND]) {
+      const set = selectableRounds(ceiling);
+      for (let round = MIN_ROUND; round <= Math.min(ceiling, MAX_ROUND); round++) {
+        expect(set).toContain(round);
+      }
+    }
+  });
+
+  it("agrees with assertAttackRound over the attack range", () => {
+    for (const round of selectableRounds(ATTACK_MAX_ROUND)) {
+      expect(() => {
+        assertAttackRound(round);
+      }).not.toThrow();
+    }
+    expect(() => {
+      assertAttackRound(MAX_ROUND);
+    }).toThrow();
+  });
+});
 
 function input(tick: number, axisX = 0): InputFrame {
   return { player: 0, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };

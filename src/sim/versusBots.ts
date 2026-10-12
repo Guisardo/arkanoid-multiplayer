@@ -17,10 +17,10 @@ import type { SharedFieldSim, SharedFieldOptions } from "sim/sharedField";
 import {
   ATTACK_MAX_ROUND,
   MAX_ROUND,
-  MIN_ROUND,
   getLevelSync,
   preloadLevels,
   roundRange,
+  selectableRounds,
 } from "content/levels";
 import { DEFAULT_SKIN_ID } from "content/skins";
 import { assignSkinIndices, autoAssignBotSkins } from "content/skinSync";
@@ -107,18 +107,23 @@ export type VersusBotsEnd =
   | { kind: "assist"; state: AssistMatchState };
 
 /**
- * Rounds a variant can reach (ADR 0007): Duel and shared field play the fixed
- * round-1 layout, parallel assist walks the team's range, race/attack walk
- * their selection range (attack stops at 32 — Doh is never selected).
+ * The rounds a variant can select, given the match config the SIM will actually
+ * run with (ADR 0007).
+ *
+ * The range comes from `selectableRounds`, the same function
+ * `multiField.pickRound` selects within — see the note there. The only
+ * per-variant work left is the fixed-layout variants and assist's explicit
+ * range, neither of which goes through the picker at all.
  */
-function roundsForVariant(
+export function roundsForVariant(
   variant: BotVariant,
   assistRange: { startRound: number; endRound: number },
   config: MatchConfig,
 ): number[] {
   if (variant === "duel" || variant === "sharedField") return [1];
   if (variant === "parallelAssist") return roundRange(assistRange.startRound, assistRange.endRound);
-  return roundRange(MIN_ROUND, variant === "attack" ? ATTACK_MAX_ROUND : (config.maxRound ?? MAX_ROUND));
+  const ceiling = config.maxRound ?? MAX_ROUND;
+  return selectableRounds(variant === "attack" ? Math.min(ATTACK_MAX_ROUND, ceiling) : ceiling);
 }
 
 export async function createVersusBotsSession(opts: VersusBotsOptions): Promise<VersusBotsSession> {

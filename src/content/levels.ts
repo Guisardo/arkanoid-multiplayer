@@ -89,9 +89,18 @@ export function roundRange(from: number, to: number): number[] {
   return rounds;
 }
 
-/** Every round of the episode an assist team (or a solo run) can reach. */
-export function episodeRounds(): number[] {
-  return availableRounds();
+/**
+ * Every round a level picker with ceiling `maxRound` could select, ascending.
+ *
+ * The one place the selectable set is derived, because the picker
+ * (`sim/multiField.pickRound`) and every preload range MUST agree: the sims
+ * advance rounds synchronously through `getLevelSync`, so a round nobody
+ * preloaded throws mid-match and ends a live game. Wider is merely dead
+ * weight; narrower is fatal — which is why this lives in `content/`, the layer
+ * both `sim/` and `app/` may import, rather than beside either one.
+ */
+export function selectableRounds(maxRound?: number): number[] {
+  return roundRange(MIN_ROUND, maxRound ?? MAX_ROUND);
 }
 
 /** Attack draws rounds 1–32 only — round 33 (Doh) never selected (spec §4:
