@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Type-only, so the `vi.doMock("persistence/storage")` factories below can wrap
 // the real `createSaveBackend` without re-importing the module by value.
 import type * as actualStorage from "persistence/storage";
+import { DEFAULT_SETTINGS, type SaveDocument } from "persistence/saveDocument";
 
 // Ticket 89: typed as a rest parameter so a test can read the round / resumed
 // record off `mock.calls` without tripping the tuple-length check.
@@ -444,6 +445,134 @@ describe("boot-time episode resume (ticket 89)", () => {
     await settle();
     expect(soloStart).toHaveBeenCalledTimes(1);
     expect(soloArgs[0]?.[2]).not.toHaveProperty("continueEpisode");
+  });
+});
+
+describe("cross-tab conflict prompt wiring (ticket 103)", () => {
+  /**
+   * Boot `main.ts` against a `createSaveBackend` whose `Storage` is handed back
+   * with its conflict handler reachable, so the test can fire a divergence the
+   * way another tab's announcement would. Returns the handler.
+   */
+  async function bootWithConflictHook(): Promise<{
+    fire: (local: SaveDocument, remote: SaveDocument) => void;
+    storage: actualStorage.Storage;
+  }> {
+    vi.resetModules();
+    applyMocks();
+    const box: {
+      handler: ((local: SaveDocument, remote: SaveDocument) => void) | null;
+      storage: actualStorage.Storage | null;
+    } = { handler: null, storage: null };
+    vi.doMock("persistence/storage", async (importOriginal) => {
+      const actual = await importOriginal();
+      return {
+        ...(actual as Record<string, unknown>),
+        createSaveBackend: async () => {
+          const handle = await (actual as typeof actualStorage).createSaveBackend();
+          box.storage = handle.storage;
+          // Wrap onConflict so the registration is observable, then forward —
+          // the real handler (main's watchForSaveConflicts) still runs.
+          const inner = handle.storage.onConflict.bind(handle.storage);
+          handle.storage.onConflict = (...args: Parameters<typeof inner>) => {
+            box.handler = args[0];
+            inner(...args);
+          };
+          return handle;
+        },
+      };
+    });
+    const main = await import("app/main");
+    await main.booted;
+    const handler = box.handler;
+    const store = box.storage;
+    if (handler === null || store === null) {
+      throw new Error("main.ts did not open a store or register a conflict handler");
+    }
+    return {
+      fire: (local, remote) => {
+        handler(local, remote);
+      },
+      storage: store,
+    };
+  }
+
+  function doc(name: string, score: number): SaveDocument {
+    return {
+      schemaVersion: 1,
+      updatedAt: 1,
+      deviceId: "dev-a",
+      settings: { ...DEFAULT_SETTINGS, name },
+      solo: { highScore: score, highestRound: 1 },
+    };
+  }
+
+  afterEach(() => {
+    vi.doUnmock("persistence/storage");
+  });
+
+  it("registers the conflict handler at boot (before any screen)", async () => {
+    const { storage: _s } = await bootWithConflictHook();
+    // Reaching here at all is the assertion: the wrapper only captured a
+    // handler if `watchForSaveConflicts` ran during boot.
+    expect(_s).not.toBeNull();
+  });
+
+  it("a divergence opens the merge prompt over the landing screen", async () => {
+    const { fire } = await bootWithConflictHook();
+    expect(document.querySelector("[data-conflict-merge]")).toBeNull();
+    fire(doc("Mine", 111), doc("Theirs", 222));
+    const root = document.querySelector("[data-conflict-merge]");
+    expect(root).not.toBeNull();
+    // Both sides are shown, so the choice is informed.
+    expect(root?.querySelector("[data-conflict-summary='local']")?.textContent).toContain("111");
+    expect(root?.querySelector("[data-conflict-summary='remote']")?.textContent).toContain("222");
+  });
+
+  it("picking a side writes it through the save path and closes the prompt", async () => {
+    const { fire, storage } = await bootWithConflictHook();
+    fire(doc("Mine", 111), doc("Theirs", 222));
+    document
+      .querySelector<HTMLButtonElement>("[data-conflict-choice='remote']")
+      ?.click();
+    expect(document.querySelector("[data-conflict-merge]")).toBeNull();
+    // Written through `writeDocument`, so the kept side becomes the store's
+    // contents — and, being stamped, also the new baseline (no re-conflict).
+    expect(storage.loadAll().name).toBe("Theirs");
+    expect(storage.loadAll().soloHighScore).toBe(222);
+  });
+
+  it("only one prompt at a time — a second conflict does not stack modals", async () => {
+    const { fire } = await bootWithConflictHook();
+    fire(doc("A1", 1), doc("B1", 2));
+    fire(doc("A2", 3), doc("B2", 4));
+    expect(document.querySelectorAll("[data-conflict-merge]")).toHaveLength(1);
+    // The single prompt on screen is still the FIRST one, unresolved until the
+    // player answers. So the second conflict was dropped, not merged in behind
+    // the first — the guard is one modal, not a queue.
+    const local = document.querySelector("[data-conflict-summary='local']")?.textContent ?? "";
+    expect(local).toContain("A1");
+    expect(local).not.toContain("A2");
+    // And the drop is not silent loss: the other tab still holds its save, so
+    // the next write from that side conflicts again and re-prompts.
+  });
+
+  it("a later conflict can be raised once the first is answered", async () => {
+    const { fire } = await bootWithConflictHook();
+    fire(doc("A1", 1), doc("B1", 2));
+    document
+      .querySelector<HTMLButtonElement>("[data-conflict-choice='local']")
+      ?.click();
+    expect(document.querySelector("[data-conflict-merge]")).toBeNull();
+    fire(doc("A2", 3), doc("B2", 4));
+    expect(document.querySelectorAll("[data-conflict-merge]")).toHaveLength(1);
+  });
+
+  it("the prompt is localized to the stored language (ticket 52)", async () => {
+    globalThis.localStorage.setItem("settings.language", "es-419");
+    const { fire } = await bootWithConflictHook();
+    fire(doc("Mine", 111), doc("Theirs", 222));
+    expect(document.body.textContent ?? "").toContain("El guardado cambió en otra pestaña");
   });
 });
 

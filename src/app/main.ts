@@ -54,8 +54,10 @@ let settings: ReturnType<typeof loadSettings> | null = null;
 
 // Ticket 103: when two tabs have genuinely diverged (both changed the save
 // since they last agreed), neither wins by clock — the player chooses. Only one
-// prompt at a time: a second conflict while the first is open would stack
-// modals, and the newest pair supersedes the older one anyway.
+// prompt at a time: a second conflict arriving while the first is still open is
+// ignored rather than stacked, so the player always answers exactly one
+// question. The later divergence is not lost — it is still sitting in the other
+// tab's save, so the next write from that side conflicts again and re-prompts.
 let conflictScreen: ConflictMergeScreen | null = null;
 
 /** Deploy environment (ticket 55): production reads VITE_SIGNALING_BASE /

@@ -13,8 +13,9 @@
 // browsers without it (or a locked-down context) simply get no cross-tab sync,
 // which is the pre-existing behaviour, so the factory returns null rather than
 // throwing.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  browserSaveChannelEnvironment,
   createSaveChannel,
   parseSaveMessage,
   SAVE_CHANNEL_NAME,
@@ -287,5 +288,75 @@ describe("createSaveChannel — absence is not an error (ticket 103)", () => {
     await settle();
 
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe("browserSaveChannelEnvironment (ticket 103)", () => {
+  // The production probe `createSaveBackend` calls with no arguments, so what
+  // it reports decides whether the page syncs across tabs at all.
+
+  it("reports no factory when the host has no BroadcastChannel", () => {
+    // An old browser, or a host that shadows the global with a non-constructor.
+    // Cross-tab sync degrades; the save still works. Note that this must be
+    // STUBBED, not assumed: Node has had BroadcastChannel since 18, so the
+    // "absent" case does not arise naturally in this test environment.
+    vi.stubGlobal("BroadcastChannel", undefined);
+    try {
+      expect(browserSaveChannelEnvironment().createChannel).toBeUndefined();
+      expect(createSaveChannel(browserSaveChannelEnvironment())).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("picks up whatever the host exposes as the channel constructor", async () => {
+    // The interesting property is not "it works here" but "it delegates": the
+    // factory must construct on the SHARED channel name through the host's own
+    // constructor, so two channels built this way reach each other rather than
+    // each delivering to itself.
+    const bus = new FakeBus(SAVE_CHANNEL_NAME);
+    const built: string[] = [];
+    class RealChannel implements BroadcastLike {
+      private readonly inner: BroadcastLike;
+      constructor(name: string) {
+        built.push(name);
+        this.inner = bus.create();
+      }
+      // Delegated rather than shadowed: the bus delivers by invoking
+      // `inner.onmessage`, so a plain field here would swallow every message.
+      get onmessage(): ((event: { data: unknown }) => void) | null {
+        return this.inner.onmessage ?? null;
+      }
+      set onmessage(next: ((event: { data: unknown }) => void) | null) {
+        this.inner.onmessage = next;
+      }
+      postMessage(data: unknown): void {
+        this.inner.postMessage(data);
+      }
+      close(): void {
+        this.inner.close?.();
+      }
+    }
+    vi.stubGlobal("BroadcastChannel", RealChannel);
+    try {
+      const a = createSaveChannel(browserSaveChannelEnvironment());
+      const b = createSaveChannel(browserSaveChannelEnvironment());
+      expect(a).not.toBeNull();
+      expect(b).not.toBeNull();
+      expect(built).toEqual([SAVE_CHANNEL_NAME, SAVE_CHANNEL_NAME]);
+
+      // A's write reaches B, and never A — the no-self-echo rule that keeps a
+      // write from re-triggering the merge UI in the tab that made it.
+      const seenByA: SaveMessage[] = [];
+      const seenByB: SaveMessage[] = [];
+      a!.onExternalWrite((m) => seenByA.push(m));
+      b!.onExternalWrite((m) => seenByB.push(m));
+      a!.publish(COMPOSITE_KEY, message(2_000, "tab-a").value);
+      await settle();
+      expect(seenByB).toHaveLength(1);
+      expect(seenByA).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

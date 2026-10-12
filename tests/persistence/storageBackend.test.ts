@@ -20,8 +20,9 @@
 // actually issues an IndexedDB `get` — and share one fake origin across two
 // backend instances to prove the value reached the database rather than a
 // per-instance cache.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  browserStorageEnvironment,
   createDefaultStorageBackend,
   IndexedDbStorageBackend,
   localStorageBackend,
@@ -427,6 +428,43 @@ describe("hydrate — the cold-read hazard (ticket 103)", () => {
     await backend.hydrate(["k"]);
     expect(backend.getItem("k")).toBe("v");
     expect(backend.kind).toBe("localstorage");
+  });
+});
+
+describe("browserStorageEnvironment (ticket 103)", () => {
+  // The production environment probe. `createSaveBackend` calls this with no
+  // arguments, so whatever it reports decides which backend the page gets.
+  // Node has neither global, which is itself a case worth pinning: the boot
+  // path must degrade to memory rather than throw on a missing global.
+
+  it("reports neither backend in a host with no storage globals", () => {
+    const env = browserStorageEnvironment();
+    expect(env.indexedDB).toBeUndefined();
+    expect(env.localStorage).toBeUndefined();
+  });
+
+  it("still produces a working (memory) backend on that empty environment", async () => {
+    // The end-to-end consequence: no globals is not a crash, it is a game that
+    // plays but forgets. That is the documented degrade-not-block contract.
+    const backend = createDefaultStorageBackend(browserStorageEnvironment());
+    await backend.ready();
+    expect(backend.kind).toBe("memory");
+  });
+
+  it("passes the host's real globals through when they exist", () => {
+    const fake = {
+      indexedDB: {} as unknown as IDBFactory,
+      localStorage: memoryStorage(),
+    };
+    vi.stubGlobal("indexedDB", fake.indexedDB);
+    vi.stubGlobal("localStorage", fake.localStorage);
+    try {
+      const env = browserStorageEnvironment();
+      expect(env.indexedDB).toBe(fake.indexedDB);
+      expect(env.localStorage).toBe(fake.localStorage);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
