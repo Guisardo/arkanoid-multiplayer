@@ -22,7 +22,7 @@ import {
 import type { BotDifficulty } from "sim/bot";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
-import { Storage } from "persistence/storage";
+import { sharedSaveBackend } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
@@ -77,7 +77,8 @@ export async function startVersusBotsSession(
   opts: VersusBotsAppOptions,
 ): Promise<VersusBotsAppSession> {
   const { createAppShell } = await import("render/appShell");
-  const storage = new Storage();
+  // Ticket 103: the page's hydrated save store (IndexedDB when available).
+  const storage = (await sharedSaveBackend()).storage;
   const settings = loadSettings(storage);
   const ladder: PerfLadder = createPerfLadder(rungForDprMode(settings.display.dprMode));
   const frameStats = new FrameStats();

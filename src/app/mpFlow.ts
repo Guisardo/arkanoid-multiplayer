@@ -71,6 +71,12 @@ export interface MpConnectResult {
 export interface MpFlowOptions {
   host: HTMLElement;
   locale: Locale;
+  /**
+   * The page's hydrated save store (ticket 103). Passed in rather than
+   * constructed here because the backend opens asynchronously and
+   * `loadSettings` is synchronous — the caller has already awaited it.
+   */
+  storage?: Storage;
   connect: () => Promise<MpConnectResult>;
   /**
    * Ticket 47: guest rejoin — re-enter the room with the same code after a
@@ -96,6 +102,8 @@ export class MpFlow {
   private readonly hostEl: HTMLElement;
   private readonly locale: Locale;
   private readonly opts: MpFlowOptions;
+  /** The store `loadSettings` reads from (ticket 103 — never a fresh one). */
+  private readonly storage: Storage;
   private shell: AppShell | null = null;
   private split: SplitScreenView | null = null;
   private strip: RemoteStrip | null = null;
@@ -108,6 +116,12 @@ export class MpFlow {
   private guestIndex = 0;
   private isHost = false;
   private phase: MpPhase = "idle";
+  /**
+   * Monotonic guard for the async host launch (ADR 0007 made it async).
+   * Bumped by every teardown so an in-flight `launchMatchAsHost` can tell that
+   * the flow moved on and must discard the session it just awaited.
+   */
+  private launchToken = 0;
   private loop: AccumulatorLoop | null = null;
   private pendingLocal: InputFrame[] = [];
   private lobbyState: LobbyState | null = null;
@@ -169,6 +183,10 @@ export class MpFlow {
     this.hostEl = opts.host;
     this.locale = opts.locale;
     this.opts = opts;
+    // Falls back to the synchronous localStorage store for tests and any caller
+    // that has not awaited a backend. That fallback is correct only because
+    // localStorage reads are live; an async backend must be hydrated first.
+    this.storage = opts.storage ?? new Storage();
   }
 
   get currentPhase(): MpPhase {
@@ -607,9 +625,13 @@ export class MpFlow {
     this.opts.onCountdown?.(3);
     // ADR 0007: fetch the mode's chunk and round data DURING the countdown,
     // so the wait the player already accepts covers the load instead of the
-    // first frame of play. A failure here is not fatal — the launch awaits
-    // the same warm-up and reports it then.
-    void warmMode(state.config.mode).catch(() => undefined);
+    // first frame of play. A failure here is not fatal — `launchMatchAsHost`
+    // awaits the same warm-up and surfaces it there, which is the one path
+    // that must not swallow it. Deliberately not awaited here: the countdown
+    // timer drives the launch, and blocking it would stall the UI.
+    warmMode(state.config.mode).catch((err: unknown) => {
+      console.warn(`[mpFlow] warm-up for ${state.config.mode} failed`, err);
+    });
     let remaining = 3;
     const timer = globalThis.setInterval(() => {
       remaining--;
@@ -626,6 +648,13 @@ export class MpFlow {
 
   private async launchMatchAsHost(): Promise<void> {
     if (this.lobby === null) return;
+    // ADR 0007 made this async (the mode sim and its round range are lazily
+    // imported). That opens a window: `phase` is still "countdown" while the
+    // await runs and `this.game` is still null. Anything that tears down
+    // mid-window — a quit, a disconnect, `dispose()` — must invalidate this
+    // launch, or the awaited session is assigned to a dead flow and leaks its
+    // frame loop, its channels and its guest sockets.
+    const launch = ++this.launchToken;
     const state = this.lobby.state();
     // Deterministic slot order: lobby players sorted by id → sim index.
     const ordered = [...state.players].sort((a, b) => a.id - b.id);
@@ -640,11 +669,21 @@ export class MpFlow {
     const sendGame = (gi: number, buf: ArrayBuffer): void => {
       this.channels?.hostToGuest(gi, buf);
     };
-    this.game = await createHostGameSession(
+    const game = await createHostGameSession(
       { mode: state.config.mode, config: state.config, players, hostLocalPlayers: hostLocal },
       sendGame,
       { onMatchEnd: (end) => { this.hostMatchEnd(end); } },
     );
+    // A newer launch (or a teardown) landed while we awaited. Adopt nothing:
+    // disposing the session we just built is what keeps its frame loop and
+    // guest bindings from outliving the flow that asked for them. The token
+    // covers every such path — `teardownGameLoops` bumps it, and nothing
+    // clears `this.lobby`, so there is no second condition to check.
+    if (launch !== this.launchToken) {
+      game.dispose();
+      return;
+    }
+    this.game = game;
     this.matchPlayers = players.map((p) => p.name);
     this.matchNames = players.map((p) => p.name);
     this.matchMode = state.config.mode;
@@ -688,7 +727,9 @@ export class MpFlow {
    * context loss/restore drive the resync-from-snapshot contract.
    */
   private createShell(): Promise<AppShell> {
-    const stored = loadSettings(new Storage());
+    // Synchronous by contract: `main.ts` has already awaited the page's save
+    // backend before it constructs an `MpFlow`, so this mirror is hydrated.
+    const stored = loadSettings(this.storage);
     // Ticket 30: stored audio volumes apply from the first frame.
     this.audio.setVolumes({
       music: stored.audio.music,
@@ -775,25 +816,38 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
-        // Ticket 102: memory telemetry — the cached wall textures are the term
-        // the ladder actually scales.
-        const memory = sampleMemoryStats(
-          this.memoryProbe,
-          cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
-        );
-        this.perfOverlay?.update({
-          stats: this.frameStats.view,
-          dpr: this.ladder.rung.dpr,
-          renderEvery: this.ladder.rung.renderEvery,
-          drawCalls: null,
-          textureMb: memory.textureMb,
-          memory,
-        });
+        this.pushPerfOverlay();
       },
     });
     loop.start();
     this.loop = loop;
     this.mountPerfOverlay();
+  }
+
+  /**
+   * Feed the perf overlay for the current frame — budgets, ladder rung and
+   * memory telemetry.
+   *
+   * One method for both the host and guest loops because both measure the same
+   * three things about the same renderer; the duplication was a copy of the
+   * whole block, so any future field had to be added twice.
+   */
+  private pushPerfOverlay(): void {
+    if (this.perfOverlay === null) return;
+    // Ticket 102: memory telemetry — the cached wall textures are the term the
+    // ladder actually scales, so the overlay and the ladder read the same rung.
+    const memory = sampleMemoryStats(
+      this.memoryProbe,
+      cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+    );
+    this.perfOverlay.update({
+      stats: this.frameStats.view,
+      dpr: this.ladder.rung.dpr,
+      renderEvery: this.ladder.rung.renderEvery,
+      drawCalls: null,
+      textureMb: memory.textureMb,
+      memory,
+    });
   }
 
   private localFieldFilter: number[] = [];
@@ -1037,7 +1091,7 @@ export class MpFlow {
     this.localFieldFilter = localPlayers;
     const single = mode === "duel" || mode === "sharedField";
     const fields = single ? [localPlayers[0] ?? 0] : localPlayers;
-    const reduced = loadSettings(new Storage()).display.reducedEffects;
+    const reduced = loadSettings(this.storage).display.reducedEffects;
     this.split = new SplitScreenView({
       viewport: { w: app.renderer.width, h: app.renderer.height },
       players: fields,
@@ -1234,20 +1288,7 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
-        // Ticket 102: memory telemetry — the cached wall textures are the term
-        // the ladder actually scales.
-        const memory = sampleMemoryStats(
-          this.memoryProbe,
-          cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
-        );
-        this.perfOverlay?.update({
-          stats: this.frameStats.view,
-          dpr: this.ladder.rung.dpr,
-          renderEvery: this.ladder.rung.renderEvery,
-          drawCalls: null,
-          textureMb: memory.textureMb,
-          memory,
-        });
+        this.pushPerfOverlay();
       },
     });
     loop.start();
@@ -1439,6 +1480,9 @@ export class MpFlow {
   // ---- Teardown ----
 
   private teardownGameLoops(): void {
+    // Invalidate any in-flight host launch before anything else, so a session
+    // that is mid-`await` cannot be adopted by the torn-down flow.
+    this.launchToken++;
     this.loop?.stop();
     this.loop = null;
     // Ticket 47: resilience machinery dies with the match.

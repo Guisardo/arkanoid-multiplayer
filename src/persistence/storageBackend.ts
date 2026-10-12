@@ -10,9 +10,10 @@
 //   1. Never throw. A hostile environment must still boot the game — the
 //      backend chain degrades indexedDB → localStorage → memory.
 //   2. Reads and writes are async (IndexedDB is), so the backend exposes a
-//      `ready()` promise. `Storage` stays synchronous by buffering through the
-//      backend's write queue and reading its own mirror; see `createSaveBackend`
-//      in storage.ts for the wiring the app uses.
+//      `ready()` promise. `Storage` stays synchronous by reading the backend's
+//      own mirror; `hydrate()` pulls the stored values into that mirror before
+//      the first read, so a cold sync read is never mistaken for "no save".
+//      See `createSaveBackend` in storage.ts for the wiring the app uses.
 
 import type { StorageBackend } from "./storage";
 
@@ -36,6 +37,12 @@ export interface ReadyStorageBackend extends StorageBackend {
   readonly kind: StorageBackendKind;
   /** Resolves once the backend is usable (the open finished or degraded). */
   ready(): Promise<void>;
+  /**
+   * Load `keys` into the backend's in-process mirror so later sync reads are
+   * truthful. A no-op for sync backends (localStorage reads are already live);
+   * the IndexedDB backend genuinely needs it. Await this before the first read.
+   */
+  hydrate(keys: readonly string[]): Promise<void>;
 }
 
 export const DB_NAME = "arkanoid";
@@ -188,6 +195,28 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
     return record.value;
   }
 
+  /**
+   * Pull `keys` out of the database into the in-process mirror.
+   *
+   * This is what makes the sync `getItem` trustworthy. A cold read before
+   * hydration answers from an empty mirror, i.e. `null`, which `Storage` reads
+   * as "no save exists" — the game would boot on default settings and then
+   * write them back over the real save. So the app hydrates once, before any
+   * read, and every later sync read is answered from the mirror.
+   *
+   * Never throws: a key that cannot be read is simply left absent, which is
+   * the same degradation as a key that was never written.
+   */
+  async hydrate(keys: readonly string[]): Promise<void> {
+    for (const key of keys) {
+      try {
+        await this.fetchItem(key);
+      } catch {
+        // Unreadable key — leave it out of the mirror.
+      }
+    }
+  }
+
   private readonly mirror = new Map<string, string>();
 
   private transact(act: (store: IDBObjectStore) => void): void {
@@ -229,6 +258,8 @@ export function localStorageBackend(env: StorageEnvironment): ReadyStorageBacken
   return {
     kind,
     ready: () => Promise.resolve(),
+    // Reads are live against localStorage, so there is nothing to pull in.
+    hydrate: () => Promise.resolve(),
     getItem: (key) => store.getItem(key),
     setItem: (key, value) => {
       store.setItem(key, value);
@@ -249,6 +280,7 @@ export function memoryBackend(): ReadyStorageBackend {
   return {
     kind: "memory",
     ready: () => Promise.resolve(),
+    hydrate: () => Promise.resolve(),
     getItem: (key) => map.get(key) ?? null,
     setItem: (key, value) => {
       map.set(key, value);
@@ -295,6 +327,7 @@ export function createDefaultStorageBackend(env: StorageEnvironment): ReadyStora
       return chosen.kind;
     },
     ready: () => ready.then(() => chosen.ready()),
+    hydrate: (keys) => ready.then(() => chosen.hydrate(keys)),
     getItem: (key) => chosen.getItem(key),
     setItem: (key, value) => {
       chosen.setItem(key, value);
@@ -302,5 +335,17 @@ export function createDefaultStorageBackend(env: StorageEnvironment): ReadyStora
     removeItem: (key) => {
       chosen.removeItem(key);
     },
+  };
+}
+
+/** The production environment: this browser's IndexedDB + localStorage, if any. */
+export function browserStorageEnvironment(): StorageEnvironment {
+  const globals = globalThis as {
+    indexedDB?: IDBFactory;
+    localStorage?: Storage;
+  };
+  return {
+    ...(globals.indexedDB !== undefined ? { indexedDB: globals.indexedDB } : {}),
+    ...(globals.localStorage !== undefined ? { localStorage: globals.localStorage } : {}),
   };
 }

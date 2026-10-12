@@ -21,6 +21,18 @@ import {
   type SaveDocument,
   type SaveSettings,
 } from "./saveDocument";
+import { classifyWrite } from "./conflict";
+import {
+  browserSaveChannelEnvironment,
+  createSaveChannel,
+  type SaveChannel,
+} from "./saveChannel";
+import {
+  browserStorageEnvironment,
+  createDefaultStorageBackend,
+  type ReadyStorageBackend,
+  type StorageBackendKind,
+} from "./storageBackend";
 
 /**
  * The pre-ADR-0008 per-key layout. Still read (once) so existing players keep
@@ -68,6 +80,8 @@ export interface StorageOptions {
   deviceId?: string | undefined;
   /** Epoch-ms clock, injected so writes are deterministic in tests. */
   now?: (() => number) | undefined;
+  /** Cross-tab announcement channel (ticket 103). Null disables sync. */
+  channel?: SaveChannel | null | undefined;
 }
 
 /**
@@ -87,11 +101,86 @@ export class Storage {
   private readonly backend: StorageBackend;
   private readonly deviceId: string;
   private readonly now: () => number;
+  /**
+   * Ticket 103 cross-tab sync. Null when BroadcastChannel is unavailable or
+   * was refused — every write simply is not announced, which is exactly the
+   * pre-ticket behaviour.
+   */
+  private readonly channel: SaveChannel | null;
+  /**
+   * The last document this tab wrote or adopted (ticket 103). Both sides of a
+   * cross-tab write are compared against it to tell "the other tab overwrote
+   * me" from "we both changed it", which is the only case worth a merge prompt.
+   */
+  private base: SaveDocument | null = null;
+  /** Invoked when two tabs genuinely diverge; see `onConflict`. */
+  private conflictHandler: ((local: SaveDocument, remote: SaveDocument) => void) | null = null;
 
   constructor(backend?: StorageBackend, opts: StorageOptions = {}) {
     this.backend = backend ?? localStorageBackend();
     this.deviceId = resolveDeviceId(opts.deviceId);
     this.now = opts.now ?? (() => Date.now());
+    this.channel = opts.channel ?? null;
+    if (this.channel !== null) {
+      // The channel has already validated the payload's shape (`parseSaveMessage`)
+      // and wraps this callback in a try/catch, so `message` is a real save
+      // write by the time it arrives — validating again here would be a second,
+      // redundant gate on the same untrusted input.
+      this.channel.onExternalWrite((message) => {
+        this.receiveExternalWrite(message.key, message.value);
+      });
+    }
+  }
+
+  /**
+   * Adopt a write announced by another tab (ticket 103).
+   *
+   * The decision is `classifyWrite`'s, so all the ordering rules live in one
+   * place. `apply` overwrites our bytes and moves our `base` forward;
+   * `conflict` is reported to the UI rather than silently resolved, because
+   * last-write-wins would throw away one tab's settings outright.
+   */
+  private receiveExternalWrite(key: string, value: string): void {
+    if (key !== COMPOSITE_KEY) return;
+    const incoming = tryParse(value);
+    if (typeof incoming !== "object" || incoming === null || Array.isArray(incoming)) return;
+    const remote = incoming as SaveDocument;
+    const local = this.loadDocument();
+    const verdict = classifyWrite(local, remote, this.base);
+    if (verdict === "apply") {
+      this.base = remote;
+      this.writeRemote(remote);
+    } else if (verdict === "conflict") {
+      this.conflictHandler?.(local, remote);
+    }
+    // "same" and "ignore" need no side effect: our bytes already win.
+  }
+
+  /**
+   * Store the other tab's document without re-publishing it.
+   *
+   * Goes through the backend directly rather than `writeDocument`, which would
+   * re-stamp `updatedAt` (destroying the ordering we just compared) and echo
+   * the write back onto the channel.
+   */
+  private writeRemote(doc: SaveDocument): void {
+    try {
+      this.backend.setItem(COMPOSITE_KEY, JSON.stringify(doc));
+    } catch {
+      // Refused write — our previous document stands, as with any backend
+      // failure. The save is never left half-applied.
+    }
+  }
+
+  /** Register the manual-merge prompt (ticket 103). Passing null removes it. */
+  onConflict(handler: ((local: SaveDocument, remote: SaveDocument) => void) | null): void {
+    this.conflictHandler = handler;
+  }
+
+  /** Stop announcing writes and drop the conflict handler. Idempotent. */
+  dispose(): void {
+    this.conflictHandler = null;
+    this.channel?.close();
   }
 
   /** The composite key the whole save lives under. */
@@ -156,6 +245,11 @@ export class Storage {
     } catch {
       return; // storage full/blocked — keep the previous save intact
     }
+    // The write landed, so it becomes the new baseline for cross-tab
+    // classification: until we move `base` forward, every incoming write looks
+    // like a conflict with a document we have since replaced.
+    this.base = stamped;
+    this.channel?.publish(COMPOSITE_KEY, json, this.deviceId);
     // Only now is it safe to drop the legacy keys: the composite document is
     // committed and is the sole source of truth from here on.
     this.clearLegacyKeys();
@@ -313,6 +407,71 @@ export class Storage {
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
     return parsed as Record<string, unknown>;
   }
+}
+
+/**
+ * The app's save store (ADR 0008 §6, ticket 103).
+ *
+ * Chooses the backend chain (IndexedDB → localStorage → memory), opens the
+ * cross-tab channel, and — crucially — HYDRATES before returning. The hydration
+ * is not optional: `StorageBackend` is synchronous by contract, so an async
+ * backend can only answer a cold read from its in-process mirror, i.e. `null`.
+ * `main.ts` reads settings at module scope, so a store handed back unhydrated
+ * would boot on defaults and then write those defaults over the real save.
+ *
+ * Awaiting the returned promise therefore means "safe to read now". It never
+ * rejects: a hostile environment degrades to the memory backend rather than
+ * blocking the game's boot.
+ */
+export interface SaveBackendHandle {
+  /** The hydrated store. Every read is truthful from here on. */
+  readonly storage: Storage;
+  /** Which backend won, for diagnostics and the perf/debug overlays. */
+  readonly kind: StorageBackendKind;
+  /** Release the cross-tab channel. */
+  dispose(): void;
+}
+
+export async function createSaveBackend(): Promise<SaveBackendHandle> {
+  const backend: ReadyStorageBackend = createDefaultStorageBackend(browserStorageEnvironment());
+  const channel = createSaveChannel(browserSaveChannelEnvironment());
+  await backend.ready();
+  // Both the composite document and every legacy key: a migrated player has no
+  // composite document yet, and `loadDocument` reads the legacy layout to
+  // build one. Hydrating only the composite key would look like "no save".
+  await backend.hydrate([COMPOSITE_KEY, ...LEGACY_KEYS]);
+  const storage = new Storage(backend, { channel });
+  return {
+    storage,
+    kind: backend.kind,
+    dispose: () => {
+      storage.dispose();
+    },
+  };
+}
+
+/**
+ * The one store for this page (ADR 0008 §6, ticket 103).
+ *
+ * Every session creator needs settings, and each used to call `new Storage()` —
+ * which silently meant localStorage, bypassing whatever backend the page had
+ * chosen and re-reading an unhydrated store. Sharing one handle fixes both, and
+ * guarantees they agree on the device id and the cross-tab channel (two
+ * channels would mean each tab announcing to itself).
+ *
+ * The promise is memoised, so concurrent callers share one backend rather than
+ * racing to open the same IndexedDB database twice.
+ */
+let sharedBackend: Promise<SaveBackendHandle> | null = null;
+
+export function sharedSaveBackend(): Promise<SaveBackendHandle> {
+  sharedBackend ??= createSaveBackend();
+  return sharedBackend;
+}
+
+/** Test-only: forget the page-level store so the next call rebuilds it. */
+export function resetSharedSaveBackend(): void {
+  sharedBackend = null;
 }
 
 function localStorageBackend(): StorageBackend {

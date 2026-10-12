@@ -8,6 +8,9 @@
 // The module boots on import, so each test re-imports it fresh.
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Type-only, so the `vi.doMock("persistence/storage")` factories below can wrap
+// the real `createSaveBackend` without re-importing the module by value.
+import type * as actualStorage from "persistence/storage";
 
 // Ticket 89: typed as a rest parameter so a test can read the round / resumed
 // record off `mock.calls` without tripping the tuple-length check.
@@ -235,7 +238,11 @@ afterEach(() => {
 async function importMain(): Promise<void> {
   vi.resetModules();
   applyMocks();
-  await import("app/main");
+  // Await `booted`, not just the module: boot is async because the save store
+  // opens before anything is drawn, so the landing does not exist yet when the
+  // import resolves.
+  const main = await import("app/main");
+  await main.booted;
 }
 
 function clickButton(label: string): void {
@@ -262,6 +269,60 @@ describe("main boot (ticket 45)", () => {
     expect(text).toContain("Solo");
     expect(text).toContain("Versus bots");
     expect(text).toContain("Multiplayer");
+  });
+
+  it("nothing is drawn before the save store is hydrated (ticket 103)", async () => {
+    // The hazard this boot shape exists to prevent: an async backend answers a
+    // cold synchronous read from an empty mirror, which `Storage` reads as "no
+    // save exists". Drawing first would boot on defaults and then write those
+    // defaults over the real save. So the store must open BEFORE the first
+    // screen exists — this asserts the ordering, not merely the outcome.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = () => {
+        resolve();
+      };
+    });
+    vi.resetModules();
+    applyMocks();
+    vi.doMock("persistence/storage", async (importOriginal) => {
+      const actual = await importOriginal();
+      return {
+        ...(actual as Record<string, unknown>),
+        createSaveBackend: async () => {
+          await gate;
+          return (actual as typeof actualStorage).createSaveBackend();
+        },
+      };
+    });
+
+    const main = await import("app/main");
+    // The store has not opened, so the page is still empty.
+    expect(document.body.textContent ?? "").toBe("");
+
+    release();
+    await main.booted;
+    expect(document.body.textContent ?? "").toContain("Solo");
+    vi.doUnmock("persistence/storage");
+  });
+
+  it("still boots when the save backend cannot be opened (ticket 103)", async () => {
+    // A hostile environment must degrade, never blank the page: the store falls
+    // back to the synchronous localStorage one and the landing still appears.
+    vi.resetModules();
+    applyMocks();
+    vi.doMock("persistence/storage", async (importOriginal) => {
+      const actual = await importOriginal();
+      return {
+        ...(actual as Record<string, unknown>),
+        createSaveBackend: (): Promise<never> => Promise.reject(new Error("storage blocked")),
+      };
+    });
+
+    const main = await import("app/main");
+    await expect(main.booted).resolves.toBeUndefined();
+    expect(document.body.textContent ?? "").toContain("Solo");
+    vi.doUnmock("persistence/storage");
   });
 
   it("landing Settings entry opens the settings overlay (ticket 52)", async () => {
@@ -701,7 +762,8 @@ describe("copy-paste fallback (ticket 53, spec §9)", () => {
         });
       }),
     }));
-    await import("app/main");
+    const main = await import("app/main");
+    await main.booted;
   }
 
   afterEach(() => {

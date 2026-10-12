@@ -344,6 +344,92 @@ describe("createDefaultStorageBackend — fallback (ticket 103)", () => {
   });
 });
 
+describe("hydrate — the cold-read hazard (ticket 103)", () => {
+  // These are the cases that justify hydration existing at all. Without it a
+  // second page load reads an empty mirror, `Storage` concludes there is no
+  // save, and the game boots on defaults — then writes those defaults over the
+  // real save on the first setting change.
+
+  it("a cold sync read is null until hydrate pulls the stored value in", async () => {
+    const { env } = fakeOrigin();
+    const first = new IndexedDbStorageBackend(env);
+    await first.ready();
+    first.setItem(COMPOSITE_KEY, '{"schemaVersion":1,"saved":true}');
+    await first.fetchItem(COMPOSITE_KEY); // drain the put
+
+    const second = new IndexedDbStorageBackend(env);
+    await second.ready();
+    // The hazard: sync `getItem` can only see this instance's mirror.
+    expect(second.getItem(COMPOSITE_KEY)).toBeNull();
+    await second.hydrate([COMPOSITE_KEY]);
+    expect(second.getItem(COMPOSITE_KEY)).toBe('{"schemaVersion":1,"saved":true}');
+  });
+
+  it("Storage reads the real save after hydration, not defaults", async () => {
+    const { env } = fakeOrigin();
+    const first = new IndexedDbStorageBackend(env);
+    await first.ready();
+    new Storage(first, { deviceId: "d", now: () => 1_700_000_000_000 }).savePartial({
+      name: "RealPlayer",
+      soloHighScore: 9000,
+    });
+    await first.fetchItem(COMPOSITE_KEY);
+
+    // A second page load: unhydrated, it would see "no save".
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY]);
+    const reopened = new Storage(backend, { deviceId: "d", now: () => 1_800_000_000_000 });
+    expect(reopened.loadAll().name).toBe("RealPlayer");
+    expect(reopened.loadAll().soloHighScore).toBe(9000);
+  });
+
+  it("hydrate carries the legacy keys too, so a pre-ADR-0008 save is found", async () => {
+    const { env } = fakeOrigin();
+    const first = new IndexedDbStorageBackend(env);
+    await first.ready();
+    first.setItem("settings.name", "Legacy");
+    await first.fetchItem("settings.name");
+
+    const second = new IndexedDbStorageBackend(env);
+    await second.ready();
+    await second.hydrate(["settings.name"]);
+    expect(second.getItem("settings.name")).toBe("Legacy");
+  });
+
+  it("hydrate on the composed backend waits for the open, so it cannot race it", async () => {
+    const { env } = fakeOrigin();
+    const first = new IndexedDbStorageBackend(env);
+    await first.ready();
+    first.setItem("k", "v");
+    await first.fetchItem("k");
+
+    const backend = createDefaultStorageBackend(env);
+    // No `await ready()` first — hydrate must still land.
+    await backend.hydrate(["k"]);
+    expect(backend.getItem("k")).toBe("v");
+  });
+
+  it("a missing key stays missing — hydration invents nothing", async () => {
+    const backend = new IndexedDbStorageBackend(fakeEnvironment());
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY, "never.written"]);
+    expect(backend.getItem(COMPOSITE_KEY)).toBeNull();
+    expect(backend.getItem("never.written")).toBeNull();
+  });
+
+  it("the sync fallbacks hydrate as a no-op (their reads are already live)", async () => {
+    const local = memoryStorage();
+    local.setItem("k", "v");
+    const backend = createDefaultStorageBackend({ indexedDB: undefined, localStorage: local });
+    // Reads hit localStorage directly, so nothing to pull in — but the call
+    // must still be safe to make unconditionally.
+    await backend.hydrate(["k"]);
+    expect(backend.getItem("k")).toBe("v");
+    expect(backend.kind).toBe("localstorage");
+  });
+});
+
 describe("localStorageBackend (ticket 103)", () => {
   it("wraps the injected localStorage as a StorageBackend", () => {
     const local = memoryStorage();

@@ -141,6 +141,11 @@ const enUS = {
   "perf.degraded": "Reduced performance mode",
   "perf.contextLost": "Graphics context lost — recovering…",
   "perf.contextRestored": "Graphics recovered",
+  "save.conflictTitle": "Save changed in another tab",
+  "save.conflictBody": "Two tabs saved different progress at the same time. Pick the one to keep.",
+  "save.conflictThisTab": "This tab",
+  "save.conflictOtherTab": "Other tab",
+  "save.conflictSummary": "High score {score} · Round {round} · {name}",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -276,6 +281,11 @@ const es419: Record<StringKey, string> = {
   "perf.degraded": "Modo de rendimiento reducido",
   "perf.contextLost": "Contexto gráfico perdido — recuperando…",
   "perf.contextRestored": "Gráficos recuperados",
+  "save.conflictTitle": "El guardado cambió en otra pestaña",
+  "save.conflictBody": "Dos pestañas guardaron progreso distinto al mismo tiempo. Elige cuál conservar.",
+  "save.conflictThisTab": "Esta pestaña",
+  "save.conflictOtherTab": "Otra pestaña",
+  "save.conflictSummary": "Puntaje {score} · Ronda {round} · {name}",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

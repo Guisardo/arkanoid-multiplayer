@@ -14,7 +14,7 @@ import type { EffectsState } from "render/visualEffects";
 import { layoutField } from "render/layout";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
-import { Storage } from "persistence/storage";
+import { sharedSaveBackend } from "persistence/storage";
 import type { EpisodeState } from "persistence/saveDocument";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
@@ -95,7 +95,9 @@ export async function startSoloSession(
   opts: SoloSessionOptions = {},
 ): Promise<SoloSession> {
   const { createAppShell } = await import("render/appShell");
-  const storage = new Storage();
+  // Ticket 103: the page's hydrated save store (IndexedDB when available), not
+  // a fresh localStorage-backed `new Storage()` that would bypass it.
+  const storage = (await sharedSaveBackend()).storage;
   const settings = loadSettings(storage);
   // Ticket 54: perf ladder starts from the Settings dpr mode (auto = top
   // rung); steps down under sustained slow frames, recovers lazily.
