@@ -8,15 +8,22 @@ export interface PerfRung {
   readonly dpr: number;
   /** Render every Nth frame; 2 = 30 fps degraded (sim stays 60 Hz). */
   readonly renderEvery: number;
+  /**
+   * Resolution the cached field textures are recorded at (ticket 102). 1 keeps
+   * the renderer resolution; 0.5 records them at half resolution — a quarter
+   * of the texture bytes for identical content. Render-only: never touches
+   * the fixed 60 Hz sim.
+   */
+  readonly textureResolution: number;
   /** True only on the final rung (explicit degraded mode). */
   readonly degraded: boolean;
 }
 
 export const PERF_RUNGS: readonly PerfRung[] = [
-  { dpr: 2, renderEvery: 1, degraded: false },
-  { dpr: 1.5, renderEvery: 1, degraded: false },
-  { dpr: 1, renderEvery: 1, degraded: false },
-  { dpr: 1, renderEvery: 2, degraded: true },
+  { dpr: 2, renderEvery: 1, textureResolution: 1, degraded: false },
+  { dpr: 1.5, renderEvery: 1, textureResolution: 1, degraded: false },
+  { dpr: 1, renderEvery: 1, textureResolution: 1, degraded: false },
+  { dpr: 1, renderEvery: 2, textureResolution: 0.5, degraded: true },
 ] as const;
 
 /** Frame is "slow" when it misses the 60 fps budget by this factor. */
@@ -59,7 +66,9 @@ export function createPerfLadder(startRung = 0): PerfLadder {
       return { rung, slowStreak, fastStreak };
     },
     get rung(): PerfRung {
-      return PERF_RUNGS[rung] ?? { dpr: 2, renderEvery: 1, degraded: false };
+      return (
+        PERF_RUNGS[rung] ?? { dpr: 2, renderEvery: 1, textureResolution: 1, degraded: false }
+      );
     },
     get changed(): boolean {
       return changed;

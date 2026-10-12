@@ -4,14 +4,14 @@ import { createDelayQueue } from "net/delayQueue";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import { EMPTY_ACTIONS } from "shared/protocol";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 
 function frame(player: number, tick: number, axisX: number, launch = false): InputFrame {
   return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
 }
 
 function fourPlayerSnapshot(): Snapshot {
-  const base = createRoundSim(getLevel(1), { lives: 3, score: 1000 });
+  const base = createRoundSim(getLevelSync(1), { lives: 3, score: 1000 });
   const snap = base.snapshot();
   return {
     ...snap,
@@ -94,7 +94,7 @@ describe("snapshot serializer (spec §9)", () => {
   });
 
   it("round-trips a boss snapshot (ticket 49) with projectiles", () => {
-    const sim = createRoundSim(getLevel(33), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(33), { lives: 3, score: 0 });
     sim.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: true, actions: EMPTY_ACTIONS }]);
     // Advance until the boss has fired at least one projectile.
     let snap = sim.snapshot();

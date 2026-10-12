@@ -21,6 +21,7 @@ describe("perf overlay (ticket 54)", () => {
       renderEvery: 1,
       drawCalls: 8,
       textureMb: 0.1,
+      memory: { heapUsedMb: 42, textureMb: 0.1, textureOverBudget: false, heapWarning: false },
     });
     const text = overlay.root.textContent ?? "";
     expect(text).toContain("fps");
@@ -30,6 +31,79 @@ describe("perf overlay (ticket 54)", () => {
     expect(text).toContain("dpr 1.5");
     expect(text).toContain("draw 8");
     expect(text).toContain("tex 0.1MB");
+    overlay.close();
+  });
+
+  // ---- Ticket 102: memory telemetry ----
+  it("reports the JS heap and texture memory", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const overlay = new PerfOverlay(host);
+    const stats = new FrameStats();
+    stats.push({ simMs: 1, syncMs: 1, renderMs: 1, frameMs: 16.7 } as never, 16.7);
+    overlay.update({
+      stats: stats.view,
+      dpr: 1,
+      renderEvery: 1,
+      drawCalls: null,
+      textureMb: 2.5,
+      memory: { heapUsedMb: 128.25, textureMb: 2.5, textureOverBudget: false, heapWarning: false },
+    });
+    const text = overlay.root.textContent ?? "";
+    expect(text).toContain("heap 128.3MB");
+    expect(text).toContain("tex 2.5MB");
+    overlay.close();
+  });
+
+  it("shows ? for the heap where the browser does not expose performance.memory", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const overlay = new PerfOverlay(host);
+    const stats = new FrameStats();
+    overlay.update({
+      stats: stats.view,
+      dpr: 1,
+      renderEvery: 1,
+      drawCalls: null,
+      textureMb: 0.1,
+      memory: { heapUsedMb: null, textureMb: 0.1, textureOverBudget: false, heapWarning: false },
+    });
+    const text = overlay.root.textContent ?? "";
+    expect(text).toContain("heap ?");
+    overlay.close();
+  });
+
+  it("marks a texture ceiling breach and a heap warning", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const overlay = new PerfOverlay(host);
+    const stats = new FrameStats();
+    overlay.update({
+      stats: stats.view,
+      dpr: 1,
+      renderEvery: 1,
+      drawCalls: null,
+      textureMb: 96,
+      memory: { heapUsedMb: 512, textureMb: 96, textureOverBudget: true, heapWarning: true },
+    });
+    const text = overlay.root.textContent ?? "";
+    expect(text).toContain("tex 96.0MB (≤64) !");
+    expect(text).toContain("heap 512.0MB");
+    overlay.close();
+  });
+
+  it("omits the heap line entirely when no memory sample is supplied", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const overlay = new PerfOverlay(host);
+    overlay.update({
+      stats: new FrameStats().view,
+      dpr: 1,
+      renderEvery: 1,
+      drawCalls: null,
+      textureMb: null,
+    });
+    expect(overlay.root.querySelector('[data-line="heap"]')).toBeNull();
     overlay.close();
   });
 

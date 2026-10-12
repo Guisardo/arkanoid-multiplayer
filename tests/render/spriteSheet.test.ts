@@ -74,7 +74,7 @@ vi.mock("pixi.js", async () => {
   };
 });
 
-const { initAssets, loadSkinSprites, rememberTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
+const { gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
   await import("render/spriteSheet");
 
 beforeEach(() => {
@@ -82,6 +82,11 @@ beforeEach(() => {
   added.length = 0;
   failInit = false;
   atlasAliasValue = [spritesheet];
+  // `Assets.init` is memoised for the page (calling it twice breaks Pixi's
+  // cache), and the frame cache is module-level. Without this reset the first
+  // test's init and frames answer for every later case — which is exactly what
+  // made "loadSkinSprites delegates to initAssets" see zero init calls.
+  gameplayAssetsLoaded.reset();
 });
 
 describe("spriteSheet — SPRITE_PATHS", () => {

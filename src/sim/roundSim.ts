@@ -55,6 +55,16 @@ import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from ".
 import { probeBricks } from "./brickProbe";
 
 const EVENT_RING_SIZE = 8;
+
+/**
+ * Ticket 102: cap on the destroyed-brick history behind Attack's brick rain.
+ * A continuous Attack match can run for hundreds of rounds, and every break
+ * used to append forever — unbounded growth in a long-lived array. Only the
+ * most recent entries matter (rain resurrects LIFO), so overflow drops the
+ * oldest. Deliberately far above one field's BRICK_COLS × BRICK_ROWS cells so
+ * rain can always find the cells it broke.
+ */
+export const DESTROYED_HISTORY_CAP = 500;
 /** Round 33 = Doh boss finale (ticket 49). */
 const BOSS_ROUND = 33;
 
@@ -82,6 +92,8 @@ export interface RoundSim {
   setAttackSpeedFactor(factor: number): void;
   /** Attack hook (ticket 39): resurrect destroyed bricks (rain). Deterministic LIFO. */
   resurrectBricks(count: number): number;
+  /** Ticket 102: entries in the capped destroyed-brick history (telemetry). */
+  readonly destroyedHistorySize: number;
   /** Assist hook (ticket 40): revive a downed field — 1 life, ball attached. */
   revivePlayer(): void;
   /** Assist hook (ticket 40): remove the n lowest destructible bricks (brick clear). */
@@ -183,6 +195,18 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
   let attackSpeedFactor = 1;
   /** Destroyed-brick indices in break order — rain resurrects from here. */
   const destroyedBricks: number[] = [];
+
+  /**
+   * Record a break, keeping the history bounded (ticket 102). Overflow drops
+   * the OLDEST entry: rain is LIFO, so the newest breaks are the ones it
+   * resurrects next and the old ones are the cheapest to forget. shift() on a
+   * 500-entry array is not free, but a break is a rare event next to a 60 Hz
+   * tick — correctness and a flat memory ceiling beat micro-optimizing here.
+   */
+  function pushDestroyed(index: number): void {
+    destroyedBricks.push(index);
+    if (destroyedBricks.length > DESTROYED_HISTORY_CAP) destroyedBricks.shift();
+  }
 
   function pushEvent(type: SimEvent["type"], source: number, target: number): void {
     events.push({ type, source, target, tick });
@@ -357,7 +381,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       pushEvent("brickBreak", player, index);
       score += 50 + (cellV - 1) * 10; // colored tier scoring (placeholder table)
     }
-    destroyedBricks.push(index);
+    pushDestroyed(index);
     // Deterministic capsule script trigger (spec §4): zero RNG.
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);
@@ -526,6 +550,10 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
 
     setAttackSpeedFactor(factor) {
       attackSpeedFactor = factor;
+    },
+
+    get destroyedHistorySize() {
+      return destroyedBricks.length;
     },
 
     resurrectBricks(count) {

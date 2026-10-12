@@ -22,7 +22,7 @@ import {
 import type { BotDifficulty } from "sim/bot";
 import { resolveLocale, t, type Locale } from "ui/strings";
 import type { AppShell } from "render/appShell";
-import { Storage } from "persistence/storage";
+import { sharedSaveBackend } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
@@ -38,6 +38,7 @@ import {
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 
 export interface VersusBotsAppOptions {
@@ -76,7 +77,8 @@ export async function startVersusBotsSession(
   opts: VersusBotsAppOptions,
 ): Promise<VersusBotsAppSession> {
   const { createAppShell } = await import("render/appShell");
-  const storage = new Storage();
+  // Ticket 103: the page's hydrated save store (IndexedDB when available).
+  const storage = (await sharedSaveBackend()).storage;
   const settings = loadSettings(storage);
   const ladder: PerfLadder = createPerfLadder(rungForDprMode(settings.display.dprMode));
   const frameStats = new FrameStats();
@@ -96,8 +98,9 @@ export async function startVersusBotsSession(
   });
   const app = shell.app;
 
-  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0.
-  const sim: Sim = createVersusBotsSession({
+  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0. ADR 0007: the
+  // variant sim is imported on demand inside the creator.
+  const sim: Sim = await createVersusBotsSession({
     variant: opts.variant,
     humans: 1,
     bots: opts.bots,
@@ -167,6 +170,9 @@ export async function startVersusBotsSession(
     reducedEffects: settings.display.reducedEffects,
   });
   app.stage.addChild(split.container);
+
+  // Ticket 102: dev-only heap source for the ?perf=1 overlay.
+  const memoryProbe = createMemoryProbe();
 
   // Touch overlay floats over the whole canvas (single-field anchor).
   let touchOverlay: TouchOverlay | null = null;
@@ -453,12 +459,19 @@ export async function startVersusBotsSession(
       const appWork = sample.simMs + lastSyncMs + sample.renderMs;
       ladder.observe(appWork);
       if (ladder.changed) applyLadderRung();
+      // Ticket 102: memory telemetry — the cached wall textures are the term the
+      // ladder actually scales.
+      const memory = sampleMemoryStats(
+        memoryProbe,
+        cachedWallBytes(split.fieldCount, ladder.rung.textureResolution),
+      );
       perfOverlay?.update({
         stats: frameStats.view,
         dpr: ladder.rung.dpr,
         renderEvery: ladder.rung.renderEvery,
         drawCalls: null,
-        textureMb: null,
+        textureMb: memory.textureMb,
+        memory,
       });
     },
   });
@@ -467,6 +480,8 @@ export async function startVersusBotsSession(
     const rung = ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves the cached wall texture.
+    split.setTextureResolution(rung.textureResolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }

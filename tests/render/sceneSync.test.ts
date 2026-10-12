@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { diffBricks, fieldSceneModel } from "render/sceneSync";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import type { Snapshot } from "shared/protocol";
 
 describe("diffBricks (scene seam)", () => {
@@ -51,7 +51,7 @@ describe("diffBricks (scene seam)", () => {
 
 describe("fieldSceneModel (snapshot → view model)", () => {
   function snap(): Snapshot {
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
     return sim.snapshot();
   }
 

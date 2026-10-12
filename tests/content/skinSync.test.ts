@@ -18,7 +18,7 @@ import { createMultiFieldSession } from "sim/multiField";
 import { createSharedFieldSim } from "sim/sharedField";
 import { createRoundDuel } from "sim/duel";
 import { createVersusBotsSession } from "sim/versusBots";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import { serializeSnapshot, deserializeSnapshot } from "net/serializer";
 
 function hostLobby(): LobbyState {
@@ -150,12 +150,12 @@ describe("skinSync: UUID → compact session index (ticket 44)", () => {
 
 describe("sims: skinIndex flows to snapshots (ticket 44)", () => {
   it("roundSim carries the option into PlayerSnapshot", () => {
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0, skinIndex: 2 });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0, skinIndex: 2 });
     expect(sim.snapshot().players[0]?.skinIndex).toBe(2);
   });
 
   it("roundSim defaults to 0", () => {
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
     expect(sim.snapshot().players[0]?.skinIndex).toBe(0);
   });
 
@@ -172,7 +172,7 @@ describe("sims: skinIndex flows to snapshots (ticket 44)", () => {
   });
 
   it("sharedField passes per-player indices", () => {
-    const sim = createSharedFieldSim(getLevel(1), {
+    const sim = createSharedFieldSim(getLevelSync(1), {
       placement: "A",
       ballModel: "shared",
       playerCount: 3,
@@ -185,7 +185,7 @@ describe("sims: skinIndex flows to snapshots (ticket 44)", () => {
   });
 
   it("duel passes [p0, p1] indices", () => {
-    const sim = createRoundDuel(getLevel(1), {
+    const sim = createRoundDuel(getLevelSync(1), {
       ballModel: "shared",
       timeCapTicks: null,
       skinIndices: [2, 1],
@@ -197,10 +197,10 @@ describe("sims: skinIndex flows to snapshots (ticket 44)", () => {
 });
 
 describe("versusBots: distinct bot skins (ticket 44)", () => {
-  it("bots get skins distinct from the human's choice, per variant", () => {
+  it("bots get skins distinct from the human's choice, per variant", async () => {
     for (const variant of ["race", "attack", "duel", "sharedField", "parallelAssist"] as const) {
       const human = SKINS[1]?.id ?? "";
-      const session = createVersusBotsSession({
+      const session = await createVersusBotsSession({
         variant,
         humans: 1,
         bots: variant === "duel" ? 1 : 3,
@@ -215,8 +215,8 @@ describe("versusBots: distinct bot skins (ticket 44)", () => {
     }
   });
 
-  it("default human skin when none given", () => {
-    const session = createVersusBotsSession({ variant: "race", humans: 1, bots: 2 });
+  it("default human skin when none given", async () => {
+    const session = await createVersusBotsSession({ variant: "race", humans: 1, bots: 2 });
     const snaps = session.snapshots();
     expect(snaps[0]?.players[0]?.skinIndex).toBe(0);
   });

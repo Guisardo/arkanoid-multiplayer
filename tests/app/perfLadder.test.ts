@@ -9,13 +9,14 @@ import {
   FAST_FRAME_MS,
 } from "app/perfLadder";
 
+
 describe("perf fallback ladder (ticket 54, spec §12)", () => {
   it("ships the exact rung sequence dpr 2 → 1.5 → 1 → 30 fps degraded", () => {
     expect(PERF_RUNGS).toEqual([
-      { dpr: 2, renderEvery: 1, degraded: false },
-      { dpr: 1.5, renderEvery: 1, degraded: false },
-      { dpr: 1, renderEvery: 1, degraded: false },
-      { dpr: 1, renderEvery: 2, degraded: true },
+      { dpr: 2, renderEvery: 1, textureResolution: 1, degraded: false },
+      { dpr: 1.5, renderEvery: 1, textureResolution: 1, degraded: false },
+      { dpr: 1, renderEvery: 1, textureResolution: 1, degraded: false },
+      { dpr: 1, renderEvery: 2, textureResolution: 0.5, degraded: true },
     ]);
   });
 
@@ -102,5 +103,37 @@ describe("perf fallback ladder (ticket 54, spec §12)", () => {
     expect(rungForDprMode("2")).toBe(0);
     expect(rungForDprMode("1.5")).toBe(1);
     expect(rungForDprMode("1")).toBe(2);
+  });
+});
+
+describe("texture downscaling on the degraded rung (ticket 102)", () => {
+  it("only the degraded rung downscales texture resolution", () => {
+    // Rungs 0..2 keep textures at full resolution; the explicit degraded rung
+    // halves it — the texture memory saving is opt-in, never a design target.
+    expect(PERF_RUNGS.slice(0, 3).every((r) => r.textureResolution === 1)).toBe(true);
+    expect(PERF_RUNGS[3]?.textureResolution).toBe(0.5);
+  });
+
+  it("stepping down to degraded announces the resolution change", () => {
+    const ladder = createPerfLadder(2); // dpr 1 rung
+    expect(ladder.rung.textureResolution).toBe(1);
+    for (let i = 0; i < STEP_DOWN_FRAMES; i++) ladder.observe(SLOW_FRAME_MS);
+    expect(ladder.rung.textureResolution).toBe(0.5);
+    expect(ladder.changed).toBe(true);
+  });
+
+  it("recovery restores full texture resolution", () => {
+    const ladder = createPerfLadder(3);
+    expect(ladder.rung.textureResolution).toBe(0.5);
+    for (let i = 0; i < STEP_UP_FRAMES; i++) ladder.observe(FAST_FRAME_MS);
+    expect(ladder.rung.textureResolution).toBe(1);
+    expect(ladder.rung.degraded).toBe(false);
+  });
+
+  it("texture resolution never rises above the full-resolution rung", () => {
+    // A downscale is the only legal direction: no rung may invent super-
+    // sampled textures, which would blow the 64 MB ceiling instead of
+    // saving memory.
+    expect(Math.max(...PERF_RUNGS.map((r) => r.textureResolution))).toBe(1);
   });
 });

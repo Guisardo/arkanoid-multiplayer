@@ -3,7 +3,7 @@
 // by fieldViewSkins tests); the painters are the measurable seam —
 // mocked here with call counters. Full mode: owner-glow + cracks +
 // ball body; reduced mode: ball body only (readability gate preserved).
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const painterCalls: Record<string, number> = {
   paintPaddle: 0,
@@ -13,6 +13,13 @@ const painterCalls: Record<string, number> = {
   paintBoss: 0,
   crackSegments: 0,
 };
+
+// The brick layer records its shared GraphicsContext once per (brick set,
+// reduced-effects mode) and reuses it across every field — so a test that
+// counts painter calls on a forced redraw has to start from an empty registry.
+beforeEach(() => {
+  resetBrickContexts();
+});
 
 vi.mock("render/skinPainter", () => ({
   paintPaddle: (): void => {
@@ -39,17 +46,18 @@ vi.mock("render/brickCracks", () => ({
   },
 }));
 
+import { resetBrickContexts, type BrickLayer } from "render/brickLayer";
 import { FieldView } from "render/fieldView";
 import { layoutField } from "render/layout";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import type { Snapshot } from "shared/protocol";
 
 const layout = layoutField({ x: 0, y: 0, w: 800, h: 600 });
 
 /** Snapshot with an owned ball + silver bricks (glow + crack paths). */
 function busySnapshot(): Snapshot {
-  const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+  const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
   const snap = sim.snapshot();
   return {
     ...snap,
@@ -123,15 +131,19 @@ describe("FieldView reduced-effects (ticket 54)", () => {
     const snap = busySnapshot();
     const view = new FieldView({ layout, player: 0, locale: "en-US", maxRound: 33 });
     view.sync(snap);
-    // Identical bricks → diff empty → no crack painter calls.
+    const layer = (view as unknown as { brickLayer: BrickLayer }).brickLayer;
+    // Identical bricks → diff empty → no crack painter calls, no rebuild.
     resetCalls();
     view.sync(snap);
     expect(painterCalls.crackSegments).toBe(0);
-    // Invalidate → next sync redraws all bricks (crack path runs again).
+    expect(layer.revision).toBe(1);
+    // Invalidate → the next sync re-records the whole wall. The shared
+    // GraphicsContext survives the re-record (that is the ADR 0005 win) — it
+    // is the layer's cached texture, not the geometry, that is rebuilt.
     view.invalidate();
     resetCalls();
     view.sync(snap);
-    expect(painterCalls.crackSegments).toBeGreaterThan(0);
+    expect(layer.revision).toBe(2);
     view.container.destroy({ children: true });
   });
 });

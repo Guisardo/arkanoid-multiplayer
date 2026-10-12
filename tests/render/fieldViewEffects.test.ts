@@ -10,7 +10,7 @@ import { SplitScreenView } from "render/splitScreen";
 import { layoutField } from "render/layout";
 import { EMPTY_ACTIONS, type InputFrame, type Snapshot } from "shared/protocol";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 
 /** One human input frame — the sim only needs axis + launch. */
 function frame(tick: number, axisX: number): InputFrame {
@@ -229,7 +229,7 @@ describe("SplitScreenView effect wiring", () => {
 describe("real sim snapshots drive the effects end to end", () => {
   it("every event a real round emits produces a measurable state change", () => {
     // Drive the real sim so the payloads come from sim/, not fixtures.
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
     const view = makeView();
     const seen = new Set<string>();
     let last: Snapshot = sim.snapshot();
@@ -266,7 +266,7 @@ describe("real sim snapshots drive the effects end to end", () => {
   });
 
   it("a brickBreak from the real sim carries a usable brick index", () => {
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
     let snap = sim.snapshot();
     let breakEvent: { target: number } | null = null;
     for (let i = 0; i < 4000 && breakEvent === null; i++) {

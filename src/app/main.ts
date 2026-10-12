@@ -3,11 +3,11 @@
 // opens the room-code flow (create: host room + lobby; join: signaling
 // guest + lobby) and drives MpFlow over real WebRTC channels.
 import { startSoloSession } from "app/soloSession";
-import { initAssets } from "render/spriteSheet";
+import { ensureGameplayAssets, initAssets } from "render/spriteSheet";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
 import { startVersusBotsSession } from "app/versusBotsSession";
-import { resolveLocale, t, type Locale } from "ui/strings";
+import { resolveLocale, t, DEFAULT_LOCALE, type Locale } from "ui/strings";
 import { MpFlow, type MpConnectResult } from "app/mpFlow";
 import {
   openHostRoom,
@@ -20,7 +20,8 @@ import {
 import { fetchIceConfig } from "signaling/iceConfig";
 import { deployEnvFromVite, signalingUrlFor, turnConfigured, type DeployEnv } from "app/deployEnv";
 import { CopyPasteHostScreen, CopyPasteGuestScreen } from "ui/copyPasteScreens";
-import { Storage } from "persistence/storage";
+import { createSaveBackend, Storage } from "persistence/storage";
+import { ConflictMergeScreen } from "ui/conflictMerge";
 import { isContinuableEpisode, type EpisodeState } from "persistence/saveDocument";
 import { ContinueEpisodeScreen } from "ui/continueEpisode";
 import { loadSettings } from "ui/settings";
@@ -38,23 +39,60 @@ const appHostElement = document.getElementById("app");
 if (appHostElement === null) throw new Error("missing #app host");
 const appHost: HTMLElement = appHostElement;
 
-const storage = new Storage();
-const settings = loadSettings(storage);
-// Deploy environment (ticket 55): production reads VITE_SIGNALING_BASE /
-// VITE_TURN_URL at build time; absent (dev/e2e) keeps same-origin
-// signaling + STUN-only ICE.
-const deployEnv: DeployEnv = deployEnvFromVite(import.meta.env);
-// Settings override + auto-detect (spec §14): stored language wins.
-const locale: Locale = resolveLocale(
-  storage.loadAll().language,
-  globalThis.navigator.languages,
-);
-const playerName = storage.loadAll().name;
+// ADR 0008 §6 / ticket 103: the swappable backend.
+//
+// The store is module-scope `let` rather than `const` because the backend opens
+// asynchronously and this file's browser target does not support top-level
+// await. `boot()` awaits it before ANY read — `loadSettings` is synchronous and
+// an async backend can only answer a cold sync read from an empty mirror, so
+// reading before the await would boot on default settings and then write those
+// defaults over the real save. Every read below happens after `boot()` has
+// assigned these, which is why the functions using them can stay module-level
+// instead of being threaded through the boot result.
+let storage: Storage = new Storage();
+let settings: ReturnType<typeof loadSettings> | null = null;
 
-// Document chrome follows the active locale (spec §14).
-if (typeof document !== "undefined") {
-  document.documentElement.lang = locale === "es-419" ? "es" : "en";
-  document.title = t(locale, "app.title");
+// Ticket 103: when two tabs have genuinely diverged (both changed the save
+// since they last agreed), neither wins by clock — the player chooses. Only one
+// prompt at a time: a second conflict arriving while the first is still open is
+// ignored rather than stacked, so the player always answers exactly one
+// question. The later divergence is not lost — it is still sitting in the other
+// tab's save, so the next write from that side conflicts again and re-prompts.
+let conflictScreen: ConflictMergeScreen | null = null;
+
+/** Deploy environment (ticket 55): production reads VITE_SIGNALING_BASE /
+ * VITE_TURN_URL at build time; absent (dev/e2e) keeps same-origin
+ * signaling + STUN-only ICE. */
+const deployEnv: DeployEnv = deployEnvFromVite(import.meta.env);
+
+let locale: Locale = DEFAULT_LOCALE;
+let playerName = "Player 1";
+
+/** Watches for a cross-tab divergence once the real store is live. */
+function watchForSaveConflicts(): void {
+  storage.onConflict((local, remote) => {
+    if (conflictScreen !== null) return;
+    conflictScreen = new ConflictMergeScreen({
+      host: appHost,
+      locale,
+      local,
+      remote,
+      onChoice: (side) => {
+        const kept = side === "local" ? local : remote;
+        // Write the kept side through the normal path so it is stamped, stored
+        // atomically, announced to the other tabs, and becomes the new baseline
+        // (which is what stops the losing side re-conflicting on the next write).
+        storage.writeDocument(kept);
+        conflictScreen?.close();
+        conflictScreen = null;
+      },
+    });
+  });
+}
+
+/** Settings for the active run; `boot` has always assigned it by now. */
+function storedSettings(): ReturnType<typeof loadSettings> {
+  return settings ?? loadSettings(storage);
 }
 
 /** Settings overlay from landing/lobby (spec §14: always reachable). */
@@ -71,7 +109,50 @@ function openSettingsOverlay(flow?: MpFlow): void {
   });
 }
 
-function boot(): void {
+/**
+ * Restart the app flow (quitting a session returns here).
+ *
+ * Synchronous on purpose: it is handed to `onQuit` callbacks typed as void, and
+ * the store is already open by then — re-opening it would only re-await work
+ * that is done. The async part of booting happened once, at page load.
+ */
+function restart(): void {
+  showLanding(codeFromUrl(globalThis.location.href));
+}
+
+/**
+ * Boot: open the save store, then draw the first screen.
+ *
+ * Async, and the await is load-bearing rather than incidental — everything
+ * below reads the save, and the store is not trustworthy until it is hydrated.
+ * Nothing that needs the save runs before the await resolves.
+ *
+ * Never rejects: `createSaveBackend` degrades to the memory backend rather than
+ * blocking the game, and this catch is the last line of defence for a throw
+ * from anywhere in the boot path, so a store failure cannot leave a blank page.
+ */
+async function boot(): Promise<void> {
+  try {
+    const saveBackend = await createSaveBackend();
+    storage = saveBackend.storage;
+  } catch (err) {
+    // Keep the synchronous localStorage store the module started with. The game
+    // is playable; only cross-tab sync and IndexedDB are lost.
+    console.warn("[main] save backend unavailable; continuing with localStorage", err);
+  }
+
+  settings = loadSettings(storage);
+  watchForSaveConflicts();
+  // Settings override + auto-detect (spec §14): stored language wins.
+  locale = resolveLocale(storage.loadAll().language, globalThis.navigator.languages);
+  playerName = storage.loadAll().name;
+
+  // Document chrome follows the active locale (spec §14).
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = locale === "es-419" ? "es" : "en";
+    document.title = t(locale, "app.title");
+  }
+
   const prefill = codeFromUrl(globalThis.location.href);
   // Ticket 89: a run interrupted by a crash / closed tab is offered as a
   // Continue before the landing screen, because it is the reason the player
@@ -117,13 +198,17 @@ function openSolo(round: number, continuing?: EpisodeState): void {
   void initAssets()
     .then(() =>
       startSoloSession(appHost, round, {
-        onQuit: boot,
+        onQuit: restart,
         ...(continuing !== undefined ? { continueEpisode: continuing } : {}),
       }),
     )
     .then((session) => {
       globalThis.__arkanoid = session;
     });
+  // Ticket 87: pull the deferred bundle in without blocking match start.
+  // `spriteTexture` resolves lazily, so the round begins on procedural
+  // geometry and upgrades when the bundle lands.
+  void ensureGameplayAssets();
 }
 
 function openVersusBots(): void {
@@ -133,22 +218,25 @@ function openVersusBots(): void {
     locale,
     onStart: (config) => {
       screen.root.remove();
+      // Ticket 87: deferred bundle requested at match start, not awaited —
+      // the match begins on procedural geometry and upgrades when it lands.
+      void ensureGameplayAssets();
       // Ticket 56: real versus match — human plays, bots play.
       void startVersusBotsSession(appHost, {
         variant: config.variant,
         bots: config.bots,
         difficulty: config.difficulty,
-        skinId: settings.appearance.skinId,
+        skinId: storedSettings().appearance.skinId,
         onRematch: () => { openVersusBotsWith(config); },
         onBackToConfig: () => { openVersusBots(); },
-        onQuit: boot,
+        onQuit: restart,
       }).then((session) => {
         globalThis.__arkanoidBots = session;
       });
     },
     onBack: () => {
       screen.root.remove();
-      boot();
+      restart();
     },
   });
 }
@@ -156,14 +244,17 @@ function openVersusBots(): void {
 /** Rematch: same config, fresh session (ticket 56 end-screen flow). */
 function openVersusBotsWith(config: VersusBotsConfig): void {
   void initAssets();
+  // Ticket 87: a rematch re-enters the match, so re-request the deferred bundle.
+  // This is a cache hit in the common case, so it costs nothing.
+  void ensureGameplayAssets();
   void startVersusBotsSession(appHost, {
     variant: config.variant,
     bots: config.bots,
     difficulty: config.difficulty,
-    skinId: settings.appearance.skinId,
+    skinId: storedSettings().appearance.skinId,
     onRematch: () => { openVersusBotsWith(config); },
     onBackToConfig: () => { openVersusBots(); },
-    onQuit: boot,
+    onQuit: restart,
   }).then((session) => {
     globalThis.__arkanoidBots = session;
   });
@@ -181,7 +272,9 @@ interface GuestEntry {
  * parity with keyboard); touch = virtual stick + cluster overlay.
  */
 function makeLocalInput(flow: MpFlow) {
-  const controls = loadSettings(new Storage()).controls;
+  // The page's hydrated store, not a fresh `new Storage()`: a new one would
+  // fall back to localStorage and miss anything the active backend holds.
+  const controls = loadSettings(storage).controls;
   // One keyboard adapter per local player (edges must not be consumed by
   // another player's sample); a single listener fans events to all of them.
   const keyboards = [0, 1, 2, 3].map((i) =>
@@ -404,7 +497,7 @@ function openMultiplayer(joinCode?: string): void {
   void initAssets();
   const onBack = (): void => {
     screen.root.remove();
-    boot();
+    restart();
   };
   const screen = new RoomCodeScreen({
     host: appHost,
@@ -445,6 +538,7 @@ function startHostFlow(code: string): void {
   const flow = new MpFlow({
     host: appHost,
     locale,
+    storage,
     connect: async () => {
       try {
         const ice = await iceConfigFor();
@@ -544,7 +638,7 @@ function startHostFlow(code: string): void {
   const hostLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
     locale,
-    defaultSkinId: settings.appearance.skinId,
+    defaultSkinId: storedSettings().appearance.skinId,
     onSettings: () => { openSettingsOverlay(flow); },
     onEvent: (event) => { flow.hostLocalEvent(event); },
     onStart: () => { flow.hostStartMatch(); },
@@ -555,7 +649,7 @@ function startHostFlow(code: string): void {
       copyPasteScreen?.close();
       room?.close();
       flow.dispose();
-      boot();
+      restart();
     },
   });
 
@@ -627,6 +721,7 @@ function startGuestFlow(code: string): void {
   const flow: MpFlow = new MpFlow({
     host: appHost,
     locale,
+    storage,
     connect: async (): Promise<MpConnectResult> => {
       const conn = await connectGuest();
       return wireGuestConn(flow, conn);
@@ -675,7 +770,7 @@ function startGuestFlow(code: string): void {
   const guestLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
     locale,
-    defaultSkinId: settings.appearance.skinId,
+    defaultSkinId: storedSettings().appearance.skinId,
     onSettings: () => { openSettingsOverlay(flow); },
     onEvent: (event) => {
       if (event.type === "setReady") flow.guestIntent({ kind: "ready", ready: event.ready });
@@ -689,12 +784,12 @@ function startGuestFlow(code: string): void {
       guestLobbyUI.close();
       copyPasteScreen?.close();
       flow.dispose();
-      boot();
+      restart();
     },
   });
 
   void flow.start().then(() => {
-    flow.guestHello(playerName, settings.appearance.skinId);
+    flow.guestHello(playerName, storedSettings().appearance.skinId);
   });
 }
 
@@ -731,4 +826,8 @@ function wireGuestConn(flow: MpFlow, conn: RtcConnection): MpConnectResult {
   return { isHost: false, guestIndex: 0, channels };
 }
 
-boot();
+// Exported so callers (and tests) can await the point where the first screen
+// exists. Boot is now genuinely async — the save store opens before anything is
+// drawn — so "the module has loaded" no longer implies "the UI is up".
+// Resolves, never rejects: `boot` catches its own backend failure.
+export const booted: Promise<void> = boot();
