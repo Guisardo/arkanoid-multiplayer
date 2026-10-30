@@ -581,7 +581,10 @@ export async function startSoloSession(
       app.stage.addChild(touchOverlay.container);
     }
   };
-  globalThis.addEventListener("resize", onResize);
+  // Ticket 100: listen on the renderer, not the window. Pixi's ResizePlugin
+  // applies the new size one animation frame after window "resize", so a
+  // window listener would lay the fields out against the previous size.
+  app.renderer.on("resize", onResize);
 
   // Menu/pause: rebindable menu key (ticket 41) + gamepad Start. Checked in
   // render (not tick) so it works while paused and never races the sim.
@@ -657,7 +660,7 @@ export async function startSoloSession(
     globalThis.removeEventListener("keydown", kd);
     globalThis.removeEventListener("keyup", ku);
     globalThis.removeEventListener("keydown", onEsc);
-    globalThis.removeEventListener("resize", onResize);
+    app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
     settingsScreen?.close();

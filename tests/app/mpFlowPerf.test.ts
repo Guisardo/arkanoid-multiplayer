@@ -28,7 +28,7 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: { width: 800, height: 600, on: (): void => {}, off: (): void => {} },
   } as unknown as Application;
 };
 
