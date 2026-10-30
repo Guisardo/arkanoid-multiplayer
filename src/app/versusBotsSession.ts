@@ -69,6 +69,8 @@ export interface VersusBotsAppSession {
   readonly matchOver: boolean;
   /** Test/e2e probe: latest snapshots. */
   snapshots(): Snapshot[];
+  /** Test/e2e probe (ticket 100): rendered HUD strip text per field. */
+  hudLines(): (readonly [string, string])[];
   /** Test probe (assist): force a player downed — drives the lost path. */
   debugSetDowned(player: number): void;
 }
@@ -541,7 +543,10 @@ export async function startVersusBotsSession(
       touchOverlay.setRegion({ x: 0, y: 0, w: app.renderer.width, h: app.renderer.height });
     }
   };
-  globalThis.addEventListener("resize", onResize);
+  // Ticket 100: listen on the renderer, not the window. Pixi's ResizePlugin
+  // applies the new size one animation frame after window "resize", so a
+  // window listener would lay the fields out against the previous size.
+  app.renderer.on("resize", onResize);
 
   function openSettings(fromPause = false): void {
     loop.stop();
@@ -587,7 +592,7 @@ export async function startVersusBotsSession(
     globalThis.removeEventListener("keydown", kd);
     globalThis.removeEventListener("keyup", ku);
     globalThis.removeEventListener("keydown", onEsc);
-    globalThis.removeEventListener("resize", onResize);
+    app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
     settingsScreen?.close();
@@ -610,6 +615,9 @@ export async function startVersusBotsSession(
     },
     get matchOver(): boolean {
       return over;
+    },
+    hudLines(): (readonly [string, string])[] {
+      return split.hudLines();
     },
     snapshots(): Snapshot[] {
       return sim.snapshots();

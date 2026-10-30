@@ -12,6 +12,31 @@ import type { Snapshot } from "shared/protocol";
 
 // ---- Pixi mocks ----
 
+/**
+ * Ticket 100: sessions listen on the renderer's "resize" (Pixi applies the new
+ * size a frame after window resize). The fake records listeners so tests fire it.
+ */
+const fakeRenderers: { width: number; height: number; listeners: Set<() => void> }[] = [];
+function fakeRenderer(): unknown {
+  const listeners = new Set<() => void>();
+  const r = {
+    width: 800,
+    height: 600,
+    listeners,
+    on: (_event: string, fn: () => void): void => { listeners.add(fn); },
+    off: (_event: string, fn: () => void): void => { listeners.delete(fn); },
+  };
+  fakeRenderers.push(r);
+  return r;
+}
+/** Fire "resize" on the newest renderer after giving it a new size. */
+function resizeRenderer(width: number, height: number): void {
+  const r = fakeRenderers[fakeRenderers.length - 1]!;
+  r.width = width;
+  r.height = height;
+  for (const fn of [...r.listeners]) fn();
+}
+
 const mockApp = (): Application => {
   const stage = {
     children: [] as unknown[],
@@ -29,7 +54,7 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: fakeRenderer(),
   } as unknown as Application;
 };
 
@@ -203,7 +228,7 @@ describe("solo session wiring", () => {
     const s = await makeSession();
     sessions.push(s);
     s.loop.advance(0);
-    window.dispatchEvent(new Event("resize"));
+    resizeRenderer(400, 300);
     // No throw; loop still advances after rebuild.
     for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
     expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(5);
@@ -544,7 +569,7 @@ describe("solo session wiring", () => {
         const s = await makeSession();
         sessions.push(s);
         s.loop.advance(0);
-        window.dispatchEvent(new Event("resize"));
+        resizeRenderer(400, 300);
         for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
         // No crash; overlay re-anchored (mocked TouchOverlay.setRegion called).
         expect(s.latestSnapshot().tick).toBeGreaterThan(0);

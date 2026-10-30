@@ -5,6 +5,7 @@
 // DOM overlay (same pattern as touch overlay chrome); Pixi fields stay pure.
 import type { ProgressRow } from "app/guestGame";
 import { ownerColor } from "shared/playerColors";
+import { REMOTE_STRIP_HEIGHT_PX } from "./layout";
 import type { Locale } from "ui/strings";
 import { format, t } from "ui/strings";
 
@@ -16,7 +17,8 @@ function ensureStyles(): void {
   style.id = STRIP_STYLE_ID;
   style.textContent =
     ".rs-strip{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;" +
-    "justify-content:center;padding:4px 8px;font-family:monospace;pointer-events:none;" +
+    `justify-content:center;padding:4px 8px;height:${String(REMOTE_STRIP_HEIGHT_PX)}px;` +
+    "box-sizing:border-box;overflow:hidden;font-family:monospace;pointer-events:none;" +
     "z-index:900;}" +
     ".rs-row{display:flex;gap:8px;align-items:center;background:rgba(10,10,20,0.75);" +
     "padding:2px 8px;border:1px solid #333;font-size:12px;color:#eee;}" +
@@ -37,7 +39,7 @@ export interface RemoteStripOptions {
 export class RemoteStrip {
   readonly root: HTMLDivElement;
   private readonly locale: Locale;
-  private readonly compact: boolean;
+  private compact: boolean;
   private rows: ProgressRow[] = [];
 
   constructor(opts: RemoteStripOptions) {
@@ -52,6 +54,13 @@ export class RemoteStrip {
   /** Replace rows (guest game progress callback drives this). */
   update(rows: readonly ProgressRow[]): void {
     this.rows = [...rows];
+    this.render();
+  }
+
+  /** Ticket 100: live compact toggle (viewport resize / rotation). */
+  setCompact(compact: boolean): void {
+    if (compact === this.compact) return;
+    this.compact = compact;
     this.render();
   }
 

@@ -46,6 +46,7 @@ import { t } from "ui/strings";
 import { PROTOCOL_VERSION, type InputFrame, type Snapshot } from "shared/protocol";
 import { skinByIndex } from "content/skins";
 import { SplitScreenView } from "render/splitScreen";
+import { REMOTE_STRIP_HEIGHT_PX, stripCompact } from "render/layout";
 import { RemoteStrip } from "render/remoteStrip";
 import { createAppShell, type AppShell } from "render/appShell";
 import { ensureGameplayAssets } from "render/spriteSheet";
@@ -107,6 +108,8 @@ export class MpFlow {
   private shell: AppShell | null = null;
   private split: SplitScreenView | null = null;
   private strip: RemoteStrip | null = null;
+  /** Ticket 100: detaches the renderer-resize hook for the mounted fields. */
+  private detachResize: (() => void) | null = null;
   private endScreen: EndScreen | null = null;
   private lobby: HostLobbySession | null = null;
   private guestLobby: GuestLobbySession | null = null;
@@ -1092,8 +1095,12 @@ export class MpFlow {
     const single = mode === "duel" || mode === "sharedField";
     const fields = single ? [localPlayers[0] ?? 0] : localPlayers;
     const reduced = loadSettings(this.storage).display.reducedEffects;
+    const hasStrip = remotePlayers.length > 0 || !this.isHost;
+    const viewport = (): { w: number; h: number } => ({ w: app.renderer.width, h: app.renderer.height });
     this.split = new SplitScreenView({
-      viewport: { w: app.renderer.width, h: app.renderer.height },
+      viewport: viewport(),
+      // Ticket 100: the strip band is part of the layout, not a shifted container.
+      topInset: hasStrip ? REMOTE_STRIP_HEIGHT_PX : 0,
       players: fields,
       locale: this.locale,
       maxRound: 33,
@@ -1102,11 +1109,26 @@ export class MpFlow {
       themeId: themeId || DEFAULT_THEME_ID,
       reducedEffects: reduced,
     });
-    if (remotePlayers.length > 0) this.split.container.y = 28;
     app.stage.addChild(this.split.container);
-    if (remotePlayers.length > 0 || !this.isHost) {
-      this.strip = new RemoteStrip({ host: this.hostEl, locale: this.locale });
+    if (hasStrip) {
+      this.strip = new RemoteStrip({
+        host: this.hostEl,
+        locale: this.locale,
+        compact: stripCompact(viewport()),
+      });
     }
+    // Ticket 100: HUD strips and the remote strip follow resize / rotation.
+    // The renderer event (not window.resize) fires after Pixi has applied the
+    // new size, so the fields never lay out against a stale viewport.
+    const onResize = (): void => {
+      const next = viewport();
+      this.split?.resize(next);
+      this.strip?.setCompact(stripCompact(next));
+    };
+    app.renderer.on("resize", onResize);
+    this.detachResize = (): void => {
+      app.renderer.off("resize", onResize);
+    };
   }
 
   private hostMatchEnd(end: { mode: LobbyMode; snapshots: Snapshot[] }): void {
@@ -1512,6 +1534,8 @@ export class MpFlow {
   }
 
   private teardownRender(): void {
+    this.detachResize?.();
+    this.detachResize = null;
     this.split?.container.destroy({ children: true });
     this.split = null;
     this.strip?.close();

@@ -26,6 +26,12 @@ export interface SplitScreenOptions {
    * which construct fresh FieldViews.
    */
   textureResolution?: number;
+  /**
+   * Ticket 100: px reserved above every field region (the remote progress
+   * strip band). Regions and `regionOf` both honour it, so the fields shrink
+   * to fit instead of being shifted down and clipped.
+   */
+  topInset?: number;
 }
 
 export class SplitScreenView {
@@ -34,6 +40,8 @@ export class SplitScreenView {
   private readonly opts: SplitScreenOptions;
   /** Ticket 102: live cached-wall texture resolution, reapplied on rebuild. */
   private wallResolution: number;
+  /** Ticket 100: last snapshots, replayed after a rebuild so the HUD never blanks. */
+  private lastSnapshots: readonly Snapshot[] = [];
 
   constructor(opts: SplitScreenOptions) {
     this.opts = opts;
@@ -50,7 +58,7 @@ export class SplitScreenView {
     }
     this.container.removeChildren();
     this.fields = [];
-    const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length);
+    const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length, this.opts.topInset);
     for (let i = 0; i < this.opts.players.length; i++) {
       const region = regions[i];
       const player = this.opts.players[i];
@@ -73,14 +81,22 @@ export class SplitScreenView {
     }
   }
 
-  /** Resize → recompute regions (never collapses fields). */
+  /**
+   * Resize → recompute regions (never collapses fields). The fresh FieldViews
+   * are re-synced with the last snapshots so name/lives/score/round are drawn
+   * immediately rather than after the next network or sim tick.
+   */
   resize(viewport: { w: number; h: number }): void {
     this.opts.viewport = viewport;
     this.rebuild();
+    // Events are NOT replayed: the old fields already played them, and a
+    // second pass would re-trigger shake/particles/pops on the fresh ones.
+    this.lastSnapshots.forEach((snap, i) => this.fields[i]?.sync(snap, false));
   }
 
   /** Sync each field with its snapshot (index-aligned). */
   sync(snapshots: readonly Snapshot[]): void {
+    this.lastSnapshots = snapshots;
     for (let i = 0; i < this.fields.length && i < snapshots.length; i++) {
       const view = this.fields[i];
       const snap = snapshots[i];
@@ -101,6 +117,11 @@ export class SplitScreenView {
     }
   }
 
+  /** Ticket 100 probe: each field's rendered HUD strip text, index-aligned. */
+  hudLines(): (readonly [string, string])[] {
+    return this.fields.map((v) => v.hudLines);
+  }
+
   /** A field's live effect state — read by tests and session diagnostics. */
   effectsStateOf(index: number): EffectsState | null {
     return this.fields[index]?.effectsState ?? null;
@@ -115,7 +136,7 @@ export class SplitScreenView {
    * mouse/touch overlay anchor. Null when the player has no field here.
    */
   regionOf(player: number): { x: number; y: number; w: number; h: number } | null {
-    const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length);
+    const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length, this.opts.topInset);
     const i = this.opts.players.indexOf(player);
     const region = regions[i];
     if (i < 0 || region === undefined) return null;

@@ -199,8 +199,12 @@ export class FieldView {
     };
   }
 
-  /** Consume a snapshot; sync scene. Reads Snapshot only — never sim. */
-  sync(snap: Snapshot): void {
+  /**
+   * Consume a snapshot; sync scene. Reads Snapshot only — never sim.
+   * `replayEvents` false redraws state without feeding the event ring to the
+   * effects orchestrator (ticket 100: resize re-sync must not re-fire effects).
+   */
+  sync(snap: Snapshot, replayEvents = true): void {
     // Field-local snapshots (multiField variants) carry player 0 only —
     // fall back to the first player so session-indexed FieldViews still
     // render (ticket 56: bot fields were blank).
@@ -316,7 +320,7 @@ export class FieldView {
 
     // ADR 0009: events fire after the state draw so anchors read this frame's
     // geometry. The effects advance themselves in tickEffects().
-    this.syncEffects(snap);
+    if (replayEvents) this.syncEffects(snap);
   }
 
   // ---- visual effects (ADR 0009) -------------------------------------------
@@ -350,6 +354,11 @@ export class FieldView {
     const dt = Math.min((now - this.lastFrameMs) / 1000, 0.1);
     this.lastFrameMs = now;
     this.tickEffects(dt);
+  }
+
+  /** Ticket 100 probe: the rendered HUD strip text (name line, stats line). */
+  get hudLines(): readonly [string, string] {
+    return [this.nameText.text, this.hudText.text];
   }
 
   /** Live effect state — read by tests and the reduced-effects gate. */
