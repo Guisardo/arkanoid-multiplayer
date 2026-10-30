@@ -8,6 +8,11 @@ slowest you can access) before each release.
 The machinery (fallback ladder, budgets, instrumentation) is covered by
 unit tests; the numbers below can only be measured on real hardware.
 
+The CI gate covers draw calls (`e2e/perfBudget.spec.ts`) and the sim
+median (`tests/perf/simBudget.test.ts`) only. Frame times and texture
+memory are not gated in CI: CI has no reference device, so this checklist
+is the pre-release check for them (ticket 106).
+
 ## Setup
 
 1. Build + deploy (or `npm run preview` over the device's network).
