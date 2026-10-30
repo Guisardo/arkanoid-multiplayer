@@ -11,7 +11,7 @@ import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { TouchAdapter } from "input/touch";
 import { TouchOverlay } from "render/touchOverlay";
-import { detectDeviceClass } from "app/mobileLayout";
+import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { SplitScreenView } from "render/splitScreen";
 import {
   createVersusBotsSession,
@@ -180,7 +180,7 @@ export async function startVersusBotsSession(
   // Touch overlay floats over the whole canvas (single-field anchor).
   let touchOverlay: TouchOverlay | null = null;
   if (touch !== null) {
-    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, "solo");
+    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant));
     app.stage.addChild(touchOverlay.container);
   }
 

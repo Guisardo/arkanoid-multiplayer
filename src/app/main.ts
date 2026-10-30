@@ -32,7 +32,7 @@ import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { MouseAdapter } from "input/mouse";
 import { TouchAdapter } from "input/touch";
 import { TouchOverlay } from "render/touchOverlay";
-import { detectDeviceClass } from "app/mobileLayout";
+import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { layoutField } from "render/layout";
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
@@ -320,7 +320,7 @@ function makeLocalInput(flow: MpFlow) {
       const app = flow.renderApp;
       const region = flow.localRegion(player);
       if (app !== null && region !== null) {
-        const overlay = new TouchOverlay(adapter, region, "solo");
+        const overlay = new TouchOverlay(adapter, region, touchClusterFor(flow.currentMode ?? "race"));
         app.stage.addChild(overlay.container);
         touchOverlays.set(player, overlay);
       }
@@ -429,6 +429,9 @@ function makeLocalInput(flow: MpFlow) {
     /** Match started: create adapters + overlays + bind pointer events. */
     matchStart(): void {
       for (const player of flow.localPlayers) ensurePlayer(player);
+      // A rematch may change mode: overlays outlive the match, clusters follow it.
+      const cluster = touchClusterFor(flow.currentMode ?? "race");
+      for (const overlay of touchOverlays.values()) overlay.setMode(cluster);
       bindPointerEvents();
     },
     /** Per-render overlay refresh (stick knob + held buttons). */
