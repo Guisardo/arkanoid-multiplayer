@@ -110,6 +110,16 @@ export class TouchOverlay {
     this.redraw();
   }
 
+  /** True when `region` differs from the one the overlay is anchored to. */
+  regionDiffers(region: { x: number; y: number; w: number; h: number }): boolean {
+    return (
+      region.x !== this.region.x ||
+      region.y !== this.region.y ||
+      region.w !== this.region.w ||
+      region.h !== this.region.h
+    );
+  }
+
   /** Redraw from adapter state (call once per rendered frame). */
   redraw(): void {
     const g = this.gfx;

@@ -436,7 +436,13 @@ function makeLocalInput(flow: MpFlow) {
     },
     /** Per-render overlay refresh (stick knob + held buttons). */
     renderTick(): void {
-      for (const overlay of touchOverlays.values()) overlay.redraw();
+      for (const [player, overlay] of touchOverlays) {
+        // Resize / rotation moves the field region; keep the overlay (and the
+        // adapter's hit areas) anchored to it.
+        const region = flow.localRegion(player);
+        if (region !== null && overlay.regionDiffers(region)) overlay.setRegion(region);
+        overlay.redraw();
+      }
     },
     /** Per-tick sample: last active device wins (touch > mouse > gamepad > keyboard). */
     sample(player: number, tick: number) {
