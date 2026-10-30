@@ -1,4 +1,9 @@
-import { Application } from "pixi.js";
+import { Application, CullerPlugin, extensions } from "pixi.js";
+
+// Ticket 93: Application runs Culler.shared over the stage before every
+// render; FieldViews opt in through cullable + cullArea. Must be registered
+// before the first Application.init().
+extensions.add(CullerPlugin);
 
 // Spec §3 renderer config: antialias false, useContextAlpha false, one WebGL
 // context per device, webglcontextrestored = resync-from-snapshot (ticket 54:

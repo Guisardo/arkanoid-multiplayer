@@ -6,17 +6,20 @@ import path from "node:path";
 // Runs ESLint on a deliberately-violating scratch file and expects the
 // seam rules to reject it. Proves the lint machinery catches cross-seam
 // imports (ticket 22: verified by a deliberately-violating test case).
+const ESLINT_BIN = path.join(process.cwd(), "node_modules", "eslint", "bin", "eslint.js");
+
 function lintFile(relPath: string, source: string): string[] {
   const root = process.cwd();
   const file = path.join(root, relPath);
   try {
     writeFileSync(file, source);
     try {
-      execFileSync("npx", ["eslint", relPath, "--no-warn-ignored"], {
+      // Run the local ESLint with the current node: no npx/npm in the loop, so
+      // a broken global npm install cannot masquerade as "no rule fired".
+      execFileSync(process.execPath, [ESLINT_BIN, relPath, "--no-warn-ignored"], {
         cwd: root,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
       });
       return [];
     } catch (err) {

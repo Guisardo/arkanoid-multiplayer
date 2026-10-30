@@ -304,7 +304,7 @@ describe("solo session wiring", () => {
 
   describe("episode wiring (ticket 36/53)", () => {
     /** Drain one life deterministically via the debug probe. */
-    async function loseLife(s: SoloSession): Promise<void> {
+    function loseLife(s: SoloSession): void {
       const before = s.latestSnapshot().players[0]?.lives ?? 0;
       s.debugSetBall(20, 240, 0, 120);
       for (let i = 0; i < 120; i++) {
@@ -397,11 +397,11 @@ describe("solo session wiring", () => {
       // Score some points first: launch, then place the ball to clear a
       // brick row deterministically is overkill — score 0 path is the
       // contract here (Continue on 0 = 0).
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       // The end screen appears once (guard against multi-tick double-show).
       s.loop.advance(1000 / 60);
       expect(s.soloPhase).toBe("gameOver");
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       expect(endRoot!.textContent).toContain("Game over");
       const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");
@@ -416,9 +416,9 @@ describe("solo session wiring", () => {
       const s = await makeSession();
       sessions.push(s);
       s.loop.advance(0);
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       s.loop.advance(1000 / 60);
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       const restart = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Restart");
       restart!.click();
@@ -434,9 +434,9 @@ describe("solo session wiring", () => {
       const s = await startSoloSession(host, 1, { onQuit: () => { quit++; } });
       sessions.push(s);
       s.loop.advance(0);
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       s.loop.advance(1000 / 60);
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       const quitBtn = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Quit");
       quitBtn!.click();
@@ -511,7 +511,7 @@ describe("solo session wiring", () => {
         guard++;
       }
       expect(s.soloPhase).toBe("episodeComplete");
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       expect(endRoot!.textContent).toContain("Episode complete");
       const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");

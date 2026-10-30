@@ -3,11 +3,11 @@
 // bricks + background from the host-chosen field theme. Owner-colored ball
 // glow = render-time tint layer over the white-base ball skin (readability
 // gate — never the sole ownership signal).
-import { BitmapText, Container, Graphics, Sprite, TilingSprite } from "pixi.js";
+import { BitmapText, Container, Graphics, Rectangle, Sprite, TilingSprite } from "pixi.js";
 import type { Snapshot } from "shared/protocol";
 import { FIELD_H, FIELD_W } from "shared/gridConstants";
 import { ownerColor } from "shared/playerColors";
-import { capDpr, type FieldLayout } from "./layout";
+import { capDpr, fieldCullRect, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { spriteTexture } from "./spriteSheet";
 import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
@@ -176,6 +176,12 @@ export class FieldView {
     this.lastFrameMs = nowMs();
 
     this.container.addChild(this.nameText, this.hudText, this.fieldContainer);
+
+    // Ticket 93: opt into Pixi's culler. The area is the drawn rect, not the
+    // region: letterboxing leaves empty margin the culler should not count.
+    const cull = fieldCullRect(this.layout);
+    this.container.cullable = true;
+    this.container.cullArea = new Rectangle(cull.x, cull.y, cull.width, cull.height);
   }
 
   /**
