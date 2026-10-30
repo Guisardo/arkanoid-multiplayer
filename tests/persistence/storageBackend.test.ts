@@ -92,7 +92,7 @@ class FakeTransaction {
   onabort: (() => void) | null = null;
 
   /** The store is addressed by name; one name is all this fake has. */
-  objectStore(..._ignored: readonly unknown[]): FakeStore {
+  objectStore(): FakeStore {
     return this.store;
   }
 
@@ -132,7 +132,7 @@ class FakeDatabase {
   }
 
   // The store name and mode are part of the real API but the fake has one store.
-  transaction(..._ignored: readonly unknown[]): FakeTransaction {
+  transaction(): FakeTransaction {
     const shared = this.ensureStore();
     const tx = new FakeTransaction();
     tx.objectStore = () => shared;
@@ -156,7 +156,7 @@ function fakeOrigin(opts: FakeOptions = {}): {
 } {
   const databases = new Map<string, FakeDatabase>();
   const factory = {
-    open(name: string, ..._ignored: readonly unknown[]): unknown {
+    open(name: string): unknown {
       const req = new FakeRequest();
       queueMicrotask(() => {
         if (opts.openErrors === true) {
