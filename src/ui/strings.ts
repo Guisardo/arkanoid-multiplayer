@@ -151,6 +151,8 @@ const enUS = {
   "save.conflictNoRun": "No run in progress",
   "save.conflictSettingsDiffer": "Different settings: {settings}",
   "save.conflictSettingsSame": "Same settings",
+  "loading.gameplay": "Loading game assets…",
+  "loading.percent": "{percent}%",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -296,6 +298,8 @@ const es419: Record<StringKey, string> = {
   "save.conflictNoRun": "Sin partida en curso",
   "save.conflictSettingsDiffer": "Ajustes distintos: {settings}",
   "save.conflictSettingsSame": "Mismos ajustes",
+  "loading.gameplay": "Cargando recursos del juego…",
+  "loading.percent": "{percent}%",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

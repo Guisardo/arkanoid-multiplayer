@@ -15,6 +15,11 @@ import { DEFAULT_SETTINGS, type SaveDocument } from "persistence/saveDocument";
 
 // Ticket 89: typed as a rest parameter so a test can read the round / resumed
 // record off `mock.calls` without tripping the tuple-length check.
+/** Whether the mocked gameplay bundle counts as cached (ticket 87). */
+const gameplayBundle = { loaded: true };
+/** Mocked `ensureGameplayAssets`: a test swaps in a deferred promise to hold a cold load open. */
+const ensureGameplay = vi.fn((_onProgress?: (progress: number) => void): Promise<void> => Promise.resolve());
+
 const soloStart = vi
   .fn(
     (...args: unknown[]): Promise<{ app: object; loop: object; dispose: () => void }> => {
@@ -99,7 +104,8 @@ function applyMocks(): void {
     loadSkinSprites: () => Promise.resolve(undefined),
     initAssets: () => Promise.resolve(undefined),
     // Ticket 87: the deferred bundle is requested at match start.
-    ensureGameplayAssets: () => Promise.resolve(undefined),
+    ensureGameplayAssets: (onProgress?: (progress: number) => void) => ensureGameplay(onProgress),
+    gameplayAssetsReady: () => gameplayBundle.loaded,
   }));
   // Ticket 53/N2: main.ts imports the Pixi-backed TouchOverlay — mock it
   // (jsdom cannot load pixi.js; the overlay is covered in its own tests).
@@ -217,6 +223,9 @@ afterEach(() => {
   globalThis.localStorage.clear();
   botsScreenOpts.length = 0;
   soloStart.mockClear();
+  ensureGameplay.mockReset();
+  ensureGameplay.mockImplementation(() => Promise.resolve());
+  gameplayBundle.loaded = true;
   soloArgs.length = 0;
   fakeRooms.length = 0;
   lastRoom.room = null;
@@ -354,6 +363,37 @@ describe("main boot (ticket 45)", () => {
     clickButton("Solo");
     await Promise.resolve();
     await Promise.resolve();
+    expect(soloStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cold first match waits for the gameplay bundle behind a progress screen (ticket 87)", async () => {
+    gameplayBundle.loaded = false;
+    let release: () => void = () => undefined;
+    ensureGameplay.mockImplementation((onProgress) => {
+      onProgress?.(0.4);
+      return new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    await importMain();
+    clickButton("Solo");
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(ensureGameplay).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[role='progressbar']")?.getAttribute("aria-valuenow")).toBe("40");
+    expect(soloStart).not.toHaveBeenCalled();
+    release();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    expect(document.querySelector("[role='progressbar']")).toBeNull();
+    expect(soloStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cached gameplay bundle starts the match with no progress screen (ticket 87)", async () => {
+    await importMain();
+    clickButton("Solo");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(ensureGameplay).not.toHaveBeenCalled();
+    expect(document.querySelector("[role='progressbar']")).toBeNull();
     expect(soloStart).toHaveBeenCalledTimes(1);
   });
 

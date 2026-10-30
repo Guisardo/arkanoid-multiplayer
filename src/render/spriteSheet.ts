@@ -131,6 +131,11 @@ async function loadBundleAtlas(bundle: string, onProgress?: (p: number) => void)
   return registerAtlasFrames(bundle);
 }
 
+/** True once the gameplay bundle has loaded this page — nothing left to wait for. */
+export function gameplayAssetsReady(): boolean {
+  return gameplayLoaded;
+}
+
 /** Progress listeners for the one in-flight gameplay load (see `ensureGameplayAssets`). */
 const gameplayListeners = new Set<(progress: number) => void>();
 

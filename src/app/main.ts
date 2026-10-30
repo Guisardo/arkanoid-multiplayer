@@ -3,7 +3,8 @@
 // opens the room-code flow (create: host room + lobby; join: signaling
 // guest + lobby) and drives MpFlow over real WebRTC channels.
 import { startSoloSession } from "app/soloSession";
-import { ensureGameplayAssets, initAssets } from "render/spriteSheet";
+import { initAssets } from "render/spriteSheet";
+import { startWithGameplayAssets } from "app/gameplayLoad";
 import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
 import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
 import { startVersusBotsSession } from "app/versusBotsSession";
@@ -197,18 +198,21 @@ function showLanding(prefill: string | null): void {
 function openSolo(round: number, continuing?: EpisodeState): void {
   void initAssets()
     .then(() =>
-      startSoloSession(appHost, round, {
-        onQuit: restart,
-        ...(continuing !== undefined ? { continueEpisode: continuing } : {}),
+      // Ticket 87: the gameplay bundle loads here, with a progress screen on a
+      // cold first match and none once it is cached.
+      startWithGameplayAssets({
+        host: appHost,
+        locale,
+        start: () =>
+          startSoloSession(appHost, round, {
+            onQuit: restart,
+            ...(continuing !== undefined ? { continueEpisode: continuing } : {}),
+          }),
       }),
     )
     .then((session) => {
       globalThis.__arkanoid = session;
     });
-  // Ticket 87: pull the deferred bundle in without blocking match start.
-  // `spriteTexture` resolves lazily, so the round begins on procedural
-  // geometry and upgrades when the bundle lands.
-  void ensureGameplayAssets();
 }
 
 function openVersusBots(): void {
@@ -218,18 +222,12 @@ function openVersusBots(): void {
     locale,
     onStart: (config) => {
       screen.root.remove();
-      // Ticket 87: deferred bundle requested at match start, not awaited —
-      // the match begins on procedural geometry and upgrades when it lands.
-      void ensureGameplayAssets();
-      // Ticket 56: real versus match — human plays, bots play.
-      void startVersusBotsSession(appHost, {
-        variant: config.variant,
-        bots: config.bots,
-        difficulty: config.difficulty,
-        skinId: storedSettings().appearance.skinId,
-        onRematch: () => { openVersusBotsWith(config); },
-        onBackToConfig: () => { openVersusBots(); },
-        onQuit: restart,
+      // Ticket 56: real versus match — human plays, bots play. Ticket 87: the
+      // deferred gameplay bundle loads first, behind a progress screen.
+      void startWithGameplayAssets({
+        host: appHost,
+        locale,
+        start: () => startVersusBots(config),
       }).then((session) => {
         globalThis.__arkanoidBots = session;
       });
@@ -244,10 +242,20 @@ function openVersusBots(): void {
 /** Rematch: same config, fresh session (ticket 56 end-screen flow). */
 function openVersusBotsWith(config: VersusBotsConfig): void {
   void initAssets();
-  // Ticket 87: a rematch re-enters the match, so re-request the deferred bundle.
-  // This is a cache hit in the common case, so it costs nothing.
-  void ensureGameplayAssets();
-  void startVersusBotsSession(appHost, {
+  // Ticket 87: a rematch re-enters the match. The bundle is a cache hit in the
+  // common case, so no loading screen appears.
+  void startWithGameplayAssets({
+    host: appHost,
+    locale,
+    start: () => startVersusBots(config),
+  }).then((session) => {
+    globalThis.__arkanoidBots = session;
+  });
+}
+
+/** One versus-bots match from a config (ticket 56 end-screen flow). */
+function startVersusBots(config: VersusBotsConfig): ReturnType<typeof startVersusBotsSession> {
+  return startVersusBotsSession(appHost, {
     variant: config.variant,
     bots: config.bots,
     difficulty: config.difficulty,
@@ -255,8 +263,6 @@ function openVersusBotsWith(config: VersusBotsConfig): void {
     onRematch: () => { openVersusBotsWith(config); },
     onBackToConfig: () => { openVersusBots(); },
     onQuit: restart,
-  }).then((session) => {
-    globalThis.__arkanoidBots = session;
   });
 }
 
