@@ -2,7 +2,7 @@
 // Audio, Display, Appearance. Controls = full rebind UI (ticket 41): per-player
 // keyboard tabs, gamepad buttons, duplicate rejection with highlight,
 // rollover caveat. All strings from locale tables.
-import { t, type Locale, type StringKey } from "ui/strings";
+import { t, format, type Locale, type StringKey } from "ui/strings";
 import type { Storage } from "persistence/storage";
 import {
   loadSettings,
@@ -25,6 +25,7 @@ import {
 import type { KeyboardBindings, KeyboardBindingsKey } from "input/keyboard";
 import { KEYSET_1 } from "input/keyboard";
 import type { GamepadButton } from "input/gamepad";
+import { GamepadMenuNav } from "ui/gamepadNav";
 
 /** `settings.action.*` string keys (rebind row labels). */
 type StringActionKey = Extract<StringKey, `settings.action.${string}`>;
@@ -43,6 +44,9 @@ function ensureHighlightStyles(): void {
     "@media(hover:hover){button{min-height:24px;}}";
   document.head.appendChild(style);
 }
+
+/** An unconfirmed gamepad rebind proposal is dropped after this long. */
+export const REBIND_TIMEOUT_MS = 8000;
 
 export interface SettingsScreenOptions {
   host: HTMLElement;
@@ -68,12 +72,13 @@ export class SettingsScreen {
   private controlsPanel: HTMLElement | null = null;
   private activePlayer = 0;
   private activeDevice: "keyboard" | "gamepad" = "keyboard";
-  private capture: { action: string; button: HTMLButtonElement } | null = null;
+  private capture: { action: string; button: HTMLButtonElement; label: string } | null = null;
+  /** Gamepad button awaiting a second press to confirm the rebind. */
+  private proposed: GamepadButton | null = null;
+  private captureTimer: ReturnType<typeof setTimeout> | null = null;
+  private nav: GamepadMenuNav | null = null;
   private keyboardMaps: KeyboardBindings[];
   private gamepadMap: GamepadBindingsMap;
-  private pollHandle: ReturnType<typeof setInterval> | null = null;
-  private prevPadButtons: Partial<Record<GamepadButton, boolean>> = {};
-  private prevPadAxes = { x: 0, y: 0 };
 
   constructor(opts: SettingsScreenOptions) {
     this.opts = opts;
@@ -95,10 +100,15 @@ export class SettingsScreen {
       ensureHighlightStyles();
       this.opts.host.appendChild(this.root);
       globalThis.addEventListener("keydown", this.keydownHandler);
-      // Gamepad rebind capture: poll button edges while the overlay is open.
-      this.pollHandle = setInterval(() => {
-        this.pollGamepadCapture();
-      }, 50);
+      // Gamepad: B backs out; rebind capture hooks into the same poll.
+      this.nav = new GamepadMenuNav({
+        root: this.root,
+        // B mid-rebind belongs to the rebind, not to the screen.
+        onCancel: () => {
+          if (!this.capture) this.close();
+        },
+      });
+      this.nav.start();
       // First local input takes focus (spec §11: any local input navigates menus).
       const first = this.root.querySelector<HTMLElement>("button");
       first?.focus();
@@ -106,10 +116,9 @@ export class SettingsScreen {
   }
 
   close(): void {
-    if (this.pollHandle !== null) {
-      clearInterval(this.pollHandle);
-      this.pollHandle = null;
-    }
+    this.endCapture();
+    this.nav?.stop();
+    this.nav = null;
     globalThis.removeEventListener("keydown", this.keydownHandler);
     this.root.remove();
     this.opts.onClose?.();
@@ -367,8 +376,8 @@ export class SettingsScreen {
   private renderControls(): void {
     const rows = this.controlsPanel?.querySelector<HTMLElement>("[data-rebind-rows]");
     if (!rows) return;
+    this.endCapture();
     rows.textContent = "";
-    this.capture = null;
     if (this.activeDevice === "keyboard") {
       const map = this.keyboardMaps[this.activePlayer] ?? { ...KEYSET_1 };
       for (const action of KEYBOARD_ACTIONS) {
@@ -398,7 +407,19 @@ export class SettingsScreen {
     btn.textContent = binding;
     btn.style.cssText = "padding:4px 10px;font-family:monospace;min-width:90px;";
     btn.addEventListener("click", () => {
-      this.capture = { action, button: btn };
+      this.endCapture();
+      this.capture = { action, button: btn, label: btn.textContent ?? "" };
+      if (this.nav) {
+        if (kind === "button") {
+          this.nav.capture = (name) => {
+            this.onPadCapture(name);
+          };
+          this.armCaptureTimeout();
+        } else {
+          // Keyboard capture: swallow pad input so it can't navigate away.
+          this.nav.capture = () => {};
+        }
+      }
       btn.textContent = t(
         this.opts.locale,
         kind === "key" ? "settings.controls.pressKey" : "settings.controls.pressButton",
@@ -416,9 +437,12 @@ export class SettingsScreen {
     e.preventDefault();
     e.stopPropagation();
     const { action, button } = this.capture;
-    this.capture = null;
-    button.classList.remove("capturing");
-    if (this.activeDevice !== "keyboard") return;
+    this.endCapture();
+    if (this.activeDevice !== "keyboard") {
+      // Any key cancels a gamepad rebind — restore the row.
+      this.renderControls();
+      return;
+    }
     if (e.code === "Escape") {
       // Cancel — restore the current binding display.
       this.renderControls();
@@ -427,82 +451,45 @@ export class SettingsScreen {
     this.applyKeyboardRebind(action as KeyboardBindingsKey, e.code, button);
   }
 
-  /** Poll gamepad button edges while the overlay is open (rebind capture). */
-  private pollGamepadCapture(): void {
-    // jsdom/test envs lack getGamepads — no pad, no capture.
-    if (typeof navigator.getGamepads !== "function") return;
-    const pads = navigator.getGamepads();
-    const pad = pads.find((p) => p !== null);
-    if (!pad) {
-      this.prevPadButtons = {};
-      this.prevPadAxes = { x: 0, y: 0 };
+  /**
+   * Gamepad rebind: the first press proposes a button, pressing the same one
+   * again confirms, a different one replaces the proposal. Unconfirmed
+   * proposals expire (REBIND_TIMEOUT_MS) so a stray press never traps the pad.
+   */
+  private onPadCapture(name: GamepadButton): void {
+    if (!this.capture) return;
+    const { action, button } = this.capture;
+    if (this.proposed === name) {
+      this.endCapture();
+      this.applyGamepadRebind(action as GamepadAction, name, button);
       return;
     }
-    const b = (i: number): boolean => pad.buttons[i]?.pressed === true;
-    const now: Partial<Record<GamepadButton, boolean>> = {
-      a: b(0), b: b(1), x: b(2), y: b(3),
-      lb: b(4), rb: b(5), rt: b(7), lt: b(6),
-      start: b(9),
-      dpadLeft: b(14), dpadRight: b(15), dpadUp: b(12), dpadDown: b(13),
-    };
-    // Rebind capture has priority over navigation (spec §11: capture consumes input).
-    if (this.capture && this.activeDevice === "gamepad") {
-      for (const name of Object.keys(now) as GamepadButton[]) {
-        const pressed = now[name] === true;
-        const was = this.prevPadButtons[name] === true;
-        if (pressed && !was) {
-          const { action, button } = this.capture;
-          this.capture = null;
-          button.classList.remove("capturing");
-          this.applyGamepadRebind(action as GamepadAction, name, button);
-          break;
-        }
-      }
-      this.prevPadButtons = now;
-      return;
-    }
-    // Menu navigation: any local input navigates menus (spec §11).
-    this.handleGamepadNav(now, pad);
-    this.prevPadButtons = now;
+    this.proposed = name;
+    button.textContent = format(t(this.opts.locale, "settings.controls.confirmButton"), { button: name });
+    this.armCaptureTimeout();
   }
 
-  /** Gamepad menu navigation: d-pad/stick move focus, A activates. */
-  private handleGamepadNav(
-    now: Partial<Record<GamepadButton, boolean>>,
-    pad: Gamepad,
-  ): void {
-    const edge = (name: GamepadButton): boolean =>
-      now[name] === true && this.prevPadButtons[name] !== true;
-    // Stick counts as directional input beyond deadzone (0.2, spec §11).
-    const stickX = pad.axes[0] ?? 0;
-    const stickY = pad.axes[1] ?? 0;
-    const stickLeft = stickX <= -0.2 && this.prevPadAxes.x > -0.2;
-    const stickRight = stickX >= 0.2 && this.prevPadAxes.x < 0.2;
-    const stickUp = stickY <= -0.2 && this.prevPadAxes.y > -0.2;
-    const stickDown = stickY >= 0.2 && this.prevPadAxes.y < 0.2;
-
-    if (edge("dpadUp") || stickUp) this.moveFocus(-1);
-    else if (edge("dpadDown") || stickDown) this.moveFocus(1);
-    else if (edge("dpadLeft") || stickLeft) this.moveFocus(-1);
-    else if (edge("dpadRight") || stickRight) this.moveFocus(1);
-
-    if (edge("a")) {
-      const focused = document.activeElement;
-      if (focused instanceof HTMLButtonElement && this.root.contains(focused)) {
-        focused.click();
-      }
-    }
-    this.prevPadAxes = { x: stickX, y: stickY };
+  private armCaptureTimeout(): void {
+    if (this.captureTimer !== null) clearTimeout(this.captureTimer);
+    this.captureTimer = setTimeout(() => {
+      this.endCapture();
+      this.renderControls();
+    }, REBIND_TIMEOUT_MS);
   }
 
-  /** Move focus among this overlay's buttons by index delta. */
-  private moveFocus(delta: number): void {
-    const buttons = Array.from(this.root.querySelectorAll<HTMLButtonElement>("button"));
-    if (buttons.length === 0) return;
-    const current = document.activeElement;
-    const idx = current instanceof HTMLButtonElement ? buttons.indexOf(current) : -1;
-    const next = idx < 0 ? 0 : Math.min(buttons.length - 1, Math.max(0, idx + delta));
-    buttons[next]?.focus();
+  /** Leave capture mode (apply, cancel or close) and drop all pending state. */
+  private endCapture(): void {
+    if (this.capture) {
+      this.capture.button.classList.remove("capturing");
+      this.capture.button.textContent = this.capture.label;
+    }
+    this.capture = null;
+    this.proposed = null;
+    if (this.captureTimer !== null) {
+      clearTimeout(this.captureTimer);
+      this.captureTimer = null;
+    }
+    if (this.nav) this.nav.capture = null;
   }
 
   private applyGamepadRebind(action: GamepadAction, buttonName: GamepadButton, button: HTMLButtonElement): void {

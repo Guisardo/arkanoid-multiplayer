@@ -21,6 +21,7 @@ import {
 } from "sim/versusBots";
 import type { BotDifficulty } from "sim/bot";
 import { resolveLocale, t, type Locale } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import type { AppShell } from "render/appShell";
 import { sharedSaveBackend } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
@@ -226,6 +227,8 @@ export async function startVersusBotsSession(
     }));
     panel.appendChild(mkBtn(t(locale, "menu.quit"), () => { quitTo("quit"); }));
     root.appendChild(panel);
+    // Stops itself when the menu is removed (many exit paths remove it).
+    new GamepadMenuNav({ root, onCancel: resumeFromPause }).start();
     return root;
   }
 

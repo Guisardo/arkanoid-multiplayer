@@ -5,6 +5,7 @@
 // wire result: unpause). Settings-from-pause is deferred (not in the
 // ticket checklist).
 import { t, format, type Locale } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 
 export interface PauseOverlayOptions {
   host: HTMLElement;
@@ -34,6 +35,7 @@ function ensureStyles(): void {
 
 export class PauseOverlay {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
 
   constructor(opts: PauseOverlayOptions) {
     ensureStyles();
@@ -59,9 +61,12 @@ export class PauseOverlay {
     panel.append(title, resume, quit);
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }

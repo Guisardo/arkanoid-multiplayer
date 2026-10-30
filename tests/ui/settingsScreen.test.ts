@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach } from "vitest";
-import { SettingsScreen } from "ui/settingsScreen";
+import { describe, expect, it, beforeEach, vi } from "vitest";
+import { SettingsScreen, REBIND_TIMEOUT_MS } from "ui/settingsScreen";
+import { FOCUS_CLASS } from "ui/gamepadNav";
 import { Storage, type StorageBackend } from "persistence/storage";
 import { loadSettings } from "ui/settings";
 import {
@@ -196,55 +197,250 @@ describe("SettingsScreen Controls section (ticket 41)", () => {
     screen.close();
   });
 
-  it("gamepad rebind: button press captured via polling, duplicate rejected", async () => {
+  /** Install a fake pad whose pressed button indices the test sets per poll. */
+  function installFakePad(): { press: (...indices: number[]) => void; restore: () => void } {
+    const fakePad = { buttons: [] as { pressed: boolean }[], axes: [0, 0] };
+    const nav = navigator as Navigator & { getGamepads?: () => (Gamepad | null)[] };
+    const real = nav.getGamepads?.bind(nav);
+    nav.getGamepads = () => [fakePad] as unknown as (Gamepad | null)[];
+    return {
+      press: (...indices) => {
+        fakePad.buttons = Array.from({ length: 16 }, (_, i) => ({ pressed: indices.includes(i) }));
+      },
+      restore: () => {
+        if (real) nav.getGamepads = real;
+      },
+    };
+  }
+
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 120));
+  const LT = 6;
+  const DPAD_UP = 12; // free by default, so a valid rebind target
+
+  function openGamepadTab(screen: SettingsScreen): void {
+    const padTab = Array.from(
+      screen.root.querySelectorAll<HTMLButtonElement>("button[data-device-tab]"),
+    ).find((b) => b.dataset.deviceTab === "gamepad");
+    padTab!.click();
+  }
+
+  it("gamepad rebind: new button is proposed, pressing it again confirms", async () => {
     const storage = new Storage(fakeBackend());
     const screen = openScreen(storage);
-    // Fake one gamepad with no buttons pressed.
-    let padButtons: { pressed: boolean }[] = [];
-    const fakePad = { buttons: padButtons, axes: [0, 0] };
-    const nav = navigator as Navigator & { getGamepads?: () => (Gamepad | null)[] };
-    const realGetGamepads = nav.getGamepads?.bind(nav);
-    nav.getGamepads = () => [fakePad] as unknown as (Gamepad | null)[];
+    const pad = installFakePad();
     try {
-      const padTab = Array.from(
-        screen.root.querySelectorAll<HTMLButtonElement>("button[data-device-tab]"),
-      ).find((b) => b.dataset.deviceTab === "gamepad");
-      padTab!.click();
+      pad.press();
+      await tick();
+      openGamepadTab(screen);
       const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
       launchBtn!.click();
       expect(launchBtn!.textContent).toContain(t(locale, "settings.controls.pressButton"));
-      // Press LT (index 6) — unbound, edge detected on next poll.
-      padButtons = [
-        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
-        { pressed: false }, { pressed: false }, { pressed: true },
-      ];
-      fakePad.buttons = padButtons;
-      // Poll runs on a 50 ms interval — wait for it.
-      await new Promise((r) => setTimeout(r, 120));
-      const after = loadSettings(storage);
-      expect(after.controls.gamepad.launch).toEqual(["lt"]);
-      // Duplicate: rebind fire1 to lt (already launch) → rejected.
-      // (Rows were rebuilt after the first rebind — re-query.)
+      pad.press(LT);
+      await tick();
+      // Proposed only — nothing saved yet, the row asks for confirmation.
+      expect(loadSettings(storage).controls.gamepad.launch).toEqual(["a"]);
+      expect(launchBtn!.textContent).toContain("lt");
+      expect(launchBtn!.textContent).toContain(
+        t(locale, "settings.controls.confirmButton").replace("{button}", "lt"),
+      );
+      pad.press();
+      await tick();
+      pad.press(LT);
+      await tick();
+      expect(loadSettings(storage).controls.gamepad.launch).toEqual(["lt"]);
+    } finally {
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("gamepad rebind: pressing a different button replaces the proposal", async () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      openGamepadTab(screen);
+      const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+      launchBtn!.click();
+      pad.press(LT);
+      await tick();
+      pad.press();
+      await tick();
+      pad.press(DPAD_UP);
+      await tick();
+      expect(launchBtn!.textContent).toContain("dpadUp");
+      pad.press();
+      await tick();
+      pad.press(DPAD_UP);
+      await tick();
+      expect(loadSettings(storage).controls.gamepad.launch).toEqual(["dpadUp"]);
+    } finally {
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("gamepad rebind: a confirmed duplicate is rejected and the old binding kept", async () => {
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      openGamepadTab(screen);
+      rebindButtons(screen.root).find((b) => b.dataset.action === "launch")!.click();
+      pad.press(LT);
+      await tick();
+      pad.press();
+      await tick();
+      pad.press(LT);
+      await tick();
+      expect(loadSettings(storage).controls.gamepad.launch).toEqual(["lt"]);
+      // Rows were rebuilt after the rebind — re-query.
       const fire1Btn = rebindButtons(screen.root).find((b) => b.dataset.action === "fire1");
       fire1Btn!.click();
-      // Release all, let the poll see the release, then press LT again.
-      padButtons = [
-        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
-        { pressed: false }, { pressed: false }, { pressed: false },
-      ];
-      fakePad.buttons = padButtons;
-      await new Promise((r) => setTimeout(r, 120));
-      padButtons = [
-        { pressed: false }, { pressed: false }, { pressed: false }, { pressed: false },
-        { pressed: false }, { pressed: false }, { pressed: true },
-      ];
-      fakePad.buttons = padButtons;
-      await new Promise((r) => setTimeout(r, 120));
-      const after2 = loadSettings(storage);
-      expect(after2.controls.gamepad.fire1).toEqual(["x"]); // unchanged
+      for (const frame of [[], [LT], [], [LT]] as const) {
+        pad.press(...frame);
+        await tick();
+      }
+      expect(loadSettings(storage).controls.gamepad.fire1).toEqual(["x"]);
       expect(fire1Btn!.textContent).toContain(t(locale, "settings.controls.duplicate"));
     } finally {
-      if (realGetGamepads) nav.getGamepads = realGetGamepads;
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("gamepad rebind: an unconfirmed proposal is cancelled after the timeout", () => {
+    vi.useFakeTimers();
+    const storage = new Storage(fakeBackend());
+    const screen = openScreen(storage);
+    const pad = installFakePad();
+    try {
+      pad.press();
+      vi.advanceTimersByTime(60);
+      openGamepadTab(screen);
+      const launchBtn = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+      launchBtn!.click();
+      pad.press(LT);
+      vi.advanceTimersByTime(60);
+      expect(launchBtn!.textContent).toContain("lt");
+      vi.advanceTimersByTime(REBIND_TIMEOUT_MS + 100);
+      const row = rebindButtons(screen.root).find((b) => b.dataset.action === "launch");
+      expect(row!.textContent).toBe("a");
+      expect(loadSettings(storage).controls.gamepad.launch).toEqual(["a"]);
+    } finally {
+      pad.restore();
+      screen.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("switching tab mid-rebind drops the pending capture so the pad navigates again", async () => {
+    const screen = openScreen(new Storage(fakeBackend()));
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      openGamepadTab(screen);
+      rebindButtons(screen.root).find((b) => b.dataset.action === "launch")!.click();
+      pad.press(LT);
+      await tick(); // proposal pending
+      const keyboardTab = Array.from(
+        screen.root.querySelectorAll<HTMLButtonElement>("button[data-device-tab]"),
+      ).find((b) => b.dataset.deviceTab === "keyboard");
+      keyboardTab!.click();
+      keyboardTab!.focus();
+      pad.press();
+      await tick();
+      pad.press(13);
+      await tick();
+      expect(document.activeElement).not.toBe(keyboardTab);
+    } finally {
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("clicking another row mid-proposal restores the first row's label", async () => {
+    const screen = openScreen(new Storage(fakeBackend()));
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      openGamepadTab(screen);
+      const launch = rebindButtons(screen.root).find((b) => b.dataset.action === "launch")!;
+      launch.click();
+      pad.press(LT);
+      await tick();
+      expect(launch.textContent).toContain("lt");
+      rebindButtons(screen.root).find((b) => b.dataset.action === "fire1")!.click();
+      expect(launch.textContent).toBe("a");
+    } finally {
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("a pad B during a keyboard rebind does not close the screen", async () => {
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const screen = new SettingsScreen({ host, locale, storage: new Storage(fakeBackend()), onClose });
+    screen.open();
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      rebindButtons(screen.root).find((b) => b.dataset.action === "launch")!.click();
+      pad.press(1);
+      await tick();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.root.isConnected).toBe(true);
+    } finally {
+      pad.restore();
+      screen.close();
+    }
+  });
+
+  it("gamepad B (outside a rebind) closes the settings screen", async () => {
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const screen = new SettingsScreen({
+      host,
+      locale,
+      storage: new Storage(fakeBackend()),
+      onClose,
+    });
+    screen.open();
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      pad.press(1);
+      await tick();
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(screen.root.isConnected).toBe(false);
+    } finally {
+      pad.restore();
+    }
+  });
+
+  it("focused settings control carries the gamepad focus indicator", async () => {
+    const screen = openScreen(new Storage(fakeBackend()));
+    const pad = installFakePad();
+    try {
+      pad.press();
+      await tick();
+      pad.press(13);
+      await tick();
+      expect(screen.root.querySelectorAll(`.${FOCUS_CLASS}`)).toHaveLength(1);
+      expect(document.activeElement?.classList.contains(FOCUS_CLASS)).toBe(true);
+    } finally {
+      pad.restore();
       screen.close();
     }
   });

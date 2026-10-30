@@ -3,6 +3,7 @@
 // + DOM renderers following the settingsScreen pattern. Mode sims stay the
 // source of truth — this module only shapes their results for display.
 import { t, format, type Locale, type StringKey } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import type { MatchState } from "sim/multiField";
 import type { AssistMatchState } from "sim/assistSession";
 import type { DuelMatchResult } from "sim/duel";
@@ -154,6 +155,7 @@ function ensureStyles(): void {
 
 export class EndScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
 
   constructor(opts: EndScreenOptions) {
     ensureStyles();
@@ -206,9 +208,12 @@ export class EndScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }

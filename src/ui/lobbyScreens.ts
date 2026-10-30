@@ -5,6 +5,7 @@
 // checks + all-ready gate, mode picker greying, kick, countdown.
 // DOM pattern follows settingsScreen; tap targets >=48 px.
 import { t, type Locale, type StringKey } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import {
   createLobbyState,
   reduceLobby,
@@ -118,6 +119,7 @@ function ensureStyles(): void {
 
 export class LandingScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
 
   constructor(opts: LandingScreenOptions) {
     ensureStyles();
@@ -157,6 +159,8 @@ export class LandingScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
 
     // QR prefill (?code=) jumps straight into join. Deferred to a
     // microtask: the caller's `const landing = new LandingScreen(...)`
@@ -168,6 +172,7 @@ export class LandingScreen {
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }
@@ -198,6 +203,7 @@ export interface RoomCodeScreenOptions {
 
 export class RoomCodeScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
   private readonly boxes: HTMLInputElement[] = [];
   private readonly opts: RoomCodeScreenOptions;
 
@@ -296,9 +302,12 @@ export class RoomCodeScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root, onCancel: opts.onBack });
+    this.nav.start();
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }
@@ -322,6 +331,7 @@ export interface LobbyScreenOptions {
 
 export class LobbyScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
   private state: LobbyState;
   private readonly opts: LobbyScreenOptions;
   private readonly device: LobbyDevice;
@@ -393,6 +403,8 @@ export class LobbyScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
     this.render();
   }
 
@@ -567,12 +579,15 @@ export class LobbyScreen {
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 
   /** Re-attach after close (match ended → back to lobby). Idempotent. */
   reopen(): void {
-    if (!this.root.isConnected) this.opts.host.appendChild(this.root);
+    if (this.root.isConnected) return;
+    this.opts.host.appendChild(this.root);
+    this.nav.start();
   }
 }
 
