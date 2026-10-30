@@ -408,7 +408,7 @@ export class SettingsScreen {
     btn.style.cssText = "padding:4px 10px;font-family:monospace;min-width:90px;";
     btn.addEventListener("click", () => {
       this.endCapture();
-      this.capture = { action, button: btn, label: btn.textContent ?? "" };
+      this.capture = { action, button: btn, label: btn.textContent };
       if (this.nav) {
         if (kind === "button") {
           this.nav.capture = (name) => {

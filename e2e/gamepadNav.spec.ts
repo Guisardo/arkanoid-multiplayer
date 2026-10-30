@@ -52,7 +52,7 @@ async function padDownUntil(page: Page, match: (el: Element | null) => boolean, 
     if (hit) return;
     await tap(page, DPAD_DOWN);
   }
-  throw new Error(`gamepadNav.spec: focus never reached target in ${maxSteps} d-pad steps`);
+  throw new Error(`gamepadNav.spec: focus never reached target in ${String(maxSteps)} d-pad steps`);
 }
 
 test("gamepad: landing → Settings → Gamepad tab → rebind with confirm → B closes", async ({ page }) => {

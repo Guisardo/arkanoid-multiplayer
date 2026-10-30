@@ -156,7 +156,7 @@ export class GamepadMenuNav {
 
   /** Buttons OR-ed and the strongest stick taken across every connected pad. */
   private readMergedPad(): { buttons: PadButtons; axes: { x: number; y: number } } | null {
-    const pads = this.readPads().filter((p): p is Gamepad => p !== null && p !== undefined);
+    const pads = this.readPads().filter((p): p is Gamepad => p !== null);
     if (pads.length === 0) return null;
     const buttons: PadButtons = {};
     const axes = { x: 0, y: 0 };
@@ -192,7 +192,7 @@ export class GamepadMenuNav {
       this.opts.root.contains(focused) &&
       ((focused instanceof HTMLInputElement && focused.type === "range") ||
         focused instanceof HTMLSelectElement)
-        ? (focused as HTMLInputElement | HTMLSelectElement)
+        ? focused
         : null;
 
     if (up) this.moveFocus(-1);
@@ -216,7 +216,8 @@ export class GamepadMenuNav {
 
   private moveFocus(delta: number): void {
     const controls = Array.from(this.opts.root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => (el as HTMLElement & { checkVisibility?: () => boolean }).checkVisibility?.() !== false,
+      // checkVisibility is missing on older browsers: treat those as visible.
+      (el) => typeof el.checkVisibility !== "function" || el.checkVisibility(),
     );
     if (controls.length === 0) return;
     const idx = controls.indexOf(document.activeElement as HTMLElement);
