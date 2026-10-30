@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capDpr, GUTTER_PX, HUD_STRIP_UNITS, layoutField, splitRegions } from "render/layout";
+import { capDpr, fieldCullRect, GUTTER_PX, HUD_STRIP_UNITS, layoutField, splitRegions } from "render/layout";
 import { FIELD_H, FIELD_W } from "shared/gridConstants";
 
 describe("dpr cap", () => {
@@ -61,5 +61,26 @@ describe("layoutField (letterbox 208×256, fractional scale)", () => {
     // scale = min(300/208, 700/276) = 300/208 = 1.4423...
     expect(l.scale).toBeCloseTo(300 / FIELD_W, 5);
     expect(Number.isInteger(l.scale)).toBe(false);
+  });
+});
+
+describe("fieldCullRect (ticket 93: Pixi cullArea in the field view's local space)", () => {
+  it("covers the letterboxed field plus the HUD strip above it, nothing of the empty region", () => {
+    // 400×1000 region: scale = min(400/208, 1000/276) = 400/208, so the field
+    // is letterboxed vertically inside a much taller region.
+    const l = layoutField({ x: 100, y: 0, w: 400, h: 1000 });
+    const r = fieldCullRect(l);
+    expect(r.x).toBeCloseTo(l.field.x, 5);
+    expect(r.y).toBeCloseTo(l.hud.y, 5);
+    expect(r.width).toBeCloseTo(l.field.w, 5);
+    expect(r.height).toBeCloseTo(l.hud.h + l.field.h, 5);
+    expect(r.height).toBeLessThan(l.region.h);
+  });
+
+  it("exact-aspect region at scale 2: literal screen rect of HUD + field", () => {
+    // The field is centred alone, so at scale 2 it sits at y=40 and its 40 px
+    // HUD strip starts at y=0 — above the region's own top edge (y=20).
+    const region = { x: 10, y: 20, w: FIELD_W * 2, h: (FIELD_H + HUD_STRIP_UNITS) * 2 };
+    expect(fieldCullRect(layoutField(region))).toEqual({ x: 10, y: 0, width: 416, height: 552 });
   });
 });

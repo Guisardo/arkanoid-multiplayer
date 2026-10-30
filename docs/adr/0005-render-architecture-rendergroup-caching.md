@@ -82,3 +82,16 @@ Per `pixijs-v8-best-practices.md` §3: "RenderGroup + cacheAsTexture for static 
   solo only), ignoring DPR. The 64 MB ceiling is flagged in the overlay, not enforced.
 - **Degraded rung** halves the cached wall texture resolution (`textureResolution: 0.5`).
 
+## As built (ticket 93)
+
+- **Culling is Pixi's, not a `sync()` skip.** Ticket 93 found that no field is ever off
+  screen in the current layout: `splitRegions()` subdivides the viewport itself. So there
+  is no region-level gate. Instead each `FieldView.container` is `cullable` with a
+  `cullArea` of the letterboxed field plus HUD strip (`fieldCullRect()`), and
+  `appShell` registers `CullerPlugin` so the culler runs before every render.
+- **Today this skips nothing.** All fields are on screen, so no field is culled. It
+  becomes effective if a field ever moves partly or fully off screen, and it stays correct
+  because the area is the drawn rect, not the region (letterbox margin never counts).
+- `FieldView.sync()` is **not** skipped: sim state must keep applying to a field the
+  culler hides. The measurable 3-4P frame cost stays with ticket 106.
+

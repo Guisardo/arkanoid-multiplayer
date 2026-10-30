@@ -129,8 +129,8 @@ describe("accumulator loop", () => {
     // (the test drives everything through advance()).
     const raf = globalThis.requestAnimationFrame;
     const caf = globalThis.cancelAnimationFrame;
-    globalThis.requestAnimationFrame = ((): number => 0) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = ((): void => undefined) as typeof cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((): number => 0);
+    globalThis.cancelAnimationFrame = ((): void => undefined);
     try {
       let tickCount = 0;
       const loop = createAccumulatorLoop({ tick: () => tickCount++, render: () => {} });

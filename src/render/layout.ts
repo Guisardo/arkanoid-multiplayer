@@ -73,3 +73,24 @@ export function layoutField(region: Region): FieldLayout {
     scale,
   };
 }
+/** Plain rect with Pixi `Rectangle` field names, so it can seed a `cullArea`. */
+export interface CullRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Ticket 93: the screen-px rect a field view actually draws into — the
+ * letterboxed field plus the HUD strip above it. Narrower than the region on
+ * purpose: Pixi's culler tests this rect, not the empty letterbox margin.
+ */
+export function fieldCullRect(layout: FieldLayout): CullRect {
+  return {
+    x: layout.field.x,
+    y: layout.hud.y,
+    width: layout.field.w,
+    height: layout.hud.h + layout.field.h,
+  };
+}
