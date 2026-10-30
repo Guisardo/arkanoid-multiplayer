@@ -18,7 +18,9 @@ import { DEFAULT_SETTINGS, type SaveDocument } from "persistence/saveDocument";
 /** Whether the mocked gameplay bundle counts as cached (ticket 87). */
 const gameplayBundle = { loaded: true };
 /** Mocked `ensureGameplayAssets`: a test swaps in a deferred promise to hold a cold load open. */
-const ensureGameplay = vi.fn((_onProgress?: (progress: number) => void): Promise<void> => Promise.resolve());
+const ensureGameplay = vi.fn<(onProgress?: (progress: number) => void) => Promise<void>>(() =>
+  Promise.resolve(),
+);
 
 const soloStart = vi
   .fn(

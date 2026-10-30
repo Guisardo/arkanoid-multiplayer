@@ -77,7 +77,7 @@ export class LoadingScreen {
   setProgress(progress: number): void {
     const percent = Number.isFinite(progress) ? Math.round(Math.min(1, Math.max(0, progress)) * 100) : 0;
     this.track.setAttribute("aria-valuenow", String(percent));
-    this.fill.style.width = `${percent}%`;
+    this.fill.style.width = `${String(percent)}%`;
     this.percent.textContent = format(t(this.locale, "loading.percent"), { percent });
   }
 
