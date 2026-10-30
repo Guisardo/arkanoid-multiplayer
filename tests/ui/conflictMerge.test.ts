@@ -151,3 +151,78 @@ describe("ConflictMergeScreen", () => {
     expect(es.textContent).toContain("El guardado cambió en otra pestaña");
   });
 });
+
+describe("ConflictMergeScreen — full detail of both versions (ticket 103)", () => {
+  function detail(el: HTMLElement, side: "local" | "remote"): string {
+    return el.querySelector(`[data-conflict-detail='${side}']`)?.textContent ?? "";
+  }
+
+  it("shows when each version was saved", () => {
+    const el = host();
+    const local = doc(1, 1, "A");
+    local.updatedAt = Date.UTC(2026, 9, 30, 12, 0, 0);
+    const remote = doc(2, 2, "B");
+    remote.updatedAt = Date.UTC(2026, 9, 30, 13, 30, 0);
+    mount(el, local, remote);
+    expect(detail(el, "local")).toContain(new Date(local.updatedAt).toLocaleString("en-US"));
+    expect(detail(el, "remote")).toContain(new Date(remote.updatedAt).toLocaleString("en-US"));
+  });
+
+  it("shows the run in progress for the side that has one, and says so for the side that has none", () => {
+    const el = host();
+    const local = doc(1, 1, "A");
+    local.soloEpisode = { round: 7, score: 4200, lives: 2, phase: "playing", timestamp: 5 };
+    const remote = doc(1, 1, "A");
+    mount(el, local, remote);
+    expect(detail(el, "local")).toContain("Round 7");
+    expect(detail(el, "local")).toContain("4200");
+    expect(detail(el, "remote")).toContain("No run in progress");
+  });
+
+  it("does not offer a finished run as one in progress", () => {
+    const el = host();
+    const local = doc(1, 1, "A");
+    local.soloEpisode = { round: 9, score: 10, lives: 0, phase: "gameOver", timestamp: 5 };
+    mount(el, local, doc(1, 1, "A"));
+    expect(detail(el, "local")).toContain("No run in progress");
+  });
+
+  it("names the settings that differ between the two versions", () => {
+    const el = host();
+    const local = doc(1, 1, "A");
+    local.settings.audio = { music: 0.1, sfx: 0.8, mute: false };
+    local.settings.language = "es-419";
+    mount(el, local, doc(1, 1, "A"));
+    for (const side of ["local", "remote"] as const) {
+      expect(detail(el, side)).toContain("audio");
+      expect(detail(el, side)).toContain("language");
+      expect(detail(el, side)).not.toContain("theme");
+    }
+  });
+
+  it("says the settings match when only progress differs", () => {
+    const el = host();
+    mount(el, doc(10, 1, "A"), doc(99, 7, "A"));
+    expect(detail(el, "local")).toContain("Same settings");
+  });
+
+  it("renders the detail in the requested locale", () => {
+    const el = host();
+    new ConflictMergeScreen({
+      host: el,
+      locale: "es-419",
+      local: doc(1, 1, "A"),
+      remote: doc(1, 1, "A"),
+      onChoice: () => undefined,
+    });
+    expect(detail(el, "local")).toContain("Sin partida en curso");
+  });
+
+  it("keeps the choice buttons working with the extra detail present", () => {
+    const el = host();
+    const picks: ConflictChoice[] = [];
+    mount(el, doc(1, 1, "A"), doc(2, 2, "B"), (c) => picks.push(c));
+    (el.querySelector("[data-conflict-choice='remote']") as HTMLButtonElement).click();
+    expect(picks).toEqual(["remote"]);
+  });
+});

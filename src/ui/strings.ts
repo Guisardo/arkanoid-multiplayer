@@ -146,6 +146,11 @@ const enUS = {
   "save.conflictThisTab": "This tab",
   "save.conflictOtherTab": "Other tab",
   "save.conflictSummary": "High score {score} · Round {round} · {name}",
+  "save.conflictSaved": "Saved {time}",
+  "save.conflictRun": "Run in progress: Round {round} · Score {score} · Lives {lives}",
+  "save.conflictNoRun": "No run in progress",
+  "save.conflictSettingsDiffer": "Different settings: {settings}",
+  "save.conflictSettingsSame": "Same settings",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -286,6 +291,11 @@ const es419: Record<StringKey, string> = {
   "save.conflictThisTab": "Esta pestaña",
   "save.conflictOtherTab": "Otra pestaña",
   "save.conflictSummary": "Puntaje {score} · Ronda {round} · {name}",
+  "save.conflictSaved": "Guardado {time}",
+  "save.conflictRun": "Partida en curso: Ronda {round} · Puntaje {score} · Vidas {lives}",
+  "save.conflictNoRun": "Sin partida en curso",
+  "save.conflictSettingsDiffer": "Ajustes distintos: {settings}",
+  "save.conflictSettingsSame": "Mismos ajustes",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

@@ -18,7 +18,7 @@
 // summarising by anything else (a raw JSON dump, a timestamp) would tell them
 // less at the moment they are choosing.
 import { t, format, type Locale } from "ui/strings";
-import type { SaveDocument } from "persistence/saveDocument";
+import { DEFAULT_SETTINGS, isContinuableEpisode, type SaveDocument } from "persistence/saveDocument";
 
 /** Which side survived. The caller writes it through the normal save path. */
 export type ConflictChoice = "local" | "remote";
@@ -53,8 +53,57 @@ function ensureStyles(): void {
     "font-family:monospace;}" +
     ".cm-choice:hover,.cm-choice:focus-visible{border-color:#fd4;}" +
     ".cm-choice-label{font-size:13px;color:#fd4;}" +
-    ".cm-choice-summary{font-size:12px;color:#ccc;}";
+    ".cm-choice-summary{font-size:12px;color:#ccc;}" +
+    ".cm-choice-detail{font-size:11px;color:#999;text-align:center;line-height:1.3;}";
   document.head.appendChild(style);
+}
+
+/** Every top-level settings section, in the order the settings screen shows them. */
+const SETTINGS_SECTIONS = Object.keys(DEFAULT_SETTINGS) as ReadonlyArray<
+  keyof SaveDocument["settings"]
+>;
+
+/** Settings sections whose stored value differs between the two documents. */
+function differingSettings(a: SaveDocument, b: SaveDocument): string[] {
+  return SETTINGS_SECTIONS.filter(
+    (key) => JSON.stringify(a.settings[key]) !== JSON.stringify(b.settings[key]),
+  );
+}
+
+/**
+ * The lines that let a player tell the two versions apart beyond the headline
+ * numbers: when it was saved, whether a run is in progress, and which settings
+ * disagree. One line each, in a fixed order, so the two columns line up.
+ */
+function describeDetail(locale: Locale, doc: SaveDocument, other: SaveDocument): HTMLElement[] {
+  const line = (text: string): HTMLElement => {
+    const el = document.createElement("div");
+    el.textContent = text;
+    return el;
+  };
+  const episode = doc.soloEpisode;
+  const differing = differingSettings(doc, other);
+  return [
+    line(
+      format(t(locale, "save.conflictSaved"), {
+        time: new Date(doc.updatedAt).toLocaleString(locale),
+      }),
+    ),
+    line(
+      isContinuableEpisode(episode)
+        ? format(t(locale, "save.conflictRun"), {
+            round: episode.round,
+            score: episode.score,
+            lives: episode.lives,
+          })
+        : t(locale, "save.conflictNoRun"),
+    ),
+    line(
+      differing.length === 0
+        ? t(locale, "save.conflictSettingsSame")
+        : format(t(locale, "save.conflictSettingsDiffer"), { settings: differing.join(", ") }),
+    ),
+  ];
 }
 
 export class ConflictMergeScreen {
@@ -80,8 +129,8 @@ export class ConflictMergeScreen {
     const choices = document.createElement("div");
     choices.className = "cm-choices";
     choices.append(
-      this.choice(opts, "local", opts.local, t(opts.locale, "save.conflictThisTab")),
-      this.choice(opts, "remote", opts.remote, t(opts.locale, "save.conflictOtherTab")),
+      this.choice(opts, "local", opts.local, opts.remote, t(opts.locale, "save.conflictThisTab")),
+      this.choice(opts, "remote", opts.remote, opts.local, t(opts.locale, "save.conflictOtherTab")),
     );
 
     panel.append(title, body, choices);
@@ -93,6 +142,7 @@ export class ConflictMergeScreen {
     opts: ConflictMergeOptions,
     side: ConflictChoice,
     doc: SaveDocument,
+    other: SaveDocument,
     label: string,
   ): HTMLButtonElement {
     const b = document.createElement("button");
@@ -112,7 +162,12 @@ export class ConflictMergeScreen {
       name: doc.settings.name,
     });
 
-    b.append(caption, summary);
+    const detail = document.createElement("span");
+    detail.className = "cm-choice-detail";
+    detail.dataset.conflictDetail = side;
+    detail.append(...describeDetail(opts.locale, doc, other));
+
+    b.append(caption, summary, detail);
     b.addEventListener("click", () => {
       opts.onChoice(side);
     });
