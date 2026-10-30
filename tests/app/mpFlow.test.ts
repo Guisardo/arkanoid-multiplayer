@@ -11,6 +11,16 @@ import type { AppShell } from "render/appShell";
 
 // ---- Pixi mocks ----
 
+/** Ticket 100: renderer stand-in that records listeners so tests can fire "resize". */
+const rendererStubs = vi.hoisted(() => ({
+  renderers: [] as {
+    width: number;
+    height: number;
+    listeners: Set<() => void>;
+  }[],
+  splits: [] as { opts: { viewport: { w: number; h: number }; topInset?: number }; resize: (v: unknown) => void }[],
+}));
+
 const mockApp = (): Application => {
   const stage = {
     children: [] as unknown[],
@@ -27,7 +37,18 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: (() => {
+      const listeners = new Set<() => void>();
+      const r = {
+        width: 800,
+        height: 600,
+        listeners,
+        on: (_event: string, fn: () => void): void => { listeners.add(fn); },
+        off: (_event: string, fn: () => void): void => { listeners.delete(fn); },
+      };
+      rendererStubs.renderers.push(r);
+      return r;
+    })(),
   } as unknown as Application;
 };
 
@@ -42,11 +63,16 @@ vi.mock("render/appShell", () => ({
 vi.mock("render/splitScreen", () => ({
   SplitScreenView: class {
     readonly container = { y: 0, destroy: () => {} };
+    resize = vi.fn();
+    constructor(readonly opts: { viewport: { w: number; h: number }; topInset?: number }) {
+      rendererStubs.splits.push(this);
+    }
     sync = vi.fn();
     /** ADR 0009: per-field effects advance each rendered frame. */
     tickEffects = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     /** Ticket 53/N2 probe surface: region per local player. */
     regionOf = vi.fn((player: number) =>
       player === 0 ? { x: 0, y: 0, w: 400, h: 600 } : null);
@@ -342,6 +368,58 @@ describe("mpFlow wiring (ticket 45)", () => {
     // Guest renders snapshots (prediction overlay path exercised).
     const snaps = guestFlow.localSnapshots();
     expect(snaps.length).toBeGreaterThan(0);
+  }, 15000);
+
+  it("ticket 100: resize relays the fields, reserves the strip band and compacts the strip", async () => {
+    rendererStubs.renderers.length = 0;
+    rendererStubs.splits.length = 0;
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Ria", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 100));
+    expect(guestFlow.currentPhase).toBe("inGame");
+
+    // The guest's fields reserve the strip band instead of shifting down.
+    const guestSplit = rendererStubs.splits[rendererStubs.splits.length - 1]!;
+    expect(guestSplit.opts.topInset).toBe(28);
+    const guestStrip = (): HTMLElement | null => document.querySelectorAll<HTMLElement>(".rs-strip")[0] ?? null;
+    expect(guestStrip()).not.toBeNull();
+
+    // Phone-sized resize: fields relayout and the strip stays slim.
+    const renderer = rendererStubs.renderers[rendererStubs.renderers.length - 1]!;
+    renderer.width = 360;
+    renderer.height = 780;
+    for (const fn of [...renderer.listeners]) fn();
+    expect(guestSplit.resize).toHaveBeenCalledWith({ w: 360, h: 780 });
+  }, 15000);
+
+  it("ticket 100: the host's remote strip lists the guest's player, not an empty band", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Ria", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 800));
+    expect(hostFlow.currentPhase).toBe("inGame");
+    const hostStrip = document.querySelectorAll<HTMLElement>(".rs-strip")[0];
+    expect(hostStrip).toBeDefined();
+    // The guest's player row: name, score and round/lives — numbers only.
+    expect(hostStrip!.textContent).toContain("Ria");
+    expect(hostStrip!.textContent).toContain("R1/33");
   }, 15000);
 
   it("protocol version constant is the handshake value", () => {

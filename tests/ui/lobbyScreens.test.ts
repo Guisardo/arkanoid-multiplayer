@@ -2,7 +2,7 @@
 // (code large + QR payload) and join (5 auto-advancing boxes, ?code=
 // prefill), lobby render (players, ready toggles, mode greying, kick).
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   LandingScreen,
   RoomCodeScreen,
@@ -523,15 +523,16 @@ describe("errorKey mapping (all lobby errors)", () => {
 });
 
 describe("QR matrix rendering", () => {
-  it("qrMatrix returns a boolean matrix when the lib is present", () => {
-    // Minimal fake qrcode-generator: 3x3 with dark corners.
-    (globalThis as Record<string, unknown>).qrcode = (): unknown => ({
-      addData: () => {},
-      make: () => {},
-      getModuleCount: () => 3,
-      isDark: (y: number, x: number): boolean => (y + x) % 2 === 0,
-    });
-    const m = qrMatrix("https://example.com/?code=ABC23");
+  /** Minimal fake qrcode-generator: checkerboard of the given size. */
+  const fakeFactory = (n: number) => (): { addData: () => void; make: () => void; getModuleCount: () => number; isDark: (y: number, x: number) => boolean } => ({
+    addData: () => {},
+    make: () => {},
+    getModuleCount: () => n,
+    isDark: (y: number, x: number): boolean => (y + x) % 2 === 0,
+  });
+
+  it("qrMatrix returns a boolean matrix from the injected factory", () => {
+    const m = qrMatrix("https://example.com/?code=ABC23", fakeFactory(3));
     expect(m).not.toBeNull();
     expect(m?.length).toBe(3);
     expect(m?.[0]?.[0]).toBe(true);
@@ -539,24 +540,15 @@ describe("QR matrix rendering", () => {
   });
 
   it("qrMatrix returns null when the lib throws", () => {
-    (globalThis as Record<string, unknown>).qrcode = (): unknown => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const m = qrMatrix("anything", () => {
       throw new Error("lib broken");
-    };
-    expect(qrMatrix("anything")).toBeNull();
-  });
-
-  it("qrMatrix returns null when the lib is absent", () => {
-    delete (globalThis as Record<string, unknown>).qrcode;
-    expect(qrMatrix("anything")).toBeNull();
-  });
-
-  it("RoomCodeScreen create renders the QR canvas path when the lib is present", () => {
-    (globalThis as Record<string, unknown>).qrcode = (): unknown => ({
-      addData: () => {},
-      make: () => {},
-      getModuleCount: () => 3,
-      isDark: (y: number, x: number): boolean => (y + x) % 2 === 0,
     });
+    expect(m).toBeNull();
+    warn.mockRestore();
+  });
+
+  it("RoomCodeScreen create shows the room code (QR canvas path runs against the bundled lib)", () => {
     const host = document.body;
     host.innerHTML = "";
     const screen = new RoomCodeScreen({
@@ -573,7 +565,121 @@ describe("QR matrix rendering", () => {
     // matrix branch runs, ctx-null guard skips drawing, no crash.
     expect(screen.root.textContent).toContain("ABC23");
     screen.close();
-    delete (globalThis as Record<string, unknown>).qrcode;
+  });
+});
+
+
+// ---- Ticket 101: real QR library + QR in the lobby ----
+
+/** QR spec finder pattern (7x7): the same literal sits in three corners of every symbol. */
+const FINDER = [
+  [1, 1, 1, 1, 1, 1, 1],
+  [1, 0, 0, 0, 0, 0, 1],
+  [1, 0, 1, 1, 1, 0, 1],
+  [1, 0, 1, 1, 1, 0, 1],
+  [1, 0, 1, 1, 1, 0, 1],
+  [1, 0, 0, 0, 0, 0, 1],
+  [1, 1, 1, 1, 1, 1, 1],
+];
+
+function corner(m: boolean[][], row0: number, col0: number): number[][] {
+  return FINDER.map((_, r) => FINDER[0]!.map((__, c) => (m[row0 + r]?.[col0 + c] === true ? 1 : 0)));
+}
+
+describe("QR with the bundled library (ticket 101)", () => {
+  it("qrMatrix encodes a room link with the real library — finder patterns in three corners", () => {
+    const m = qrMatrix(qrPayloadFor("ABC23", "guisardo.github.io", "/arkanoid-multiplayer/"));
+    expect(m).not.toBeNull();
+    const n = m!.length;
+    expect(n).toBeGreaterThanOrEqual(21);
+    expect(m!.every((row) => row.length === n)).toBe(true);
+    expect(corner(m!, 0, 0)).toEqual(FINDER);
+    expect(corner(m!, 0, n - 7)).toEqual(FINDER);
+    expect(corner(m!, n - 7, 0)).toEqual(FINDER);
+  });
+
+  it("qrMatrix returns null (and warns) when the payload cannot be encoded", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(qrMatrix("x".repeat(5000))).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe("LobbyScreen QR share (ticket 101)", () => {
+  /** jsdom has no 2D context: record fillRect so the drawn modules are observable. */
+  function stubCanvas(): { rects: { x: number; y: number }[]; restore: () => void } {
+    const rects: { x: number; y: number }[] = [];
+    let dark = false;
+    const ctx = {
+      set fillStyle(v: string) { dark = v === "#000000"; },
+      fillRect: (x: number, y: number): void => { if (dark) rects.push({ x, y }); },
+    };
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => ctx) as unknown as HTMLCanvasElement["getContext"]);
+    return { rects, restore: () => { spy.mockRestore(); } };
+  }
+
+  function mount(extra: Partial<ConstructorParameters<typeof LobbyScreen>[0]> = {}): LobbyScreen {
+    document.body.innerHTML = "";
+    return new LobbyScreen({
+      host: document.body,
+      locale: "en-US",
+      onEvent: () => {},
+      onStart: () => {},
+      onQuit: () => {},
+      ...extra,
+    });
+  }
+
+  function hostState(code: string | null, phase: "lobby" | "countdown" = "lobby"): ReturnType<typeof createLobbyState> {
+    return { ...createLobbyState(true), code, phase };
+  }
+
+  it("shows a QR canvas for the room code next to the code", () => {
+    const canvasStub = stubCanvas();
+    const screen = mount({ pageHost: "example.com", pagePath: "/arkanoid-multiplayer/" });
+    screen.sync(hostState("ABC23"));
+    expect(screen.root.querySelectorAll("canvas")).toHaveLength(1);
+    expect(screen.root.textContent).toContain("ABC23");
+    // Top-left finder pattern: module (0,0) is drawn dark.
+    expect(canvasStub.rects).toContainEqual({ x: 0, y: 0 });
+    screen.close();
+    canvasStub.restore();
+  });
+
+  it("does not redraw while the code is unchanged, and redraws for a new code", () => {
+    const canvasStub = stubCanvas();
+    const screen = mount({ pageHost: "example.com" });
+    screen.sync(hostState("ABC23"));
+    const first = screen.root.querySelector("canvas");
+    screen.sync(hostState("ABC23"));
+    expect(screen.root.querySelector("canvas")).toBe(first);
+    screen.sync(hostState("XYZ45"));
+    expect(screen.root.querySelector("canvas")).not.toBe(first);
+    expect(screen.root.querySelectorAll("canvas")).toHaveLength(1);
+    screen.close();
+    canvasStub.restore();
+  });
+
+  it("hides the QR during the countdown and when there is no code", () => {
+    const canvasStub = stubCanvas();
+    const screen = mount({ pageHost: "example.com" });
+    screen.sync(hostState("ABC23"));
+    screen.sync(hostState("ABC23", "countdown"));
+    expect(screen.root.querySelectorAll("canvas")).toHaveLength(0);
+    screen.sync(hostState(null));
+    expect(screen.root.querySelectorAll("canvas")).toHaveLength(0);
+    screen.close();
+    canvasStub.restore();
+  });
+
+  it("renders no QR when the screen has no page host to link to", () => {
+    const canvasStub = stubCanvas();
+    const screen = mount();
+    screen.sync(hostState("ABC23"));
+    expect(screen.root.querySelectorAll("canvas")).toHaveLength(0);
+    screen.close();
+    canvasStub.restore();
   });
 });
 

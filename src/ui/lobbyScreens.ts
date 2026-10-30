@@ -5,6 +5,7 @@
 // checks + all-ready gate, mode picker greying, kick, countdown.
 // DOM pattern follows settingsScreen; tap targets >=48 px.
 import { t, type Locale, type StringKey } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import {
   createLobbyState,
   reduceLobby,
@@ -20,17 +21,18 @@ import {
 import { SKINS } from "content/skins";
 import { THEMES } from "content/themes";
 import { ROOM_CODE_REGEX } from "signaling/code";
+import qrcode from "qrcode-generator";
 
 // ---- QR (client-side, zero network) ----
 
-/** Minimal surface of the qrcode-generator lib (no bundled types). */
+/** Minimal surface of the qrcode-generator lib the screens depend on. */
 interface QrGenerator {
   addData(data: string): void;
   make(): void;
   getModuleCount(): number;
   isDark(row: number, col: number): boolean;
 }
-type QrFactory = (typeNumber: number, errorCorrectionLevel: string) => QrGenerator;
+type QrFactory = (typeNumber: 0, errorCorrectionLevel: "M") => QrGenerator;
 
 /**
  * QR payload for a room: https://<host><path>?code=XXXXX (spec §8). The path
@@ -42,12 +44,13 @@ export function qrPayloadFor(code: string, host: string, path = "/"): string {
   return `https://${host}${cleanPath}?code=${code}`;
 }
 
-/** Render a QR matrix for the payload; null when the lib is unavailable. */
-export function qrMatrix(payload: string): boolean[][] | null {
-  const mod = (globalThis as Record<string, unknown>).qrcode;
-  if (typeof mod !== "function") return null;
+/**
+ * QR modules for the payload; null when it cannot be encoded (e.g. too long).
+ * The factory is injectable so tests can substitute a fake generator.
+ */
+export function qrMatrix(payload: string, factory: QrFactory = qrcode): boolean[][] | null {
   try {
-    const qr = (mod as QrFactory)(0, "M");
+    const qr = factory(0, "M");
     qr.addData(payload);
     qr.make();
     const n = qr.getModuleCount();
@@ -58,9 +61,39 @@ export function qrMatrix(payload: string): boolean[][] | null {
       out.push(row);
     }
     return out;
-  } catch {
+  } catch (err) {
+    console.warn("[lobby] QR encode failed; room code stays text-only", err);
     return null;
   }
+}
+
+/** Pixels per QR module on the share canvas. */
+const QR_MODULE_PX = 8;
+
+/**
+ * Draw the QR for a payload onto a canvas (white quiet background, black
+ * modules). Null when the payload cannot be encoded or no 2D context exists.
+ */
+export function renderQrCanvas(payload: string): HTMLCanvasElement | null {
+  const matrix = qrMatrix(payload);
+  if (matrix === null) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = matrix.length * QR_MODULE_PX;
+  canvas.height = matrix.length * QR_MODULE_PX;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000000";
+  for (let y = 0; y < matrix.length; y++) {
+    const row = matrix[y];
+    if (!row) continue;
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] === true) ctx.fillRect(x * QR_MODULE_PX, y * QR_MODULE_PX, QR_MODULE_PX, QR_MODULE_PX);
+    }
+  }
+  canvas.style.alignSelf = "center";
+  return canvas;
 }
 
 /** Read ?code= from a URL; null when absent/invalid. */
@@ -118,6 +151,7 @@ function ensureStyles(): void {
 
 export class LandingScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
 
   constructor(opts: LandingScreenOptions) {
     ensureStyles();
@@ -157,6 +191,8 @@ export class LandingScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
 
     // QR prefill (?code=) jumps straight into join. Deferred to a
     // microtask: the caller's `const landing = new LandingScreen(...)`
@@ -168,6 +204,7 @@ export class LandingScreen {
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }
@@ -198,6 +235,7 @@ export interface RoomCodeScreenOptions {
 
 export class RoomCodeScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
   private readonly boxes: HTMLInputElement[] = [];
   private readonly opts: RoomCodeScreenOptions;
 
@@ -218,28 +256,8 @@ export class RoomCodeScreen {
       panel.appendChild(codeEl);
 
       // QR share: https://<host><path>?code=XXXXX, client-side.
-      const matrix = qrMatrix(qrPayloadFor(code, opts.pageHost, opts.pagePath));
-      if (matrix !== null) {
-        const size = 8;
-        const canvas = document.createElement("canvas");
-        canvas.width = matrix.length * size;
-        canvas.height = matrix.length * size;
-        const ctx = canvas.getContext("2d");
-        if (ctx !== null) {
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = "#000000";
-          for (let y = 0; y < matrix.length; y++) {
-            const row = matrix[y];
-            if (!row) continue;
-            for (let x = 0; x < row.length; x++) {
-              if (row[x] === true) ctx.fillRect(x * size, y * size, size, size);
-            }
-          }
-          canvas.style.alignSelf = "center";
-          panel.appendChild(canvas);
-        }
-      }
+      const qrCanvas = renderQrCanvas(qrPayloadFor(code, opts.pageHost, opts.pagePath));
+      if (qrCanvas !== null) panel.appendChild(qrCanvas);
 
       const cont = menuBtn(opts.locale, "lobby.continue");
       cont.addEventListener("click", () => { opts.onCreate(code); });
@@ -296,9 +314,12 @@ export class RoomCodeScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root, onCancel: opts.onBack });
+    this.nav.start();
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 }
@@ -318,16 +339,25 @@ export interface LobbyScreenOptions {
   onQuit: () => void;
   /** Settings entry (spec §14: reachable from lobby always). */
   onSettings?: () => void;
+  /** Ticket 101: page host for the QR share link; no QR is drawn without it. */
+  pageHost?: string;
+  /** Page path for the QR link (project-site subpath, default "/"). */
+  pagePath?: string;
 }
 
 export class LobbyScreen {
   readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
   private state: LobbyState;
   private readonly opts: LobbyScreenOptions;
   private readonly device: LobbyDevice;
   private readonly playersEl: HTMLElement;
   private readonly configEl: HTMLElement;
   private readonly statusEl: HTMLElement;
+  /** Ticket 101: holds the QR canvas for the current room code. */
+  private readonly qrEl: HTMLElement;
+  /** The code the QR was drawn for — redraw only when it changes. */
+  private qrCode: string | null = null;
   private startEl: HTMLButtonElement | null = null;
 
   constructor(opts: LobbyScreenOptions) {
@@ -351,6 +381,11 @@ export class LobbyScreen {
     this.statusEl = document.createElement("div");
     this.statusEl.className = "ld-hint";
     panel.appendChild(this.statusEl);
+
+    this.qrEl = document.createElement("div");
+    this.qrEl.style.display = "flex";
+    this.qrEl.style.justifyContent = "center";
+    panel.appendChild(this.qrEl);
 
     this.playersEl = document.createElement("div");
     this.playersEl.style.display = "flex";
@@ -393,6 +428,8 @@ export class LobbyScreen {
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root });
+    this.nav.start();
     this.render();
   }
 
@@ -409,6 +446,18 @@ export class LobbyScreen {
     this.opts.onEvent(event);
   }
 
+  /** Share QR for the room code (ticket 101): only while joining is possible. */
+  private renderQr(code: string | null): void {
+    const host = this.opts.pageHost;
+    const wanted = host === undefined ? null : code;
+    if (wanted === this.qrCode) return;
+    this.qrCode = wanted;
+    this.qrEl.replaceChildren();
+    if (wanted === null || host === undefined) return;
+    const canvas = renderQrCanvas(qrPayloadFor(wanted, host, this.opts.pagePath));
+    if (canvas !== null) this.qrEl.appendChild(canvas);
+  }
+
   private render(): void {
     const s = this.state;
     const locale = this.opts.locale;
@@ -421,6 +470,8 @@ export class LobbyScreen {
     } else {
       this.statusEl.textContent = "";
     }
+
+    this.renderQr(s.phase === "lobby" ? s.code : null);
 
     // Start gate (spec §8): host + lobby phase + every player ready.
     // Mirrors the reducer's startCountdown guard so the button never
@@ -567,12 +618,15 @@ export class LobbyScreen {
   }
 
   close(): void {
+    this.nav.stop();
     this.root.remove();
   }
 
   /** Re-attach after close (match ended → back to lobby). Idempotent. */
   reopen(): void {
-    if (!this.root.isConnected) this.opts.host.appendChild(this.root);
+    if (this.root.isConnected) return;
+    this.opts.host.appendChild(this.root);
+    this.nav.start();
   }
 }
 

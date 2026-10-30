@@ -28,6 +28,20 @@ export class MouseAdapter {
     this.paddleX = paddleFieldX;
   }
 
+  /**
+   * Refresh the paddle position every tick. Without this, the pointer chase
+   * compares against the paddle position from the last pointermove and keeps
+   * emitting ±1 after the paddle has arrived, starving every other device.
+   */
+  feedPaddle(paddleFieldX: number): void {
+    this.paddleX = paddleFieldX;
+  }
+
+  /** Drop the chase target; the next pointer move re-arms it. */
+  releaseTarget(): void {
+    this.pointerX = null;
+  }
+
   feedClick(): void {
     this.launchEdge = true;
   }

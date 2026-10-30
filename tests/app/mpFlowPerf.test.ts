@@ -28,7 +28,7 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: { width: 800, height: 600, on: (): void => {}, off: (): void => {} },
   } as unknown as Application;
 };
 
@@ -57,6 +57,9 @@ vi.mock("render/appShell", () => ({
   },
 }));
 
+/** Every texture resolution the flow pushed at its fields (ticket 102). */
+const textureResolutions: number[] = [];
+
 vi.mock("render/splitScreen", () => ({
   SplitScreenView: class {
     readonly container = { y: 0, destroy: () => {} };
@@ -65,6 +68,9 @@ vi.mock("render/splitScreen", () => ({
     tickEffects = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn((r: number) => {
+      textureResolutions.push(r);
+    });
   },
 }));
 
@@ -135,6 +141,7 @@ describe("mpFlow perf wiring (ticket 54)", () => {
     shellCalls.lost = 0;
     shellCalls.restored = 0;
     shellOpts.length = 0;
+    textureResolutions.length = 0;
   });
 
   afterEach(() => {
@@ -228,6 +235,11 @@ describe("mpFlow perf wiring (ticket 54)", () => {
     hostFlow.setPerfRung(0);
     expect(document.querySelector("[data-perf-degraded]")).toBeNull();
     expect(hostFlow.perfRung).toBe(0);
+    // Ticket 102: the degraded rung downscales the cached wall texture, and
+    // recovery restores it — the downscale reaches the render seam, not just
+    // the ladder state.
+    expect(textureResolutions).toContain(0.5);
+    expect(textureResolutions.at(-1)).toBe(1);
     // Match survives every rung change.
     expect(hostFlow.currentPhase).toBe("inGame");
     for (let i = 0; i < 5; i++) hostFlow.advanceTest(1000 / 60);
@@ -247,6 +259,12 @@ describe("mpFlow perf wiring (ticket 54)", () => {
       const text = document.querySelector("[data-perf-overlay]")?.textContent ?? "";
       expect(text).toContain("fps");
       expect(text).toContain("sim");
+      // Ticket 102: the match overlay reports memory telemetry too.
+      expect(text).toContain("tex ");
+      expect(text).toMatch(/heap (\?|[\d.]+MB)/);
+      // Texture memory stays inside the 64 MB ceiling the line advertises.
+      const texMb = Number(/tex ([\d.]+)MB/.exec(text)?.[1] ?? "NaN");
+      expect(texMb).toBeLessThan(64);
     } finally {
       window.history.replaceState(null, "", original);
     }

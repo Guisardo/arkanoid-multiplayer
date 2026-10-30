@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const inits: Record<string, unknown>[] = [];
 const destroyed: number[] = [];
+// vi.hoisted: the mock factory runs at import time, before plain consts exist.
+const { registered, FAKE_CULLER_PLUGIN } = vi.hoisted(() => ({
+  registered: [] as unknown[],
+  FAKE_CULLER_PLUGIN: { name: "fake-culler-plugin" },
+}));
 
 function makeFakeCanvas(): HTMLCanvasElement & { listeners: Map<string, Set<(e: Event) => void>> } {
   const c = document.createElement("canvas") as HTMLCanvasElement & {
@@ -33,7 +38,11 @@ vi.mock("pixi.js", () => {
       destroyed.push(1);
     }
   }
-  return { Application: FakeApp };
+  return {
+    Application: FakeApp,
+    CullerPlugin: FAKE_CULLER_PLUGIN,
+    extensions: { add: (ext: unknown) => registered.push(ext) },
+  };
 });
 
 import { createAppShell, RENDERER_CONFIG } from "render/appShell";
@@ -156,5 +165,11 @@ describe("createAppShell (ticket 54)", () => {
       autoDensity: true,
       preference: "webgl",
     });
+  });
+});
+
+describe("appShell culling (ticket 93)", () => {
+  it("registers Pixi's CullerPlugin so cullable FieldViews are culled each render", () => {
+    expect(registered).toContain(FAKE_CULLER_PLUGIN);
   });
 });

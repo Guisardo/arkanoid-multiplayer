@@ -74,6 +74,12 @@ test("lobby: two contexts connect via copy-paste, ready gate, countdown, match s
   // Host sees 2 players (itself + the guest).
   await expect(hostLobby.locator("button", { hasText: "Ready" })).toHaveCount(2, { timeout: 10_000 });
 
+  // Ticket 101: the host lobby re-shows the join QR; the guest has no QR.
+  await expect(hostLobby.locator("canvas")).toHaveCount(1);
+  await expect(guestLobby.locator("canvas")).toHaveCount(0);
+  // Start stays gated until everyone is ready.
+  await expect(hostLobby.locator("button", { hasText: "Start" })).toBeDisabled();
+
   // Ready gate: both toggle ready, host Start → countdown → match.
   const hostReady = hostLobby.locator("button", { hasText: "Not ready" }).first();
   await hostReady.click();

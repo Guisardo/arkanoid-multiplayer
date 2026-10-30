@@ -6,346 +6,616 @@
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1791136907941,
-                "duration": 79.45840000000044,
+                "date": 1793339593151,
+                "duration": 19.29780000000028,
                 "success": true
             }
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}": {
             "isFolder": true,
             "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets",
             "metaData": {
-                "tps": true
+                "m": true
             },
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1791136907947,
-                "duration": 3635.458699999999,
+                "date": 1793339593152,
+                "duration": 18.195099999999,
                 "success": true
             }
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/ball-green.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}/boot-atlas{tps}": {
+            "isFolder": true,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}",
+            "metaData": {
                 "tps": true
             },
-            "transformData": {},
-            "hash": "Snxv0A"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/ball-red.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
             "inheritedMetaData": {
-                "tps": true
+                "m": true
             },
             "transformData": {},
-            "hash": "l2RQJg"
+            "stats": {
+                "date": 1793339593153,
+                "duration": 661.8451000000005,
+                "success": true
+            }
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/ball-yellow.png": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}/boot-atlas{tps}/pixel-space.png": {
             "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "gg3CXg"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/paddle-a-red.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "MbqCJQ"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/paddle-b-purple.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "ui4SSQ"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/paddle-c-blue.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "2j_y5g"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-circle.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "Mp0XeQ"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-debris.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "6iEhYQ"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-ring.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "i09-Tw"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-splat.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "wlayxA"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-square.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "wlpt"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-star.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "LBVgtA"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-streak.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "03VZ8Q"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/particle-triangle.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "9D3Y"
-        },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}/pixel-space.png": {
-            "isFolder": false,
-            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {},
             "hash": "Q6eE6A"
         },
-        ".assetpack/texture-packer/atlas.png": {
+        ".assetpack/texture-packer/boot{m}/boot-atlas.png": {
             "isFolder": false,
-            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
+            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {
                 "mIgnore": true,
                 "nomip": true
             },
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {}
         },
-        ".assetpack/compress/atlas.png": {
+        ".assetpack/compress/boot{m}/boot-atlas.png": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer/atlas.png",
+            "transformParent": ".assetpack/texture-packer/boot{m}/boot-atlas.png",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/atlas-kae7dg.png": {
+        ".assetpack/cache-buster/boot{m}/boot-atlas-HiXh4w.png": {
             "isFolder": false,
-            "transformParent": ".assetpack/compress/atlas.png",
+            "transformParent": ".assetpack/compress/boot{m}/boot-atlas.png",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/atlas-kae7dg.png": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/boot/boot-atlas-HiXh4w.png": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/atlas-kae7dg.png",
+            "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-HiXh4w.png",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        ".assetpack/compress/atlas.webp": {
+        ".assetpack/compress/boot{m}/boot-atlas.webp": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer/atlas.png",
+            "transformParent": ".assetpack/texture-packer/boot{m}/boot-atlas.png",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/atlas-XEHeRw.webp": {
+        ".assetpack/cache-buster/boot{m}/boot-atlas-XmXRuA.webp": {
             "isFolder": false,
-            "transformParent": ".assetpack/compress/atlas.webp",
+            "transformParent": ".assetpack/compress/boot{m}/boot-atlas.webp",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/atlas-XEHeRw.webp": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/boot/boot-atlas-XmXRuA.webp": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/atlas-XEHeRw.webp",
+            "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-XmXRuA.webp",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true,
                 "mIgnore": true,
                 "nomip": true
             },
             "transformData": {}
         },
-        ".assetpack/texture-packer/atlas.json": {
+        ".assetpack/texture-packer/boot{m}/boot-atlas.json": {
             "isFolder": false,
-            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/atlas{tps}",
+            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/texture-packer-compress/atlas.png.json": {
+        ".assetpack/texture-packer-compress/boot{m}/boot-atlas.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer/atlas.json",
+            "transformParent": ".assetpack/texture-packer/boot{m}/boot-atlas.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/json/atlas.png.json": {
+        ".assetpack/json/boot{m}/boot-atlas.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer-compress/atlas.png.json",
+            "transformParent": ".assetpack/texture-packer-compress/boot{m}/boot-atlas.png.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/atlas-wsa-UA.png.json": {
+        ".assetpack/cache-buster/boot{m}/boot-atlas-Wp72dg.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/json/atlas.png.json",
+            "transformParent": ".assetpack/json/boot{m}/boot-atlas.png.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/atlas-ugyCKQ.png.json": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/boot/boot-atlas-4KLasw.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/atlas-wsa-UA.png.json",
+            "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-Wp72dg.png.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/texture-packer-compress/atlas.webp.json": {
+        ".assetpack/texture-packer-compress/boot{m}/boot-atlas.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer/atlas.json",
+            "transformParent": ".assetpack/texture-packer/boot{m}/boot-atlas.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/json/atlas.webp.json": {
+        ".assetpack/json/boot{m}/boot-atlas.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/texture-packer-compress/atlas.webp.json",
+            "transformParent": ".assetpack/texture-packer-compress/boot{m}/boot-atlas.webp.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/atlas-hwlVRQ.webp.json": {
+        ".assetpack/cache-buster/boot{m}/boot-atlas-T6LjUg.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/json/atlas.webp.json",
+            "transformParent": ".assetpack/json/boot{m}/boot-atlas.webp.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {
                 "page": 0
             }
         },
-        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/atlas-c-eVjw.webp.json": {
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/boot/boot-atlas-MF4_Tg.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/atlas-hwlVRQ.webp.json",
+            "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-T6LjUg.webp.json",
             "metaData": {},
             "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}": {
+            "isFolder": true,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets",
+            "metaData": {
+                "m": true
+            },
+            "inheritedMetaData": {},
+            "transformData": {},
+            "stats": {
+                "date": 1793339593168,
+                "duration": 3.087099999998827,
+                "success": true
+            }
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}": {
+            "isFolder": true,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}",
+            "metaData": {
+                "tps": true
+            },
+            "inheritedMetaData": {
+                "m": true
+            },
+            "transformData": {},
+            "stats": {
+                "date": 1793339593168,
+                "duration": 315.135400000001,
+                "success": true
+            }
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-green.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "Snxv0A"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-red.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "l2RQJg"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-yellow.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "gg3CXg"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-a-red.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "MbqCJQ"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-b-purple.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "ui4SSQ"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-c-blue.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "2j_y5g"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-circle.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "Mp0XeQ"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-debris.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "6iEhYQ"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-ring.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "i09-Tw"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-splat.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "wlayxA"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-square.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "wlpt"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-star.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "LBVgtA"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-streak.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "03VZ8Q"
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-triangle.png": {
+            "isFolder": false,
+            "parent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {},
+            "hash": "9D3Y"
+        },
+        ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.png": {
+            "isFolder": false,
+            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {
+                "mIgnore": true,
+                "nomip": true
+            },
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {}
+        },
+        ".assetpack/compress/gameplay{m}/gameplay-atlas.png": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.png",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-FYd-gg.png": {
+            "isFolder": false,
+            "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas.png",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/gameplay/gameplay-atlas-FYd-gg.png": {
+            "isFolder": false,
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-FYd-gg.png",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        ".assetpack/compress/gameplay{m}/gameplay-atlas.webp": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.png",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-LcYAQg.webp": {
+            "isFolder": false,
+            "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas.webp",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/gameplay/gameplay-atlas-LcYAQg.webp": {
+            "isFolder": false,
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-LcYAQg.webp",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true,
+                "mIgnore": true,
+                "nomip": true
+            },
+            "transformData": {}
+        },
+        ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.json": {
+            "isFolder": false,
+            "transformParent": "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/texture-packer-compress/gameplay{m}/gameplay-atlas.png.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/json/gameplay{m}/gameplay-atlas.png.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer-compress/gameplay{m}/gameplay-atlas.png.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-4D5U6w.png.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas.png.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/gameplay/gameplay-atlas-zRmQ_w.png.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-4D5U6w.png.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/texture-packer-compress/gameplay{m}/gameplay-atlas.webp.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer/gameplay{m}/gameplay-atlas.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/json/gameplay{m}/gameplay-atlas.webp.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/texture-packer-compress/gameplay{m}/gameplay-atlas.webp.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-jALycQ.webp.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas.webp.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
+                "tps": true
+            },
+            "transformData": {
+                "page": 0
+            }
+        },
+        "D:/Users/Lucas/Documents/Code/arkanoid-multiplayer/public/assets/gameplay/gameplay-atlas-E7omng.webp.json": {
+            "isFolder": false,
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-jALycQ.webp.json",
+            "metaData": {},
+            "inheritedMetaData": {
+                "m": true,
                 "tps": true
             },
             "transformData": {

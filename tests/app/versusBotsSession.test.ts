@@ -10,6 +10,31 @@ import type { AppShell } from "render/appShell";
 
 // ---- Pixi mocks ----
 
+/**
+ * Ticket 100: sessions listen on the renderer's "resize" (Pixi applies the new
+ * size a frame after window resize). The fake records listeners so tests fire it.
+ */
+const fakeRenderers: { width: number; height: number; listeners: Set<() => void> }[] = [];
+function fakeRenderer(): unknown {
+  const listeners = new Set<() => void>();
+  const r = {
+    width: 800,
+    height: 600,
+    listeners,
+    on: (_event: string, fn: () => void): void => { listeners.add(fn); },
+    off: (_event: string, fn: () => void): void => { listeners.delete(fn); },
+  };
+  fakeRenderers.push(r);
+  return r;
+}
+/** Fire "resize" on the newest renderer after giving it a new size. */
+function resizeRenderer(width: number, height: number): void {
+  const r = fakeRenderers[fakeRenderers.length - 1]!;
+  r.width = width;
+  r.height = height;
+  for (const fn of [...r.listeners]) fn();
+}
+
 const mockApp = (): Application => {
   const stage = {
     children: [] as unknown[],
@@ -27,7 +52,7 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: fakeRenderer(),
   } as unknown as Application;
 };
 
@@ -48,6 +73,7 @@ vi.mock("render/fieldView", () => ({
     sync = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();
   },
@@ -63,6 +89,7 @@ vi.mock("render/splitScreen", () => ({
     resize = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     regionOf = () => ({ x: 0, y: 0, w: 400, h: 600 });
     constructor(opts: { players: number[] }) {
       const holder = this.constructor as unknown as { lastPlayers: number[] | null };
@@ -246,6 +273,6 @@ describe("versus bots session wiring (ticket 56)", () => {
     const s = await makeSession("race", 1);
     sessions.push(s);
     s.loop.advance(0);
-    expect(() => window.dispatchEvent(new Event("resize"))).not.toThrow();
+    expect(() => { resizeRenderer(400, 300); }).not.toThrow();
   });
 });

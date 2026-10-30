@@ -1,28 +1,83 @@
 import { describe, expect, it } from "vitest";
-import { getLevel, availableRounds, assertAttackRound, ATTACK_MAX_ROUND } from "content/levels";
+import {
+  getLevel,
+  availableRounds,
+  assertAttackRound,
+  selectableRounds,
+  roundRange,
+  MAX_ROUND,
+  MIN_ROUND,
+  ATTACK_MAX_ROUND,
+} from "content/levels";
 import { validateLevel } from "content/levelFormat";
 import { CHAR_TIER, TIER_SCORE, DUEL_DROP_BONUS } from "content/scoring";
 import { createRoundSim } from "sim/roundSim";
 import { BRICK_COLS, BRICK_ROWS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
 
+describe("selectableRounds — the picker/preload contract", () => {
+  // The invariant this function exists to protect: the sims advance rounds
+  // synchronously through `getLevelSync`, so a round that was selectable but
+  // not preloaded throws mid-match and ends a live game. These cases pin the
+  // derivation so neither the picker nor a preload range can drift alone.
+
+  it("defaults to the whole shipped range", () => {
+    expect(selectableRounds()).toEqual(availableRounds());
+    expect(selectableRounds()).toEqual(roundRange(MIN_ROUND, MAX_ROUND));
+  });
+
+  it("clamps to an explicit ceiling", () => {
+    expect(selectableRounds(ATTACK_MAX_ROUND)).toEqual(roundRange(1, 32));
+    // Attack never selects Doh — the round-33 boss.
+    expect(selectableRounds(ATTACK_MAX_ROUND)).not.toContain(MAX_ROUND);
+  });
+
+  it("clamps out-of-range ceilings instead of returning nothing", () => {
+    expect(selectableRounds(0)).toEqual([]);
+    expect(selectableRounds(999)).toEqual(roundRange(MIN_ROUND, MAX_ROUND));
+  });
+
+  it("covers every round a picker with that ceiling can hand out", () => {
+    // The property the preload depends on, stated directly: whatever the
+    // ceiling, the set is exactly MIN..ceiling, so nothing in it can be
+    // selectable-but-absent.
+    for (const ceiling of [1, 5, ATTACK_MAX_ROUND, MAX_ROUND]) {
+      const set = selectableRounds(ceiling);
+      for (let round = MIN_ROUND; round <= Math.min(ceiling, MAX_ROUND); round++) {
+        expect(set).toContain(round);
+      }
+    }
+  });
+
+  it("agrees with assertAttackRound over the attack range", () => {
+    for (const round of selectableRounds(ATTACK_MAX_ROUND)) {
+      expect(() => {
+        assertAttackRound(round);
+      }).not.toThrow();
+    }
+    expect(() => {
+      assertAttackRound(MAX_ROUND);
+    }).toThrow();
+  });
+});
+
 function input(tick: number, axisX = 0): InputFrame {
   return { player: 0, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
 }
 
 describe("level JSON validation (spec §4)", () => {
-  it("rounds 1–33 all present and validate with zero errors", () => {
+  it("rounds 1–33 all present and validate with zero errors", async () => {
     expect(availableRounds()).toEqual(Array.from({ length: 33 }, (_, i) => i + 1));
     for (const round of availableRounds()) {
-      const level = getLevel(round);
+      const level = await getLevel(round);
       const errors = validateLevel(level);
       expect(errors, `round ${String(round)}: ${JSON.stringify(errors)}`).toEqual([]);
     }
   });
 
-  it("grid dims exact 13×18 every round", () => {
+  it("grid dims exact 13×18 every round", async () => {
     for (const round of availableRounds()) {
-      const level = getLevel(round);
+      const level = await getLevel(round);
       expect(level.grid).toHaveLength(BRICK_ROWS);
       for (const row of level.grid) {
         expect(row.length, `round ${String(round)} row len`).toBe(BRICK_COLS);
@@ -30,9 +85,9 @@ describe("level JSON validation (spec §4)", () => {
     }
   });
 
-  it("capsule scripts: 6–10 entries, strictly increasing, ≤ destructible count", () => {
+  it("capsule scripts: 6–10 entries, strictly increasing, ≤ destructible count", async () => {
     for (const round of availableRounds()) {
-      const level = getLevel(round);
+      const level = await getLevel(round);
       expect(level.capsuleScript.length).toBeGreaterThanOrEqual(6);
       expect(level.capsuleScript.length).toBeLessThanOrEqual(10);
       const destructible = level.grid
@@ -48,41 +103,42 @@ describe("level JSON validation (spec §4)", () => {
     }
   });
 
-  it("base speeds escalate (round 1 = 110)", () => {
-    expect(getLevel(1).baseBallSpeed).toBe(110);
+  it("base speeds escalate (round 1 = 110)", async () => {
+    expect((await getLevel(1)).baseBallSpeed).toBe(110);
     let prev = 0;
     for (const round of availableRounds()) {
-      const speed = getLevel(round).baseBallSpeed;
+      const speed = (await getLevel(round)).baseBallSpeed;
       if (round !== 1) expect(speed).toBeGreaterThan(prev);
       prev = speed;
     }
   });
 
-  it("difficulty curve continuous across the 16→17 boundary (formulas hold)", () => {
+  it("difficulty curve continuous across the 16→17 boundary (formulas hold)", async () => {
     // Speed formula 110 + 2×(round−1) continues unbroken; silver hits stay
     // formula-driven (null override) so min(1+floor(round/8),4) escalates 3→4
     // at round 24 exactly as in rounds 1–16.
-    expect(getLevel(16).baseBallSpeed).toBe(140);
-    expect(getLevel(17).baseBallSpeed).toBe(142);
-    expect(getLevel(33).baseBallSpeed).toBe(174);
+    expect((await getLevel(16)).baseBallSpeed).toBe(140);
+    expect((await getLevel(17)).baseBallSpeed).toBe(142);
+    expect((await getLevel(33)).baseBallSpeed).toBe(174);
     for (const round of availableRounds()) {
-      expect(getLevel(round).baseBallSpeed).toBe(110 + 2 * (round - 1));
-      expect(getLevel(round).silverHitOverride).toBeNull();
+      const level = await getLevel(round);
+      expect(level.baseBallSpeed).toBe(110 + 2 * (round - 1));
+      expect(level.silverHitOverride).toBeNull();
     }
   });
 
-  it("round 33 (Doh) authored as data: gold-framed boss grid, playable params", () => {
-    const level = getLevel(33);
+  it("round 33 (Doh) authored as data: gold-framed boss grid, playable params", async () => {
+    const level = await getLevel(33);
     // Gold frame + silver ring + D core — boss data only; behavior = ticket 49.
     expect(level.grid[1]).toBe("GGGGGGGGGGGGG");
     expect(level.grid.join("")).toContain("SSSSSSSSS");
     expect(level.round).toBe(33);
   });
 
-  it("scoring table covers every colored char used in grids; duel drop 500", () => {
+  it("scoring table covers every colored char used in grids; duel drop 500", async () => {
     const used = new Set<string>();
     for (const round of availableRounds()) {
-      for (const ch of getLevel(round).grid.join("")) {
+      for (const ch of (await getLevel(round)).grid.join("")) {
         if (ch !== "." && ch !== "G" && ch !== "S") used.add(ch);
       }
     }
@@ -104,8 +160,8 @@ describe("level JSON validation (spec §4)", () => {
 
 describe("playability: every round clears under scripted play", () => {
   for (const round of availableRounds()) {
-    it(`round ${String(round)} clears start-to-finish`, () => {
-      const level = getLevel(round);
+    it(`round ${String(round)} clears start-to-finish`, async () => {
+      const level = await getLevel(round);
       const sim = createRoundSim(level, { lives: 99, score: 0 });
       let steps = 0;
       while (sim.snapshot().phase !== "roundClear" && steps < 3000) {

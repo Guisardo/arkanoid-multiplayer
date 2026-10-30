@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { SKINS, DEFAULT_SKIN, DEFAULT_SKIN_ID, getSkin, skinByIndex } from "content/skins";
 import { THEMES, DEFAULT_THEME, DEFAULT_THEME_ID, getTheme } from "content/themes";
@@ -72,15 +72,21 @@ describe("skin/theme registries (spec §13)", () => {
   });
 
   it("every referenced sprite is in the AssetPack atlas (atlas frame)", () => {
-    // Find the atlas JSON file in public/assets
+    // The art is packed into one atlas per bundle (ticket 87): boot/ and
+    // gameplay/. A sprite may live in either, so take the union of their frames.
     const assetsDir = path.join(process.cwd(), "public", "assets");
-    const files = require("fs").readdirSync(assetsDir);
-    const atlasJson = files.find((f: string) => f.endsWith(".json") && f.startsWith("atlas-"));
-    expect(atlasJson, "atlas JSON must exist").toBeDefined();
-    
-    const atlasPath = path.join(assetsDir, atlasJson!);
-    const atlas = JSON.parse(require("fs").readFileSync(atlasPath, "utf-8"));
-    const atlasFrames = new Set(Object.keys(atlas.frames));
+    const atlasFrames = new Set<string>();
+    for (const bundleDir of ["boot", "gameplay"]) {
+      const dir = path.join(assetsDir, bundleDir);
+      const tables = readdirSync(dir).filter((f) => f.endsWith(".png.json"));
+      expect(tables.length, `${bundleDir} atlas JSON must exist`).toBeGreaterThan(0);
+      for (const file of tables) {
+        const atlas = JSON.parse(readFileSync(path.join(dir, file), "utf-8")) as {
+          frames: Record<string, unknown>;
+        };
+        for (const frame of Object.keys(atlas.frames)) atlasFrames.add(frame);
+      }
+    }
     
     // Verify all skin/theme sprites are in the atlas
     const expectedFrames = new Set<string>();

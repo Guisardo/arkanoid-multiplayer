@@ -13,8 +13,9 @@ import { FieldView } from "render/fieldView";
 import type { EffectsState } from "render/visualEffects";
 import { layoutField } from "render/layout";
 import { resolveLocale, t, type Locale } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import type { AppShell } from "render/appShell";
-import { Storage } from "persistence/storage";
+import { sharedSaveBackend } from "persistence/storage";
 import type { EpisodeState } from "persistence/saveDocument";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
@@ -22,6 +23,7 @@ import type { SettingsScreen } from "ui/settingsScreen";
 import { EndScreen, soloEnd } from "ui/endScreens";
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats, estimateTextureBytes, textureWithinBudget } from "app/frameStats";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 
@@ -94,7 +96,9 @@ export async function startSoloSession(
   opts: SoloSessionOptions = {},
 ): Promise<SoloSession> {
   const { createAppShell } = await import("render/appShell");
-  const storage = new Storage();
+  // Ticket 103: the page's hydrated save store (IndexedDB when available), not
+  // a fresh localStorage-backed `new Storage()` that would bypass it.
+  const storage = (await sharedSaveBackend()).storage;
   const settings = loadSettings(storage);
   // Ticket 54: perf ladder starts from the Settings dpr mode (auto = top
   // rung); steps down under sustained slow frames, recovers lazily.
@@ -127,7 +131,7 @@ export async function startSoloSession(
   // lives); otherwise any stale record is dropped so a later crash cannot offer
   // to Continue a run the player already abandoned.
   const continuing = opts.continueEpisode;
-  const episode: SoloEpisode = createSoloEpisode({
+  const episode: SoloEpisode = await createSoloEpisode({
     storage,
     playerName: "Player 1",
     ...(continuing !== undefined
@@ -290,6 +294,8 @@ export async function startSoloSession(
     }));
     panel.appendChild(mkBtn(t(locale, "menu.quit"), quitTo));
     root.appendChild(panel);
+    // Stops itself when the menu is removed (many exit paths remove it).
+    new GamepadMenuNav({ root, onCancel: resumeFromPause }).start();
     return root;
   }
 
@@ -401,9 +407,16 @@ export async function startSoloSession(
       } else {
         // Merge devices: last device with non-zero axis or edge wins.
         const kf = keyboard.sampleFrame(tick);
-        const mf = mouse.sampleFrame(tick);
         const gf = gamepad.sampleFrame(tick);
         const tf = touch !== null ? touch.sampleFrame(tick) : null;
+        // Another device taking over cancels the pointer chase, so a stale
+        // mouse target cannot override keyboard/gamepad/touch input.
+        if (kf.axisX !== 0 || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
+          mouse.releaseTarget();
+        }
+        const paddleX = latest.players[0]?.paddle.x;
+        if (paddleX !== undefined) mouse.feedPaddle(paddleX);
+        const mf = mouse.sampleFrame(tick);
         const active =
           (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
           (mf.axisX !== 0 ? "mouse" : "") ||
@@ -478,6 +491,12 @@ export async function startSoloSession(
         renderEvery: ladder.rung.renderEvery,
         drawCalls: null,
         textureMb: textureMbEstimate,
+        // Ticket 102: heap + the cached wall textures, the term the ladder
+        // actually scales.
+        memory: sampleMemoryStats(
+          memoryProbe,
+          textureMbBytes + cachedWallBytes(views.length, ladder.rung.textureResolution),
+        ),
       });
     },
   });
@@ -488,6 +507,8 @@ export async function startSoloSession(
     const rung = ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves the cached wall texture.
+    for (const v of views) v.setTextureResolution(rung.textureResolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }
@@ -550,6 +571,9 @@ export async function startSoloSession(
     // tiny PNGs), but the check is the contract.
     throw new Error("texture budget exceeded by shipped assets");
   }
+  // Ticket 102: dev-only memory telemetry for the ?perf=1 overlay.
+  const textureMbBytes = textureMbEstimate * 1024 * 1024;
+  const memoryProbe = createMemoryProbe();
   let lastSyncMs = 0;
 
   const onResize = (): void => {
@@ -564,7 +588,10 @@ export async function startSoloSession(
       app.stage.addChild(touchOverlay.container);
     }
   };
-  globalThis.addEventListener("resize", onResize);
+  // Ticket 100: listen on the renderer, not the window. Pixi's ResizePlugin
+  // applies the new size one animation frame after window "resize", so a
+  // window listener would lay the fields out against the previous size.
+  app.renderer.on("resize", onResize);
 
   // Menu/pause: rebindable menu key (ticket 41) + gamepad Start. Checked in
   // render (not tick) so it works while paused and never races the sim.
@@ -640,7 +667,7 @@ export async function startSoloSession(
     globalThis.removeEventListener("keydown", kd);
     globalThis.removeEventListener("keyup", ku);
     globalThis.removeEventListener("keydown", onEsc);
-    globalThis.removeEventListener("resize", onResize);
+    app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
     settingsScreen?.close();

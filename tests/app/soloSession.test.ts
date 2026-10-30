@@ -12,6 +12,31 @@ import type { Snapshot } from "shared/protocol";
 
 // ---- Pixi mocks ----
 
+/**
+ * Ticket 100: sessions listen on the renderer's "resize" (Pixi applies the new
+ * size a frame after window resize). The fake records listeners so tests fire it.
+ */
+const fakeRenderers: { width: number; height: number; listeners: Set<() => void> }[] = [];
+function fakeRenderer(): unknown {
+  const listeners = new Set<() => void>();
+  const r = {
+    width: 800,
+    height: 600,
+    listeners,
+    on: (_event: string, fn: () => void): void => { listeners.add(fn); },
+    off: (_event: string, fn: () => void): void => { listeners.delete(fn); },
+  };
+  fakeRenderers.push(r);
+  return r;
+}
+/** Fire "resize" on the newest renderer after giving it a new size. */
+function resizeRenderer(width: number, height: number): void {
+  const r = fakeRenderers[fakeRenderers.length - 1]!;
+  r.width = width;
+  r.height = height;
+  for (const fn of [...r.listeners]) fn();
+}
+
 const mockApp = (): Application => {
   const stage = {
     children: [] as unknown[],
@@ -29,7 +54,7 @@ const mockApp = (): Application => {
   return {
     stage,
     canvas,
-    renderer: { width: 800, height: 600 },
+    renderer: fakeRenderer(),
   } as unknown as Application;
 };
 
@@ -60,6 +85,7 @@ vi.mock("render/fieldView", () => ({
     sync = vi.fn();
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
+    setTextureResolution = vi.fn();
     // ADR 0009: the session render callback advances the effects each frame.
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();
@@ -202,7 +228,7 @@ describe("solo session wiring", () => {
     const s = await makeSession();
     sessions.push(s);
     s.loop.advance(0);
-    window.dispatchEvent(new Event("resize"));
+    resizeRenderer(400, 300);
     // No throw; loop still advances after rebuild.
     for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
     expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(5);
@@ -303,7 +329,7 @@ describe("solo session wiring", () => {
 
   describe("episode wiring (ticket 36/53)", () => {
     /** Drain one life deterministically via the debug probe. */
-    async function loseLife(s: SoloSession): Promise<void> {
+    function loseLife(s: SoloSession): void {
       const before = s.latestSnapshot().players[0]?.lives ?? 0;
       s.debugSetBall(20, 240, 0, 120);
       for (let i = 0; i < 120; i++) {
@@ -396,11 +422,11 @@ describe("solo session wiring", () => {
       // Score some points first: launch, then place the ball to clear a
       // brick row deterministically is overkill — score 0 path is the
       // contract here (Continue on 0 = 0).
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       // The end screen appears once (guard against multi-tick double-show).
       s.loop.advance(1000 / 60);
       expect(s.soloPhase).toBe("gameOver");
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       expect(endRoot!.textContent).toContain("Game over");
       const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");
@@ -415,9 +441,9 @@ describe("solo session wiring", () => {
       const s = await makeSession();
       sessions.push(s);
       s.loop.advance(0);
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       s.loop.advance(1000 / 60);
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       const restart = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Restart");
       restart!.click();
@@ -433,9 +459,9 @@ describe("solo session wiring", () => {
       const s = await startSoloSession(host, 1, { onQuit: () => { quit++; } });
       sessions.push(s);
       s.loop.advance(0);
-      for (let i = 0; i < 3; i++) await loseLife(s);
+      for (let i = 0; i < 3; i++) loseLife(s);
       s.loop.advance(1000 / 60);
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       const quitBtn = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Quit");
       quitBtn!.click();
@@ -510,7 +536,7 @@ describe("solo session wiring", () => {
         guard++;
       }
       expect(s.soloPhase).toBe("episodeComplete");
-      const endRoot = document.querySelector(".end-root") as HTMLElement | null;
+      const endRoot = document.querySelector(".end-root");
       expect(endRoot).not.toBeNull();
       expect(endRoot!.textContent).toContain("Episode complete");
       const cont = [...endRoot!.querySelectorAll("button")].find((b) => b.textContent === "Continue");
@@ -543,7 +569,7 @@ describe("solo session wiring", () => {
         const s = await makeSession();
         sessions.push(s);
         s.loop.advance(0);
-        window.dispatchEvent(new Event("resize"));
+        resizeRenderer(400, 300);
         for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
         // No crash; overlay re-anchored (mocked TouchOverlay.setRegion called).
         expect(s.latestSnapshot().tick).toBeGreaterThan(0);

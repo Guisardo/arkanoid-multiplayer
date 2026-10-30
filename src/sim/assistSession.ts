@@ -10,7 +10,7 @@
 // scaling. Headless, deterministic (seeded LCG only).
 import { createRoundSim, type RoundSim } from "./roundSim";
 import { cycleTarget, meterFill, resolveFireTarget } from "./attack";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import {
   EMPTY_ACTIONS,
   isDestructibleCell,
@@ -100,7 +100,7 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
   const skinIndices = opts.skinIndices ?? [];
 
   let round = startRound;
-  let level: LevelData = getLevel(round);
+  let level: LevelData = getLevelSync(round);
   let phase: AssistMatchState["phase"] = "playing";
   let tick = 0;
 
@@ -228,7 +228,7 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
       return;
     }
     round++;
-    level = getLevel(round);
+    level = getLevelSync(round);
     for (const i of liveIndices) {
       const score = sims[i]?.snapshot().players[0]?.score ?? 0;
       sims[i] = createRoundSim(level, {

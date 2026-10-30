@@ -37,15 +37,15 @@ describe("setup validation", () => {
     expect(validateBotsSetup("race", 1, 4)).not.toBeNull();
   });
 
-  it("session creation throws on invalid setup", () => {
-    expect(() => createVersusBotsSession({ variant: "duel", humans: 1, bots: 2 })).toThrow();
-    expect(() => createVersusBotsSession({ variant: "race", humans: 2, bots: 1 })).toThrow();
+  it("session creation throws on invalid setup", async () => {
+    await expect(createVersusBotsSession({ variant: "duel", humans: 1, bots: 2 })).rejects.toThrow();
+    await expect(createVersusBotsSession({ variant: "race", humans: 2, bots: 1 })).rejects.toThrow();
   });
 });
 
 describe("session composition", () => {
-  it("race: 1 human + 2 bots steps without throwing; snapshots per player", () => {
-    const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
+  it("race: 1 human + 2 bots steps without throwing; snapshots per player", async () => {
+    const s = await createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
     expect(s.playerCount).toBe(3);
     expect(s.snapshots()).toHaveLength(3);
     for (let t = 0; t < 120; t++) s.step(frame(t));
@@ -53,15 +53,15 @@ describe("session composition", () => {
     expect(s.snapshots()[0]?.tick).toBeGreaterThan(0);
   });
 
-  it("duel: exactly 1 bot, single shared snapshot", () => {
-    const s = createVersusBotsSession({ variant: "duel", humans: 1, bots: 1, seed: 3 });
+  it("duel: exactly 1 bot, single shared snapshot", async () => {
+    const s = await createVersusBotsSession({ variant: "duel", humans: 1, bots: 1, seed: 3 });
     expect(s.playerCount).toBe(2);
     expect(s.snapshots()).toHaveLength(1);
     for (let t = 0; t < 60; t++) s.step(frame(t));
   });
 
-  it("sharedField: 1 human + 3 bot teammates on one field", () => {
-    const s = createVersusBotsSession({
+  it("sharedField: 1 human + 3 bot teammates on one field", async () => {
+    const s = await createVersusBotsSession({
       variant: "sharedField",
       humans: 1,
       bots: 3,
@@ -73,8 +73,8 @@ describe("session composition", () => {
     for (let t = 0; t < 60; t++) s.step(frame(t));
   });
 
-  it("parallelAssist: bots on separate fields, snapshots per player", () => {
-    const s = createVersusBotsSession({
+  it("parallelAssist: bots on separate fields, snapshots per player", async () => {
+    const s = await createVersusBotsSession({
       variant: "parallelAssist",
       humans: 1,
       bots: 2,
@@ -86,16 +86,16 @@ describe("session composition", () => {
     for (let t = 0; t < 60; t++) s.step(frame(t));
   });
 
-  it("attack: bots use meters (session steps, snapshots carry attack state)", () => {
-    const s = createVersusBotsSession({ variant: "attack", humans: 1, bots: 1, seed: 13 });
+  it("attack: bots use meters (session steps, snapshots carry attack state)", async () => {
+    const s = await createVersusBotsSession({ variant: "attack", humans: 1, bots: 1, seed: 13 });
     expect(s.playerCount).toBe(2);
     for (let t = 0; t < 60; t++) s.step(frame(t));
     expect(s.snapshots()).toHaveLength(2);
   });
 
-  it("pause freely (coop semantics) in every variant", () => {
+  it("pause freely (coop semantics) in every variant", async () => {
     for (const variant of ["race", "attack", "duel", "sharedField", "parallelAssist"] as BotVariant[]) {
-      const s = createVersusBotsSession({ variant, humans: 1, bots: 1, seed: 2 });
+      const s = await createVersusBotsSession({ variant, humans: 1, bots: 1, seed: 2 });
       s.pause();
       expect(s.isPaused()).toBe(true);
       const tickBefore = s.snapshots()[0]?.tick ?? 0;
@@ -108,9 +108,9 @@ describe("session composition", () => {
     }
   });
 
-  it("deterministic: same seed + same human input → identical snapshots", () => {
-    const run = (): string => {
-      const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 42 });
+  it("deterministic: same seed + same human input → identical snapshots", async () => {
+    const run = async (): Promise<string> => {
+      const s = await createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 42 });
       let out = "";
       for (let t = 0; t < 90; t++) {
         s.step(frame(t, Math.sin(t / 10) > 0 ? 1 : -1));
@@ -118,13 +118,13 @@ describe("session composition", () => {
       }
       return out;
     };
-    expect(run()).toBe(run());
+    expect(await run()).toBe(await run());
   });
 });
 
 describe("ticket 56: over / endData / skinIds", () => {
-  it("race: over() false while playing; endData null; skinIds per player", () => {
-    const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
+  it("race: over() false while playing; endData null; skinIds per player", async () => {
+    const s = await createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
     expect(s.over()).toBe(false);
     expect(s.endData()).toBeNull();
     expect(s.skinIds()).toHaveLength(3);
@@ -132,29 +132,29 @@ describe("ticket 56: over / endData / skinIds", () => {
     expect(new Set(s.skinIds()).size).toBe(3);
   });
 
-  it("duel: skinIds exactly 2; over() false at start", () => {
-    const s = createVersusBotsSession({ variant: "duel", humans: 1, bots: 1, seed: 3 });
+  it("duel: skinIds exactly 2; over() false at start", async () => {
+    const s = await createVersusBotsSession({ variant: "duel", humans: 1, bots: 1, seed: 3 });
     expect(s.skinIds()).toHaveLength(2);
     expect(s.over()).toBe(false);
     expect(s.endData()).toBeNull();
   });
 
-  it("sharedField + parallelAssist + attack: skinIds cover playerCount", () => {
+  it("sharedField + parallelAssist + attack: skinIds cover playerCount", async () => {
     const variants: Array<[BotVariant, number]> = [
       ["sharedField", 3],
       ["parallelAssist", 2],
       ["attack", 3],
     ];
     for (const [variant, bots] of variants) {
-      const s = createVersusBotsSession({ variant, humans: 1, bots, seed: 5 });
+      const s = await createVersusBotsSession({ variant, humans: 1, bots, seed: 5 });
       expect(s.skinIds()).toHaveLength(1 + bots);
       expect(s.over()).toBe(false);
       expect(s.endData()).toBeNull();
     }
   });
 
-  it("parallelAssist: over() flips when the assist match leaves playing", () => {
-    const s = createVersusBotsSession({
+  it("parallelAssist: over() flips when the assist match leaves playing", async () => {
+    const s = await createVersusBotsSession({
       variant: "parallelAssist",
       humans: 1,
       bots: 1,
@@ -172,8 +172,8 @@ describe("ticket 56: over / endData / skinIds", () => {
     expect(data?.kind).toBe("assist");
   });
 
-  it("ticket 56 regression: race bots LAUNCH and move (field-local view)", () => {
-    const s = createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
+  it("ticket 56 regression: race bots LAUNCH and move (field-local view)", async () => {
+    const s = await createVersusBotsSession({ variant: "race", humans: 1, bots: 2, seed: 7 });
     // Human launches; bots must launch within their 60–240-tick window.
     s.step(frame(0, 0, true));
     for (let t = 1; t <= 300; t++) s.step(frame(t));

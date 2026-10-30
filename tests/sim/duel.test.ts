@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRoundDuel, assertDuelRound, DUEL_MAX_ROUND, type DuelOptions } from "sim/duel";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import { FIELD_W, PADDLE_Y } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
 
@@ -9,7 +9,7 @@ function frame(player: number, tick: number, axisX = 0, launch = false): InputFr
 }
 
 function duel(over: Partial<DuelOptions> = {}, round = 1) {
-  return createRoundDuel(getLevel(round), {
+  return createRoundDuel(getLevelSync(round), {
     ballModel: "shared",
     timeCapTicks: null,
     ...over,

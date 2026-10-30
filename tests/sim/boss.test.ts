@@ -15,7 +15,7 @@ import {
   bossBox,
 } from "sim/boss";
 import { assertDuelRound, DUEL_MAX_ROUND } from "sim/duel";
-import { assertAttackRound, ATTACK_MAX_ROUND, getLevel } from "content/levels";
+import { assertAttackRound, ATTACK_MAX_ROUND, getLevelSync } from "content/levels";
 import { createRoundSim } from "sim/roundSim";
 import { createSharedFieldSim } from "sim/sharedField";
 import { createMultiFieldSession } from "sim/multiField";
@@ -145,17 +145,17 @@ describe("projectile paddle death", () => {
 
 describe("round 33 sim integration", () => {
   it("round 33 snapshot carries boss state; other rounds do not", () => {
-    const bossSim = createRoundSim(getLevel(33), { lives: 3, score: 0 });
+    const bossSim = createRoundSim(getLevelSync(33), { lives: 3, score: 0 });
     const snap33 = bossSim.snapshot();
     expect(snap33.boss).toBeDefined();
     expect(snap33.boss?.hp).toBe(BOSS_MAX_HP);
 
-    const normalSim = createRoundSim(getLevel(1), { lives: 3, score: 0 });
+    const normalSim = createRoundSim(getLevelSync(1), { lives: 3, score: 0 });
     expect(normalSim.snapshot().boss).toBeUndefined();
   });
 
   it("ball hitting the boss decrements HP and emits bossHit", () => {
-    const sim = createRoundSim(getLevel(33), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(33), { lives: 3, score: 0 });
     // Launch, then teleport the ball into the boss box heading up.
     sim.step([{ ...idleFrame(0), launch: true }]);
     sim.debugSetBall(104, 80, 0, -174);
@@ -169,7 +169,7 @@ describe("round 33 sim integration", () => {
   it("16 ball hits defeat the boss and clear the round", () => {
     // lives 99: boss projectiles kill an idle paddle — the test hammers the
     // boss via debug ball placement, so paddle deaths must not end the run.
-    const sim = createRoundSim(getLevel(33), { lives: 99, score: 0 });
+    const sim = createRoundSim(getLevelSync(33), { lives: 99, score: 0 });
     sim.step([{ ...idleFrame(0), launch: true }]);
     for (let t = 0; t < 4000 && sim.snapshot().phase !== "roundClear"; t += 20) {
       const boss = sim.snapshot().boss;
@@ -186,7 +186,7 @@ describe("round 33 sim integration", () => {
   });
 
   it("clearing all bricks while the boss lives does NOT clear the round", () => {
-    const sim = createRoundSim(getLevel(33), { lives: 3, score: 0 });
+    const sim = createRoundSim(getLevelSync(33), { lives: 3, score: 0 });
     // Drain destructibles via the assist hook (removes lowest bricks).
     let removed = 0;
     do {
@@ -200,7 +200,7 @@ describe("round 33 sim integration", () => {
     // Team pool 3×players is small vs projectile deaths — but the shared
     // ball-loss path only triggers when balls hit zero; debug placement
     // re-serves immediately, so the run survives to the boss's death.
-    const sim = createSharedFieldSim(getLevel(33), {
+    const sim = createSharedFieldSim(getLevelSync(33), {
       placement: "A",
       ballModel: "shared",
       playerCount: 2,

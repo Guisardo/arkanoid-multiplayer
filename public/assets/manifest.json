@@ -2,23 +2,56 @@
   "bundles": [
     {
       "name": "default",
+      "assets": []
+    },
+    {
+      "name": "boot",
       "assets": [
         {
           "alias": [
-            "atlas"
+            "boot/boot-atlas",
+            "boot-atlas"
           ],
           "src": [
             {
-              "src": "atlas-ugyCKQ.png.json",
-              "progressSize": 14.38
+              "src": "boot/boot-atlas-MF4_Tg.webp.json",
+              "progressSize": 27.92
             },
             {
-              "src": "atlas-c-eVjw.webp.json",
-              "progressSize": 31.15
+              "src": "boot/boot-atlas-4KLasw.png.json",
+              "progressSize": 9.85
             }
           ],
           "data": {
             "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gameplay",
+      "assets": [
+        {
+          "alias": [
+            "gameplay/gameplay-atlas",
+            "gameplay-atlas"
+          ],
+          "src": [
+            {
+              "src": "gameplay/gameplay-atlas-zRmQ_w.png.json",
+              "progressSize": 4.04
+            },
+            {
+              "src": "gameplay/gameplay-atlas-E7omng.webp.json",
+              "progressSize": 2.82
+            }
+          ],
+          "data": {
+            "tags": {
+              "m": true,
               "tps": true
             }
           }

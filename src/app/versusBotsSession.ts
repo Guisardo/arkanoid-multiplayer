@@ -11,7 +11,7 @@ import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { TouchAdapter } from "input/touch";
 import { TouchOverlay } from "render/touchOverlay";
-import { detectDeviceClass } from "app/mobileLayout";
+import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { SplitScreenView } from "render/splitScreen";
 import {
   createVersusBotsSession,
@@ -21,8 +21,9 @@ import {
 } from "sim/versusBots";
 import type { BotDifficulty } from "sim/bot";
 import { resolveLocale, t, type Locale } from "ui/strings";
+import { GamepadMenuNav } from "ui/gamepadNav";
 import type { AppShell } from "render/appShell";
-import { Storage } from "persistence/storage";
+import { sharedSaveBackend } from "persistence/storage";
 import { loadSettings, effectiveDpr } from "ui/settings";
 import { showSettings } from "./settingsRoute";
 import type { SettingsScreen } from "ui/settingsScreen";
@@ -38,6 +39,7 @@ import {
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 
 export interface VersusBotsAppOptions {
@@ -67,6 +69,8 @@ export interface VersusBotsAppSession {
   readonly matchOver: boolean;
   /** Test/e2e probe: latest snapshots. */
   snapshots(): Snapshot[];
+  /** Test/e2e probe (ticket 100): rendered HUD strip text per field. */
+  hudLines(): (readonly [string, string])[];
   /** Test probe (assist): force a player downed — drives the lost path. */
   debugSetDowned(player: number): void;
 }
@@ -76,7 +80,8 @@ export async function startVersusBotsSession(
   opts: VersusBotsAppOptions,
 ): Promise<VersusBotsAppSession> {
   const { createAppShell } = await import("render/appShell");
-  const storage = new Storage();
+  // Ticket 103: the page's hydrated save store (IndexedDB when available).
+  const storage = (await sharedSaveBackend()).storage;
   const settings = loadSettings(storage);
   const ladder: PerfLadder = createPerfLadder(rungForDprMode(settings.display.dprMode));
   const frameStats = new FrameStats();
@@ -96,8 +101,9 @@ export async function startVersusBotsSession(
   });
   const app = shell.app;
 
-  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0.
-  const sim: Sim = createVersusBotsSession({
+  // Sim (ticket 51): human = player 0, bots = 1..N, D = 0. ADR 0007: the
+  // variant sim is imported on demand inside the creator.
+  const sim: Sim = await createVersusBotsSession({
     variant: opts.variant,
     humans: 1,
     bots: opts.bots,
@@ -168,10 +174,13 @@ export async function startVersusBotsSession(
   });
   app.stage.addChild(split.container);
 
+  // Ticket 102: dev-only heap source for the ?perf=1 overlay.
+  const memoryProbe = createMemoryProbe();
+
   // Touch overlay floats over the whole canvas (single-field anchor).
   let touchOverlay: TouchOverlay | null = null;
   if (touch !== null) {
-    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, "solo");
+    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant));
     app.stage.addChild(touchOverlay.container);
   }
 
@@ -220,6 +229,8 @@ export async function startVersusBotsSession(
     }));
     panel.appendChild(mkBtn(t(locale, "menu.quit"), () => { quitTo("quit"); }));
     root.appendChild(panel);
+    // Stops itself when the menu is removed (many exit paths remove it).
+    new GamepadMenuNav({ root, onCancel: resumeFromPause }).start();
     return root;
   }
 
@@ -390,9 +401,16 @@ export async function startVersusBotsSession(
       if (paused || over) return;
       // Merge devices (soloSession pattern): last active wins, edges OR.
       const kf = keyboard.sampleFrame(tick);
-      const mf = mouse.sampleFrame(tick);
       const gf = gamepad.sampleFrame(tick);
       const tf = touch !== null ? touch.sampleFrame(tick) : null;
+      // Another device taking over cancels the pointer chase, so a stale
+      // mouse target cannot override keyboard/gamepad/touch input.
+      if (kf.axisX !== 0 || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
+        mouse.releaseTarget();
+      }
+      const paddleX = sim.snapshots()[0]?.players.find((p) => p.player === 0)?.paddle.x;
+      if (paddleX !== undefined) mouse.feedPaddle(paddleX);
+      const mf = mouse.sampleFrame(tick);
       const active =
         (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
         (mf.axisX !== 0 ? "mouse" : "") ||
@@ -453,12 +471,19 @@ export async function startVersusBotsSession(
       const appWork = sample.simMs + lastSyncMs + sample.renderMs;
       ladder.observe(appWork);
       if (ladder.changed) applyLadderRung();
+      // Ticket 102: memory telemetry — the cached wall textures are the term the
+      // ladder actually scales.
+      const memory = sampleMemoryStats(
+        memoryProbe,
+        cachedWallBytes(split.fieldCount, ladder.rung.textureResolution),
+      );
       perfOverlay?.update({
         stats: frameStats.view,
         dpr: ladder.rung.dpr,
         renderEvery: ladder.rung.renderEvery,
         drawCalls: null,
-        textureMb: null,
+        textureMb: memory.textureMb,
+        memory,
       });
     },
   });
@@ -467,6 +492,8 @@ export async function startVersusBotsSession(
     const rung = ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves the cached wall texture.
+    split.setTextureResolution(rung.textureResolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }
@@ -523,7 +550,10 @@ export async function startVersusBotsSession(
       touchOverlay.setRegion({ x: 0, y: 0, w: app.renderer.width, h: app.renderer.height });
     }
   };
-  globalThis.addEventListener("resize", onResize);
+  // Ticket 100: listen on the renderer, not the window. Pixi's ResizePlugin
+  // applies the new size one animation frame after window "resize", so a
+  // window listener would lay the fields out against the previous size.
+  app.renderer.on("resize", onResize);
 
   function openSettings(fromPause = false): void {
     loop.stop();
@@ -569,7 +599,7 @@ export async function startVersusBotsSession(
     globalThis.removeEventListener("keydown", kd);
     globalThis.removeEventListener("keyup", ku);
     globalThis.removeEventListener("keydown", onEsc);
-    globalThis.removeEventListener("resize", onResize);
+    app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
     settingsScreen?.close();
@@ -592,6 +622,9 @@ export async function startVersusBotsSession(
     },
     get matchOver(): boolean {
       return over;
+    },
+    hudLines(): (readonly [string, string])[] {
+      return split.hudLines();
     },
     snapshots(): Snapshot[] {
       return sim.snapshots();

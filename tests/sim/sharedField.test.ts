@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSharedFieldSim, placementBEdges, SPEED_SCALE_PER_EXTRA_PLAYER } from "sim/sharedField";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import { FIELD_W, PADDLE_Y, BRICK_COLS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
 
@@ -9,7 +9,7 @@ function frame(player: number, tick: number, axisX = 0, axisY = 0, launch = fals
 }
 
 function sim(over: Partial<Parameters<typeof createSharedFieldSim>[1]> = {}) {
-  return createSharedFieldSim(getLevel(1), {
+  return createSharedFieldSim(getLevelSync(1), {
     placement: "A",
     ballModel: "shared",
     playerCount: 2,

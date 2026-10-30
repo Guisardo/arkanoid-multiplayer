@@ -6,6 +6,7 @@ import {
   DEFAULTS,
   type StorageBackend,
 } from "persistence/storage";
+import type { SaveChannel, SaveMessage } from "persistence/saveChannel";
 import { COMPOSITE_KEY, CURRENT_SCHEMA_VERSION, type SaveDocument } from "persistence/saveDocument";
 import { loadSettings, saveSettings, effectiveDpr, resetControls } from "ui/settings";
 import { SKINS, DEFAULT_SKIN_ID } from "content/skins";
@@ -55,6 +56,49 @@ function readDoc(b: FakeBackend): SaveDocument {
   const raw = b.map.get(COMPOSITE_KEY);
   if (raw === undefined || raw === null) throw new Error("no composite document was written");
   return JSON.parse(raw) as SaveDocument;
+}
+
+/**
+ * A stand-in for the real BroadcastChannel: two "tabs" sharing one bus. Each
+ * `fakeChannel` delivers to the other only, which is also the property that
+ * keeps a tab from hearing its own write. `sentBy` exposes what each side
+ * published so tests can assert on the announcement itself.
+ */
+function fakeChannelPair(): {
+  a: SaveChannel;
+  b: SaveChannel;
+  deliver: (from: "a" | "b") => void;
+  sentBy: (who: "a" | "b") => SaveMessage[];
+} {
+  type Listener = (m: SaveMessage) => void;
+  const listeners: Record<"a" | "b", Listener | null> = { a: null, b: null };
+  const sent: Record<"a" | "b", SaveMessage[]> = { a: [], b: [] };
+  const other = (who: "a" | "b") => (who === "a" ? "b" : "a");
+
+  function make(who: "a" | "b"): SaveChannel {
+    return {
+      publish(key, value, origin) {
+        sent[who].push({ type: "save-write", key, value, ...(origin !== undefined ? { origin } : {}) });
+      },
+      onExternalWrite(listener) {
+        listeners[who] = listener;
+      },
+      close() {
+        listeners[who] = null;
+      },
+    };
+  }
+
+  return {
+    a: make("a"),
+    b: make("b"),
+    deliver: (from) => {
+      const last = sent[from][sent[from].length - 1];
+      if (last === undefined) return;
+      listeners[other(from)]?.(last);
+    },
+    sentBy: (who) => sent[who],
+  };
 }
 
 describe("Storage — composite key (ADR 0008)", () => {
@@ -403,6 +447,187 @@ describe("Storage — merge semantics", () => {
     clock.t = 2000;
     s.savePartial({ name: "Two" });
     expect(readDoc(b).updatedAt).toBe(2000);
+  });
+});
+
+describe("cross-tab sync (ticket 103)", () => {
+  // Two tabs share one store. The decisions themselves live in `conflict.ts`;
+  // what matters here is that `Storage` actually applies them and never
+  // corrupts the save while doing so.
+
+  it("announces every write to the other tabs, with the bytes", () => {
+    const bus = fakeChannelPair();
+    const b = fakeBackend();
+    const a = new Storage(b, {
+      deviceId: "device-fixed",
+      now: () => 1000,
+      channel: bus.a,
+    });
+    a.savePartial({ name: "Announced" });
+
+    const sent = bus.sentBy("a");
+    expect(sent).toHaveLength(1);
+    const message = sent[0] as SaveMessage;
+    expect(message.type).toBe("save-write");
+    expect(message.key).toBe(COMPOSITE_KEY);
+    expect(message.origin).toBe("device-fixed");
+    // The message carries the VALUE, not a "something changed" ping: a ping
+    // would make the receiver re-read the store, which on an async backend is
+    // a read/write race.
+    expect(message.value).toBe(b.map.get(COMPOSITE_KEY));
+  });
+
+  it("adopts a newer write from the other tab without touching ours", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    const clockA = { t: 1000 };
+    const clockB = { t: 5000 };
+
+    const a = new Storage(mine, { deviceId: "device-a", now: () => clockA.t, channel: bus.a });
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => clockB.t, channel: bus.b });
+
+    b.savePartial({ name: "FromB" });
+    bus.deliver("b");
+
+    // B's write is newer, so A adopts it wholesale.
+    expect(a.loadAll().name).toBe("FromB");
+    expect(mine.map.get(COMPOSITE_KEY)).toBe(theirs.map.get(COMPOSITE_KEY));
+  });
+
+  it("keeps our bytes when the incoming write is older", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    const a = new Storage(mine, { deviceId: "device-a", now: () => 9000, channel: bus.a });
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => 1000, channel: bus.b });
+
+    a.savePartial({ name: "FromA" });
+    b.savePartial({ name: "FromB" });
+    bus.deliver("b"); // the OLDER write arrives late
+
+    expect(a.loadAll().name).toBe("FromA");
+  });
+
+  it("reports a genuine divergence instead of silently picking a winner", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    const base = fakeBackend();
+    // Both tabs started from the same document.
+    const seed = new Storage(base, { deviceId: "seed", now: () => 1000 });
+    seed.savePartial({ name: "Start" });
+    const seedJson = base.map.get(COMPOSITE_KEY) as string;
+
+    const a = new Storage(mine, { deviceId: "device-a", now: () => 2000, channel: bus.a });
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => 3000, channel: bus.b });
+    // Give A a baseline so the incoming write is measured against something.
+    a.writeDocument(JSON.parse(seedJson) as SaveDocument);
+
+    const conflicts: Array<[SaveDocument, SaveDocument]> = [];
+    a.onConflict((local, remote) => conflicts.push([local, remote]));
+    a.savePartial({ name: "FromA", soloHighScore: 111 });
+    b.savePartial({ name: "FromB", soloHighScore: 222 });
+    bus.deliver("b");
+
+    // Both moved on from the baseline: this is the case the merge UI exists
+    // for, and Storage must not resolve it on its own.
+    expect(conflicts).toHaveLength(1);
+    const [local, remote] = conflicts[0] as [SaveDocument, SaveDocument];
+    expect(local.settings.name).toBe("FromA");
+    expect(remote.settings.name).toBe("FromB");
+    // And our own bytes are still ours — a conflict is a prompt, not a write.
+    const stored = JSON.parse(mine.map.get(COMPOSITE_KEY) as string) as SaveDocument;
+    expect(stored.settings.name).toBe("FromA");
+    expect(stored.solo.highScore).toBe(111);
+  });
+
+  it("the conflict handler fires when both sides changed since the last agreement", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    const a = new Storage(mine, { deviceId: "device-a", now: () => 1000, channel: bus.a });
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => 5000, channel: bus.b });
+
+    // A writes first, establishing a baseline that B does not share.
+    a.savePartial({ name: "A1" });
+    // B changes something else entirely and announces it.
+    b.savePartial({ name: "B1", soloHighScore: 777 });
+    // A changes again — now both A and B hold writes the other has not seen,
+    // and B's announcement describes a document A never agreed to.
+    a.savePartial({ name: "A2" });
+
+    const conflicts: Array<[SaveDocument, SaveDocument]> = [];
+    a.onConflict((local, remote) => conflicts.push([local, remote]));
+    bus.deliver("b");
+
+    expect(conflicts.length).toBeGreaterThan(0);
+    const [local, remote] = conflicts[0] as [SaveDocument, SaveDocument];
+    expect(local.settings.name).toBe("A2");
+    expect(remote.settings.name).toBe("B1");
+    // Crucially, the local bytes are untouched — a conflict is a prompt, not a
+    // silent overwrite.
+    expect(a.loadAll().name).toBe("A2");
+  });
+
+  it("ignores an unusable announcement instead of corrupting the save", () => {
+    const mine = fakeBackend();
+    // Held in a box so the assignment made inside the callback is visible to
+    // the reader below — a bare `let` narrows to `null` at the call site.
+    const box: { listener: ((m: SaveMessage) => void) | null } = { listener: null };
+    const channel: SaveChannel = {
+      publish: () => undefined,
+      onExternalWrite: (listener) => {
+        box.listener = listener;
+      },
+      close: () => undefined,
+    };
+    const a = new Storage(mine, { deviceId: "device-a", now: () => 1000, channel });
+    a.savePartial({ name: "Safe" });
+    const before = mine.map.get(COMPOSITE_KEY);
+
+    // The channel validates the envelope (see saveChannel.test.ts), so what
+    // reaches here is a well-formed message whose VALUE is unusable — the shape
+    // a corrupted or hand-edited save actually arrives in. Three kinds: not
+    // JSON, valid JSON that is not a save document, and a key we do not own.
+    const post = box.listener as unknown as (raw: unknown) => void;
+    post({ type: "save-write", key: COMPOSITE_KEY, value: "not json" });
+    post({ type: "save-write", key: COMPOSITE_KEY, value: "[1,2,3]" });
+    post({ type: "save-write", key: "some.other.key", value: '{"schemaVersion":1}' });
+
+    expect(mine.map.get(COMPOSITE_KEY)).toBe(before);
+    expect(a.loadAll().name).toBe("Safe");
+  });
+
+  it("adopting another tab's write does not re-announce it", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    // A subscribes (and is the one that adopts); B is only the sender.
+    new Storage(mine, { deviceId: "device-a", now: () => 1000, channel: bus.a });
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => 9000, channel: bus.b });
+
+    b.savePartial({ name: "FromB" });
+    const beforeWrites = mine.writes.length;
+    const beforeSent = bus.sentBy("a").length;
+    bus.deliver("b");
+
+    // Echoing would make B receive A's adoption, re-apply, and ping-pong.
+    expect(mine.writes.length).toBe(beforeWrites + 1); // exactly the one setItem
+    expect(bus.sentBy("a")).toHaveLength(beforeSent);
+  });
+
+  it("dispose stops announcing and drops the conflict handler", () => {
+    const bus = fakeChannelPair();
+    const mine = fakeBackend();
+    const theirs = fakeBackend();
+    const a = new Storage(mine, { deviceId: "device-a", now: () => 1000, channel: bus.a });
+    a.dispose();
+    const b = new Storage(theirs, { deviceId: "device-b", now: () => 9000, channel: bus.b });
+    b.savePartial({ name: "FromB" });
+    bus.deliver("b");
+    // A closed channel ignores the delivery rather than adopting.
+    expect(mine.map.get(COMPOSITE_KEY)).toBeUndefined();
   });
 });
 

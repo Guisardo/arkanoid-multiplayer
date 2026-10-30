@@ -18,6 +18,7 @@ import {
   createHostGameSession,
   delayTicksFor,
   snapshotHzFor,
+  warmMode,
   type HostGameSession,
   type HostGamePlayer,
 } from "app/hostGame";
@@ -31,6 +32,7 @@ import { reducePause, pauseAllowedFor, UNPAUSED, type PauseState } from "app/pau
 import { createPerfLadder, rungForDprMode, type PerfLadder } from "app/perfLadder";
 import { FrameStats } from "app/frameStats";
 import { PerfOverlay, perfFlagOn } from "app/perfOverlay";
+import { cachedWallBytes, createMemoryProbe, sampleMemoryStats } from "app/memoryStats";
 import { createSessionAudio, type SessionAudio } from "audio/sessionAudio";
 import { PauseOverlay } from "ui/pauseOverlay";
 import { QuitConfirm } from "ui/quitConfirm";
@@ -44,9 +46,17 @@ import { t } from "ui/strings";
 import { PROTOCOL_VERSION, type InputFrame, type Snapshot } from "shared/protocol";
 import { skinByIndex } from "content/skins";
 import { SplitScreenView } from "render/splitScreen";
+import { REMOTE_STRIP_HEIGHT_PX, stripCompact } from "render/layout";
+import { collectProgressRows, wireRowToProgress } from "app/hostProgress";
 import { RemoteStrip } from "render/remoteStrip";
 import { createAppShell, type AppShell } from "render/appShell";
+import { ensureGameplayAssets } from "render/spriteSheet";
 import { EndScreen, type StandingRow, type CoopOutcome } from "ui/endScreens";
+
+/** Host strip refresh cadence — matches the ~5 Hz guests receive rows at. */
+const HOST_STRIP_INTERVAL_MS = 200;
+/** Last round shown as "R<n>/<max>" on the strip (the Doh round). */
+const MATCH_MAX_ROUND = 33;
 
 /** Channel pair seam — real WebRTC in production, loopback in tests. */
 export interface MpChannels {
@@ -68,6 +78,12 @@ export interface MpConnectResult {
 export interface MpFlowOptions {
   host: HTMLElement;
   locale: Locale;
+  /**
+   * The page's hydrated save store (ticket 103). Passed in rather than
+   * constructed here because the backend opens asynchronously and
+   * `loadSettings` is synchronous — the caller has already awaited it.
+   */
+  storage?: Storage;
   connect: () => Promise<MpConnectResult>;
   /**
    * Ticket 47: guest rejoin — re-enter the room with the same code after a
@@ -93,9 +109,15 @@ export class MpFlow {
   private readonly hostEl: HTMLElement;
   private readonly locale: Locale;
   private readonly opts: MpFlowOptions;
+  /** The store `loadSettings` reads from (ticket 103 — never a fresh one). */
+  private readonly storage: Storage;
   private shell: AppShell | null = null;
   private split: SplitScreenView | null = null;
   private strip: RemoteStrip | null = null;
+  /** Wall-clock stamp of the host strip's last refresh. */
+  private lastStripMs = 0;
+  /** Ticket 100: detaches the renderer-resize hook for the mounted fields. */
+  private detachResize: (() => void) | null = null;
   private endScreen: EndScreen | null = null;
   private lobby: HostLobbySession | null = null;
   private guestLobby: GuestLobbySession | null = null;
@@ -105,6 +127,12 @@ export class MpFlow {
   private guestIndex = 0;
   private isHost = false;
   private phase: MpPhase = "idle";
+  /**
+   * Monotonic guard for the async host launch (ADR 0007 made it async).
+   * Bumped by every teardown so an in-flight `launchMatchAsHost` can tell that
+   * the flow moved on and must discard the session it just awaited.
+   */
+  private launchToken = 0;
   private loop: AccumulatorLoop | null = null;
   private pendingLocal: InputFrame[] = [];
   private lobbyState: LobbyState | null = null;
@@ -146,6 +174,8 @@ export class MpFlow {
   private ladder: PerfLadder = createPerfLadder(0);
   /** Rolling frame-budget stats (sim/sync/render split). */
   private frameStats = new FrameStats();
+  /** Ticket 102: dev-only heap source for the ?perf=1 overlay. */
+  private readonly memoryProbe = createMemoryProbe();
   /** Dev perf overlay (?perf=1). */
   private perfOverlay: PerfOverlay | null = null;
   /** Last snapshot→scene sync duration (ms, measured in render). */
@@ -164,6 +194,10 @@ export class MpFlow {
     this.hostEl = opts.host;
     this.locale = opts.locale;
     this.opts = opts;
+    // Falls back to the synchronous localStorage store for tests and any caller
+    // that has not awaited a backend. That fallback is correct only because
+    // localStorage reads are live; an async backend must be hydrated first.
+    this.storage = opts.storage ?? new Storage();
   }
 
   get currentPhase(): MpPhase {
@@ -600,6 +634,15 @@ export class MpFlow {
     this.lobby.startCountdown();
     this.phase = "countdown";
     this.opts.onCountdown?.(3);
+    // ADR 0007: fetch the mode's chunk and round data DURING the countdown,
+    // so the wait the player already accepts covers the load instead of the
+    // first frame of play. A failure here is not fatal — `launchMatchAsHost`
+    // awaits the same warm-up and surfaces it there, which is the one path
+    // that must not swallow it. Deliberately not awaited here: the countdown
+    // timer drives the launch, and blocking it would stall the UI.
+    warmMode(state.config.mode).catch((err: unknown) => {
+      console.warn(`[mpFlow] warm-up for ${state.config.mode} failed`, err);
+    });
     let remaining = 3;
     const timer = globalThis.setInterval(() => {
       remaining--;
@@ -607,13 +650,22 @@ export class MpFlow {
       this.opts.onCountdown?.(Math.max(0, remaining));
       if (remaining <= 0) {
         globalThis.clearInterval(timer);
-        this.launchMatchAsHost();
+        // ADR 0007: the host session creator lazy-loads the mode sim and its
+        // round range, so the launch is async now.
+        void this.launchMatchAsHost();
       }
     }, 1000);
   }
 
-  private launchMatchAsHost(): void {
+  private async launchMatchAsHost(): Promise<void> {
     if (this.lobby === null) return;
+    // ADR 0007 made this async (the mode sim and its round range are lazily
+    // imported). That opens a window: `phase` is still "countdown" while the
+    // await runs and `this.game` is still null. Anything that tears down
+    // mid-window — a quit, a disconnect, `dispose()` — must invalidate this
+    // launch, or the awaited session is assigned to a dead flow and leaks its
+    // frame loop, its channels and its guest sockets.
+    const launch = ++this.launchToken;
     const state = this.lobby.state();
     // Deterministic slot order: lobby players sorted by id → sim index.
     const ordered = [...state.players].sort((a, b) => a.id - b.id);
@@ -628,11 +680,21 @@ export class MpFlow {
     const sendGame = (gi: number, buf: ArrayBuffer): void => {
       this.channels?.hostToGuest(gi, buf);
     };
-    this.game = createHostGameSession(
+    const game = await createHostGameSession(
       { mode: state.config.mode, config: state.config, players, hostLocalPlayers: hostLocal },
       sendGame,
       { onMatchEnd: (end) => { this.hostMatchEnd(end); } },
     );
+    // A newer launch (or a teardown) landed while we awaited. Adopt nothing:
+    // disposing the session we just built is what keeps its frame loop and
+    // guest bindings from outliving the flow that asked for them. The token
+    // covers every such path — `teardownGameLoops` bumps it, and nothing
+    // clears `this.lobby`, so there is no second condition to check.
+    if (launch !== this.launchToken) {
+      game.dispose();
+      return;
+    }
+    this.game = game;
     this.matchPlayers = players.map((p) => p.name);
     this.matchNames = players.map((p) => p.name);
     this.matchMode = state.config.mode;
@@ -676,7 +738,9 @@ export class MpFlow {
    * context loss/restore drive the resync-from-snapshot contract.
    */
   private createShell(): Promise<AppShell> {
-    const stored = loadSettings(new Storage());
+    // Synchronous by contract: `main.ts` has already awaited the page's save
+    // backend before it constructs an `MpFlow`, so this mirror is hydrated.
+    const stored = loadSettings(this.storage);
     // Ticket 30: stored audio volumes apply from the first frame.
     this.audio.setVolumes({
       music: stored.audio.music,
@@ -722,6 +786,23 @@ export class MpFlow {
     );
   }
 
+  /**
+   * Ticket 100: the host's remote progress strip shows the guests' players.
+   * Guests get their rows over the wire; the host already holds every
+   * snapshot, so it derives them locally — at the same ~5 Hz cadence, since
+   * a DOM rewrite per rendered frame buys nothing for numbers that move
+   * once a brick.
+   */
+  private updateHostStrip(snaps: readonly Snapshot[]): void {
+    if (this.strip === null) return;
+    const now = performance.now();
+    if (now - this.lastStripMs < HOST_STRIP_INTERVAL_MS) return;
+    this.lastStripMs = now;
+    const players = this.matchNames.map((_, player) => ({ player }));
+    const rows = collectProgressRows(players, new Set(this.matchLocalPlayers), snaps);
+    this.strip.update(rows.map((r) => wireRowToProgress(r, this.matchNames, MATCH_MAX_ROUND)));
+  }
+
   private startHostLoop(): void {
     const game = this.game;
     if (game === null) return;
@@ -753,6 +834,7 @@ export class MpFlow {
         // ADR 0009: effects are local + cosmetic, so only this device's fields
         // run them — same filter as the audio above.
         this.split?.tickEffects();
+        this.updateHostStrip(snaps);
         this.lastSyncMs = performance.now() - syncStart;
       },
       onFrameStats: (sample) => {
@@ -763,18 +845,38 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
-        this.perfOverlay?.update({
-          stats: this.frameStats.view,
-          dpr: this.ladder.rung.dpr,
-          renderEvery: this.ladder.rung.renderEvery,
-          drawCalls: null,
-          textureMb: null,
-        });
+        this.pushPerfOverlay();
       },
     });
     loop.start();
     this.loop = loop;
     this.mountPerfOverlay();
+  }
+
+  /**
+   * Feed the perf overlay for the current frame — budgets, ladder rung and
+   * memory telemetry.
+   *
+   * One method for both the host and guest loops because both measure the same
+   * three things about the same renderer; the duplication was a copy of the
+   * whole block, so any future field had to be added twice.
+   */
+  private pushPerfOverlay(): void {
+    if (this.perfOverlay === null) return;
+    // Ticket 102: memory telemetry — the cached wall textures are the term the
+    // ladder actually scales, so the overlay and the ladder read the same rung.
+    const memory = sampleMemoryStats(
+      this.memoryProbe,
+      cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+    );
+    this.perfOverlay.update({
+      stats: this.frameStats.view,
+      dpr: this.ladder.rung.dpr,
+      renderEvery: this.ladder.rung.renderEvery,
+      drawCalls: null,
+      textureMb: memory.textureMb,
+      memory,
+    });
   }
 
   private localFieldFilter: number[] = [];
@@ -930,6 +1032,9 @@ export class MpFlow {
     const rung = this.ladder.rung;
     const deviceDpr = globalThis.devicePixelRatio || 1;
     this.shell?.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
+    // Ticket 102: the degraded rung also halves every field's cached wall
+    // texture — a quarter of the bytes, for identical visual content.
+    this.split?.setTextureResolution(rung.textureResolution);
     this.loop?.setRenderEvery(rung.renderEvery);
     this.updateDegradedBanner(rung.degraded);
   }
@@ -1007,12 +1112,21 @@ export class MpFlow {
     this.teardownRender();
     const app = this.shell?.app;
     if (app === undefined) return;
+    // Ticket 87: the field is about to draw sprites, so start the deferred
+    // bundle now. Deliberately not awaited — field construction is synchronous
+    // and `spriteTexture` resolves frames lazily, so the first frame renders
+    // from procedural geometry and upgrades when the bundle lands.
+    void ensureGameplayAssets();
     this.localFieldFilter = localPlayers;
     const single = mode === "duel" || mode === "sharedField";
     const fields = single ? [localPlayers[0] ?? 0] : localPlayers;
-    const reduced = loadSettings(new Storage()).display.reducedEffects;
+    const reduced = loadSettings(this.storage).display.reducedEffects;
+    const hasStrip = remotePlayers.length > 0 || !this.isHost;
+    const viewport = (): { w: number; h: number } => ({ w: app.renderer.width, h: app.renderer.height });
     this.split = new SplitScreenView({
-      viewport: { w: app.renderer.width, h: app.renderer.height },
+      viewport: viewport(),
+      // Ticket 100: the strip band is part of the layout, not a shifted container.
+      topInset: hasStrip ? REMOTE_STRIP_HEIGHT_PX : 0,
       players: fields,
       locale: this.locale,
       maxRound: 33,
@@ -1021,11 +1135,26 @@ export class MpFlow {
       themeId: themeId || DEFAULT_THEME_ID,
       reducedEffects: reduced,
     });
-    if (remotePlayers.length > 0) this.split.container.y = 28;
     app.stage.addChild(this.split.container);
-    if (remotePlayers.length > 0 || !this.isHost) {
-      this.strip = new RemoteStrip({ host: this.hostEl, locale: this.locale });
+    if (hasStrip) {
+      this.strip = new RemoteStrip({
+        host: this.hostEl,
+        locale: this.locale,
+        compact: stripCompact(viewport()),
+      });
     }
+    // Ticket 100: HUD strips and the remote strip follow resize / rotation.
+    // The renderer event (not window.resize) fires after Pixi has applied the
+    // new size, so the fields never lay out against a stale viewport.
+    const onResize = (): void => {
+      const next = viewport();
+      this.split?.resize(next);
+      this.strip?.setCompact(stripCompact(next));
+    };
+    app.renderer.on("resize", onResize);
+    this.detachResize = (): void => {
+      app.renderer.off("resize", onResize);
+    };
   }
 
   private hostMatchEnd(end: { mode: LobbyMode; snapshots: Snapshot[] }): void {
@@ -1207,13 +1336,7 @@ export class MpFlow {
         );
         this.ladder.observe(sample.simMs + this.lastSyncMs + sample.renderMs);
         if (this.ladder.changed) this.applyLadderRung();
-        this.perfOverlay?.update({
-          stats: this.frameStats.view,
-          dpr: this.ladder.rung.dpr,
-          renderEvery: this.ladder.rung.renderEvery,
-          drawCalls: null,
-          textureMb: null,
-        });
+        this.pushPerfOverlay();
       },
     });
     loop.start();
@@ -1405,6 +1528,9 @@ export class MpFlow {
   // ---- Teardown ----
 
   private teardownGameLoops(): void {
+    // Invalidate any in-flight host launch before anything else, so a session
+    // that is mid-`await` cannot be adopted by the torn-down flow.
+    this.launchToken++;
     this.loop?.stop();
     this.loop = null;
     // Ticket 47: resilience machinery dies with the match.
@@ -1434,6 +1560,8 @@ export class MpFlow {
   }
 
   private teardownRender(): void {
+    this.detachResize?.();
+    this.detachResize = null;
     this.split?.container.destroy({ children: true });
     this.split = null;
     this.strip?.close();

@@ -25,16 +25,38 @@ export interface FieldLayout {
 
 export const GUTTER_PX = 8;
 
+/** Ticket 100: height of the remote progress strip band above the fields. */
+export const REMOTE_STRIP_HEIGHT_PX = 28;
+
+/** Below this viewport width the strip's full rows no longer fit one line. */
+const STRIP_FULL_MIN_W = 640;
+/** Below this viewport height (landscape phone) the strip must stay slim. */
+const STRIP_FULL_MIN_H = 480;
+
+/**
+ * Ticket 100: whether the remote progress strip shows name + score only.
+ * Narrow (portrait phone) or short (landscape phone) viewports compress it;
+ * evaluated on every resize so rotation flips it live.
+ */
+export function stripCompact(viewport: { w: number; h: number }): boolean {
+  return viewport.w < STRIP_FULL_MIN_W || viewport.h < STRIP_FULL_MIN_H;
+}
+
 /** Cap devicePixelRatio at min(dpr, 2) (spec §12). */
 export function capDpr(dpr: number): number {
   return Math.min(dpr, 2);
 }
 
-/** Desktop: N-across equal-width columns with gutters; single centered at N=1. */
-export function splitRegions(viewport: { w: number; h: number }, n: number): Region[] {
+/**
+ * Desktop: N-across equal-width columns with gutters; single centered at N=1.
+ * `topInset` (ticket 100) reserves a band above every region, e.g. for the
+ * remote progress strip, so fields shrink instead of being clipped.
+ */
+export function splitRegions(viewport: { w: number; h: number }, n: number, topInset = 0): Region[] {
   if (n <= 0) return [];
+  const h = Math.max(0, viewport.h - topInset);
   if (n === 1) {
-    return [{ x: 0, y: 0, w: viewport.w, h: viewport.h }];
+    return [{ x: 0, y: topInset, w: viewport.w, h }];
   }
   const totalGutters = (n - 1) * GUTTER_PX;
   const colW = (viewport.w - totalGutters) / n;
@@ -42,9 +64,9 @@ export function splitRegions(viewport: { w: number; h: number }, n: number): Reg
   for (let i = 0; i < n; i++) {
     regions.push({
       x: i * (colW + GUTTER_PX),
-      y: 0,
+      y: topInset,
       w: colW,
-      h: viewport.h,
+      h,
     });
   }
   return regions;
@@ -71,5 +93,26 @@ export function layoutField(region: Region): FieldLayout {
       h: HUD_STRIP_UNITS * scale,
     },
     scale,
+  };
+}
+/** Plain rect with Pixi `Rectangle` field names, so it can seed a `cullArea`. */
+export interface CullRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Ticket 93: the screen-px rect a field view actually draws into — the
+ * letterboxed field plus the HUD strip above it. Narrower than the region on
+ * purpose: Pixi's culler tests this rect, not the empty letterbox margin.
+ */
+export function fieldCullRect(layout: FieldLayout): CullRect {
+  return {
+    x: layout.field.x,
+    y: layout.hud.y,
+    width: layout.field.w,
+    height: layout.hud.h + layout.field.h,
   };
 }

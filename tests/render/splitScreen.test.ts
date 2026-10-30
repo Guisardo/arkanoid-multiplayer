@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SplitScreenView } from "render/splitScreen";
 import { createRoundSim } from "sim/roundSim";
-import { getLevel } from "content/levels";
+import { getLevelSync } from "content/levels";
 import { splitRegions } from "render/layout";
 
 describe("SplitScreenView (ticket 34)", () => {
@@ -75,7 +75,7 @@ describe("SplitScreenView (ticket 34)", () => {
   });
 
   it("per-player skins + theme + reduced effects flow into every FieldView", () => {
-    const sim = createRoundSim(getLevel(1), { lives: 3, score: 0, playerName: "P" });
+    const sim = createRoundSim(getLevelSync(1), { lives: 3, score: 0, playerName: "P" });
     const view = new SplitScreenView({
       viewport: { w: 800, h: 600 },
       players: [0, 1],
@@ -98,7 +98,7 @@ describe("SplitScreenView (ticket 34)", () => {
       locale: "en-US",
       maxRound: 33,
     });
-    const level = getLevel(1);
+    const level = getLevelSync(1);
     const sims = [createRoundSim(level, { lives: 3, score: 0 }), createRoundSim(level, { lives: 3, score: 0 })];
     const snaps = sims.map((s) => s.snapshot());
     view.sync(snaps);

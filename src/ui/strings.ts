@@ -30,6 +30,7 @@ const enUS = {
   "settings.controls.player": "Player {n}",
   "settings.controls.pressKey": "Press a key…",
   "settings.controls.pressButton": "Press a button…",
+  "settings.controls.confirmButton": "{button}: press again to confirm",
   "settings.controls.duplicate": "Already in use",
   "settings.controls.reset": "Reset to defaults",
   "settings.controls.rollover": "Note: cheap keyboards may miss ~6 simultaneous keys (rollover).",
@@ -141,6 +142,18 @@ const enUS = {
   "perf.degraded": "Reduced performance mode",
   "perf.contextLost": "Graphics context lost — recovering…",
   "perf.contextRestored": "Graphics recovered",
+  "save.conflictTitle": "Save changed in another tab",
+  "save.conflictBody": "Two tabs saved different progress at the same time. Pick the one to keep.",
+  "save.conflictThisTab": "This tab",
+  "save.conflictOtherTab": "Other tab",
+  "save.conflictSummary": "High score {score} · Round {round} · {name}",
+  "save.conflictSaved": "Saved {time}",
+  "save.conflictRun": "Run in progress: Round {round} · Score {score} · Lives {lives}",
+  "save.conflictNoRun": "No run in progress",
+  "save.conflictSettingsDiffer": "Different settings: {settings}",
+  "save.conflictSettingsSame": "Same settings",
+  "loading.gameplay": "Loading game assets…",
+  "loading.percent": "{percent}%",
 } as const;
 
 const es419: Record<StringKey, string> = {
@@ -165,6 +178,7 @@ const es419: Record<StringKey, string> = {
   "settings.controls.player": "Jugador {n}",
   "settings.controls.pressKey": "Pulsa una tecla…",
   "settings.controls.pressButton": "Pulsa un botón…",
+  "settings.controls.confirmButton": "{button}: pulsa de nuevo para confirmar",
   "settings.controls.duplicate": "Ya en uso",
   "settings.controls.reset": "Restablecer",
   "settings.controls.rollover": "Nota: los teclados económicos pueden fallar con ~6 teclas simultáneas (rollover).",
@@ -276,6 +290,18 @@ const es419: Record<StringKey, string> = {
   "perf.degraded": "Modo de rendimiento reducido",
   "perf.contextLost": "Contexto gráfico perdido — recuperando…",
   "perf.contextRestored": "Gráficos recuperados",
+  "save.conflictTitle": "El guardado cambió en otra pestaña",
+  "save.conflictBody": "Dos pestañas guardaron progreso distinto al mismo tiempo. Elige cuál conservar.",
+  "save.conflictThisTab": "Esta pestaña",
+  "save.conflictOtherTab": "Otra pestaña",
+  "save.conflictSummary": "Puntaje {score} · Ronda {round} · {name}",
+  "save.conflictSaved": "Guardado {time}",
+  "save.conflictRun": "Partida en curso: Ronda {round} · Puntaje {score} · Vidas {lives}",
+  "save.conflictNoRun": "Sin partida en curso",
+  "save.conflictSettingsDiffer": "Ajustes distintos: {settings}",
+  "save.conflictSettingsSame": "Mismos ajustes",
+  "loading.gameplay": "Cargando recursos del juego…",
+  "loading.percent": "{percent}%",
 };
 
 const TABLES: Record<Locale, Record<StringKey, string>> = {

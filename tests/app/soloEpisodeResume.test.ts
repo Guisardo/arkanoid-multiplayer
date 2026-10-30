@@ -37,8 +37,8 @@ function frame(tick: number, axisX = 0, launch = false): InputFrame {
   return { player: 0, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
 }
 
-function episodeOf(store: ReturnType<typeof backend>, clock: { t: number }) {
-  return createSoloEpisode({
+async function episodeOf(store: ReturnType<typeof backend>, clock: { t: number }) {
+  return await createSoloEpisode({
     storage: reloaded(store),
     now: () => {
       clock.t += 1;
@@ -48,7 +48,7 @@ function episodeOf(store: ReturnType<typeof backend>, clock: { t: number }) {
 }
 
 /** Drop the ball three times → game over. */
-function forceGameOver(ep: ReturnType<typeof createSoloEpisode>): void {
+function forceGameOver(ep: Awaited<ReturnType<typeof createSoloEpisode>>): void {
   for (let loss = 0; loss < SOLO_START_LIVES && ep.phase() === "playing"; loss++) {
     ep.debugSetBall(104, 300, 0, 60);
     for (let s = 0; s < 12; s++) ep.step([frame(loss * 12 + s)]);
@@ -56,7 +56,7 @@ function forceGameOver(ep: ReturnType<typeof createSoloEpisode>): void {
 }
 
 /** Clear one round (drives the round-advance checkpoint). */
-function clearRound(ep: ReturnType<typeof createSoloEpisode>): void {
+function clearRound(ep: Awaited<ReturnType<typeof createSoloEpisode>>): void {
   const roundBefore = ep.round();
   let guard = 0;
   while (guard < 3000 && ep.round() === roundBefore && ep.phase() === "playing") {
@@ -85,10 +85,10 @@ function record(round: number, score: number, phase: EpisodeState["phase"] = "pl
 }
 
 /** Episode wired to whatever the store currently holds, resuming if it can. */
-function resumed(store: ReturnType<typeof backend>): ReturnType<typeof createSoloEpisode> {
+async function resumed(store: ReturnType<typeof backend>): Promise<Awaited<ReturnType<typeof createSoloEpisode>>> {
   const storage = reloaded(store);
   const pending = storage.readEpisode();
-  return createSoloEpisode({
+  return await createSoloEpisode({
     storage,
     ...(pending !== null ? { savedEpisode: pending } : {}),
   });
@@ -156,27 +156,27 @@ describe("Storage episode record (ADR 0008, ticket 89)", () => {
     expect(reloaded(store).loadAll().name).toBe("Ada");
   });
 
-  it("an out-of-range round in a hand-edited record is clamped on resume", () => {
+  it("an out-of-range round in a hand-edited record is clamped on resume", async () => {
     const store = backend();
     const storage = reloaded(store);
     storage.writeEpisode({ round: 9999, score: 1000, lives: 1, phase: "playing", timestamp: 1 });
-    expect(resumed(store).round()).toBe(SOLO_MAX_ROUND);
+    expect((await resumed(store)).round()).toBe(SOLO_MAX_ROUND);
   });
 });
 
 describe("episode persist/restore cycle (ticket 89)", () => {
-  it("checkpoints on round clear, and the record names the NEW round", () => {
+  it("checkpoints on round clear, and the record names the NEW round", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     expect(reloaded(store).readEpisode()).toBeNull();
     clearRound(ep);
     expect(ep.round()).toBe(2);
     expect(reloaded(store).readEpisode()).toMatchObject({ round: 2, phase: "playing" });
   });
 
-  it("checkpoints on pause, so a tab closed from the pause menu resumes", () => {
+  it("checkpoints on pause, so a tab closed from the pause menu resumes", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     for (let i = 0; i < 5; i++) ep.step([frame(i)]);
     expect(reloaded(store).readEpisode()).toBeNull();
     ep.pause();
@@ -184,9 +184,9 @@ describe("episode persist/restore cycle (ticket 89)", () => {
     expect(isContinuableEpisode(reloaded(store).readEpisode())).toBe(true);
   });
 
-  it("checkpoints on game over, marked terminal so the boot prompt stays quiet", () => {
+  it("checkpoints on game over, marked terminal so the boot prompt stays quiet", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     forceGameOver(ep);
     expect(ep.phase()).toBe("gameOver");
     const saved = reloaded(store).readEpisode();
@@ -194,27 +194,27 @@ describe("episode persist/restore cycle (ticket 89)", () => {
     expect(isContinuableEpisode(saved)).toBe(false);
   });
 
-  it("checkpoints every 30 s of ticks, not on every tick", () => {
+  it("checkpoints every 30 s of ticks, not on every tick", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     for (let i = 0; i < EPISODE_SAVE_INTERVAL_TICKS - 1; i++) ep.step([frame(i)]);
     expect(reloaded(store).readEpisode()).toBeNull();
     ep.step([frame(EPISODE_SAVE_INTERVAL_TICKS - 1)]);
     expect(reloaded(store).readEpisode()).toMatchObject({ round: 1, phase: "playing" });
   });
 
-  it("save() forces a checkpoint (the session calls it on quit)", () => {
+  it("save() forces a checkpoint (the session calls it on quit)", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     ep.step([frame(0)]);
     ep.persist();
     expect(reloaded(store).readEpisode()).toMatchObject({ round: 1, phase: "playing" });
   });
 
-  it("the record carries round, score, lives, phase and a timestamp", () => {
+  it("the record carries round, score, lives, phase and a timestamp", async () => {
     const store = backend();
     const clock = { t: 0 };
-    const ep = episodeOf(store, clock);
+    const ep = await episodeOf(store, clock);
     clearRound(ep);
     const saved = reloaded(store).readEpisode();
     expect(saved).not.toBeNull();
@@ -226,9 +226,9 @@ describe("episode persist/restore cycle (ticket 89)", () => {
     expect(saved?.timestamp).toBeGreaterThan(0);
   });
 
-  it("abandon() drops the record — an abandoned run must not be Continuable", () => {
+  it("abandon() drops the record — an abandoned run must not be Continuable", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     for (let i = 0; i < 3; i++) ep.step([frame(i)]);
     ep.persist();
     expect(isContinuableEpisode(reloaded(store).readEpisode())).toBe(true);
@@ -238,43 +238,43 @@ describe("episode persist/restore cycle (ticket 89)", () => {
 });
 
 describe("Continue from a persisted run (ticket 89)", () => {
-  it("resumes the saved round with fresh 3 lives and score × 0.4", () => {
+  it("resumes the saved round with fresh 3 lives and score × 0.4", async () => {
     const store = backend();
     reloaded(store).writeEpisode(record(9, 5000));
-    const ep = resumed(store);
+    const ep = await resumed(store);
     expect(ep.round()).toBe(9);
     expect(ep.score()).toBe(Math.floor(5000 * CONTINUE_SCORE_FACTOR));
     expect(ep.snapshot().players[0]?.lives).toBe(SOLO_START_LIVES);
     expect(ep.phase()).toBe("playing");
   });
 
-  it("resuming starts a fresh round — no bricks carried over", () => {
+  it("resuming starts a fresh round — no bricks carried over", async () => {
     const store = backend();
     reloaded(store).writeEpisode(record(9, 5000));
-    const ep = resumed(store);
+    const ep = await resumed(store);
     expect(ep.snapshot().round).toBe(9);
     expect(ep.snapshot().bricks.filter((c) => isDestructibleCell(c)).length).toBeGreaterThan(0);
     expect(ep.snapshot().phase).toBe("serve");
   });
 
-  it("a reloaded run is playable to the next round clear", () => {
+  it("a reloaded run is playable to the next round clear", async () => {
     const store = backend();
     reloaded(store).writeEpisode(record(2, 1000));
-    const ep = resumed(store);
+    const ep = await resumed(store);
     clearRound(ep);
     expect(ep.round()).toBe(3);
   });
 
-  it("a negative score in a hand-edited record floors to 0", () => {
+  it("a negative score in a hand-edited record floors to 0", async () => {
     const store = backend();
     reloaded(store).writeEpisode({ round: 4, score: -50, lives: 2, phase: "playing", timestamp: 1 });
-    expect(resumed(store).score()).toBe(0);
+    expect((await resumed(store)).score()).toBe(0);
   });
 
-  it("restart drops the record so a later crash cannot resurrect the old run", () => {
+  it("restart drops the record so a later crash cannot resurrect the old run", async () => {
     const store = backend();
     reloaded(store).writeEpisode(record(5, 900));
-    const ep = resumed(store);
+    const ep = await resumed(store);
     forceGameOver(ep);
     ep.restartRun();
     expect(ep.round()).toBe(1);
@@ -282,9 +282,9 @@ describe("Continue from a persisted run (ticket 89)", () => {
     expect(reloaded(store).readEpisode()).toBeNull();
   });
 
-  it("Continue after a game over re-checkpoints the live run", () => {
+  it("Continue after a game over re-checkpoints the live run", async () => {
     const store = backend();
-    const ep = episodeOf(store, { t: 0 });
+    const ep = await episodeOf(store, { t: 0 });
     forceGameOver(ep);
     expect(isContinuableEpisode(reloaded(store).readEpisode())).toBe(false);
     ep.continueRun();

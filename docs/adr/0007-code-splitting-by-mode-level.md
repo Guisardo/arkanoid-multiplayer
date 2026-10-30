@@ -48,7 +48,11 @@ const levelCache = new Map<number, LevelData>();
 
 export async function getLevel(round: number): Promise<LevelData> {
   if (levelCache.has(round)) return levelCache.get(round)!;
-  const mod = await import(`/content/levels/round-${String(round).padStart(3, '0')}.json`);
+  // NOTE: the specifier MUST stay a template literal *inside* getLevel.
+  // Passing a computed path (roundFile(round)) to import() is invisible to
+  // the bundler — it emits no round file at all and every level 404s in
+  // production, with tests passing throughout.
+  const mod = await import(`./levels/round-${String(round).padStart(3, '0')}.json`);
   const level = mod.default as LevelData;
   levelCache.set(round, level);
   return level;
@@ -60,11 +64,13 @@ export function getLevelSync(round: number): LevelData { ... }
 
 **3. Lazy mode loading in session creators:**
 ```typescript
-// src/app/mpFlow.ts - load mode sim only when needed
-async function createDuelSession(...) {
-  const { createDuelSession: create } = await import('sim/duel');
-  return create(...);
-}
+// src/app/hostGame.ts — the mode sim and its round range are fetched only
+// when a match actually starts
+async function buildModeSim(opts: HostGameOptions): Promise<ModeSim> {
+  switch (opts.mode) {
+    case "duel": {
+      const { createRoundDuel } = await import("sim/duel");
+      ...
 ```
 
 **4. Update `availableRounds()`** — stays sync (returns 1..33 from static list)
@@ -81,12 +87,42 @@ async function createDuelSession(...) {
 - `getLevel` becomes async — call sites must `await` (already async in session creators)
 - Slight complexity in `levels.ts` (cache + async)
 - Vite chunk manifest adds build output complexity
+- `manualChunks` must use the id-keyed **function** form, not the object form.
+  See the measured outcome below: the object form emits empty facade chunks and
+  pulls the session code into a preloaded colossus.
+
+## As-built notes (ticket 95, 2026-10-09)
+
+`manualChunks` as a plain `{ name: [paths] }` map does *not* cooperate with the
+dynamic imports this ADR introduces. It compiles, but:
+
+- every mode gets **two** chunks — an empty facade (35 B for mode-assist) plus a
+  second chunk holding the real code, and
+- `src/app/soloSession.ts` lands in `mode-solo`, which drags PixiJS into a
+  690 kB chunk that `index.html` `<link rel="modulepreload">`s at boot — so the
+  initial download *grew* (131 + 690 kB) even though the entry chunk shrank.
+
+Switching to the id-keyed function form keeps the chunk boundaries the dynamic
+imports already define. Measured on the production build:
+
+| | before | after |
+|---|---|---|
+| entry chunk | 624.11 kB raw / 190.75 kB gzip | 557.82 kB raw / 168.55 kB gzip |
+| mode chunks | none | 7 real `mode-*` chunks, 2.6–16.2 kB each |
+| level data | 33 grids inside the entry | 33 lazily-fetched chunks, ~0.8 kB each |
+| preloaded at boot | — | only `mode-bots` (16.2 kB) |
+
+`mode-bots` is preloaded because `ui/versusBotsScreen` imports `sim/versusBots`
+statically for `botCountFor` / `validateBotsSetup`; making that lazy too is a
+follow-up, not part of this ADR.
 
 ## Alternatives Considered
 
 - **No code splitting** — rejected: all modes bundled, mobile penalty
 - **Split by feature (physics, render, net)** — rejected: modes are natural boundaries, features are shared
 - **Dynamic import all sims** — rejected: over-splitting, more chunks = more requests
+- **`manualChunks` object form** — rejected at implementation: empty facade chunks
+  plus a preloaded 690 kB `mode-solo`, i.e. a bigger initial download.
 
 ## Validation
 

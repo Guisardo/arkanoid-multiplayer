@@ -4,6 +4,8 @@
 // mode. Pure decision logic — the app performs the actual Fullscreen/
 // screen.orientation calls and reports outcomes back.
 import type { Region } from "render/layout";
+import type { TouchClusterMode } from "input/touch";
+import type { LobbyMode } from "app/lobbyState";
 
 /** Device class (app detects once per session). */
 export interface DeviceClass {
@@ -21,6 +23,17 @@ export function detectDeviceClass(
     /android|iphone|ipad|ipod|mobile|silk|kindle/i.test(userAgent) ||
     (/macintosh/i.test(userAgent) && coarsePointer); // iPadOS 13+ masquerades
   return { touch: coarsePointer, mobile };
+}
+
+/**
+ * Touch context cluster for a match mode (spec §11): Attack exposes the four
+ * fire buttons + cycle, Parallel Assist three fire buttons + cycle, every
+ * other mode just Launch.
+ */
+export function touchClusterFor(mode: LobbyMode): TouchClusterMode {
+  if (mode === "attack") return "attack";
+  if (mode === "parallelAssist") return "assist";
+  return "solo";
 }
 
 /** Local-player cap per device (spec §12): desktop 4, mobile 2. */

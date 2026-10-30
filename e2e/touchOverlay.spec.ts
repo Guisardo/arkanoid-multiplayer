@@ -28,6 +28,24 @@ test("touch overlay: present in mobile-emulated solo, absent on desktop", async 
     return s.app.stage.children.length > 1;
   });
   expect(mobileHasOverlay).toBe(true);
+
+  // Ticket 107: the drawn Launch button is actually tappable (the adapter is
+  // armed with the overlay's layout) — a real touch tap serves the ball.
+  const launchTap = await mobilePage.evaluate(() => {
+    const s = globalThis.__arkanoid!;
+    const rect = s.app.canvas.getBoundingClientRect();
+    // Bottom-right slot: margin = button radius (24) + edge (12) = 36 px.
+    return {
+      x: rect.left + s.app.renderer.width - 36,
+      y: rect.top + s.app.renderer.height - 36,
+      phase: s.latestSnapshot().phase,
+    };
+  });
+  expect(launchTap.phase).toBe("serve");
+  await mobilePage.touchscreen.tap(launchTap.x, launchTap.y);
+  await mobilePage.waitForFunction(() => globalThis.__arkanoid!.latestSnapshot().phase !== "serve", null, {
+    timeout: 10_000,
+  });
   // Close the mobile context first — its live WebGL context blocks a
   // second context in the same browser process (one per device, spec §3).
   await mobile.close();

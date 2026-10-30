@@ -120,3 +120,26 @@ Save on: round clear, game over, pause, periodic (30s). Load on `createSoloEpiso
 ## Validation
 
 Save audit (#80): "Atomic writes absent (11 independent calls). No migration system. Cross-device sync not designed." This ADR addresses all three.
+
+## As built (ticket 103)
+
+The "IndexedDB transactions — rejected" alternative above was revisited for sync
+readiness. What shipped:
+
+- **Backend chain:** IndexedDB, then localStorage, then memory, chosen once at boot.
+  Every fallback is reported through an injectable `onError` sink (default
+  `console.error`), never silent.
+- **Migration:** the first IndexedDB `hydrate` adopts a save that only localStorage held
+  (composite or legacy keys). The database wins when it already has the key, and
+  localStorage is left intact so a rollback to the previous build still finds the save.
+- **Cross-tab sync:** writes are announced over `BroadcastChannel`; a tab applies, ignores
+  or flags a conflict via `classifyWrite`.
+- **Conflict rule:** total order on `(updatedAt, deviceId, content)`. Tabs of one install
+  share a `deviceId` and `BroadcastChannel` never echoes to its sender, so a shared id
+  does NOT rule out a conflict; two tabs that each changed something since the last
+  agreed document raise the merge prompt.
+- **Merge prompt:** shows both versions with saved time, run in progress and which
+  settings differ; the player picks one.
+- **Known gap:** runtime IndexedDB failures after a successful open are reported but do
+  not fall back to localStorage; the fallback is decided at open time only.
+

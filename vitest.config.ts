@@ -20,6 +20,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["tests/setup/levelPreload.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "clover", "json"],

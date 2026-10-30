@@ -22,7 +22,7 @@ function frame(tick: number, axisX = 0, launch = false): InputFrame {
 }
 
 /** Clear exactly one round, stopping when the episode advances. */
-function clearRound(ep: ReturnType<typeof createSoloEpisode>): void {
+function clearRound(ep: Awaited<ReturnType<typeof createSoloEpisode>>): void {
   const roundBefore = ep.round();
   let guard = 0;
   while (guard < 3000 && ep.round() === roundBefore && ep.phase() === "playing") {
@@ -72,16 +72,16 @@ function clearRound(ep: ReturnType<typeof createSoloEpisode>): void {
 }
 
 describe("solo episode flow (ticket 36)", () => {
-  it("starts at round 1, 3 lives, score 0", () => {
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()) });
+  it("starts at round 1, 3 lives, score 0", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()) });
     expect(ep.round()).toBe(1);
     expect(ep.snapshot().players[0]!.lives).toBe(3);
     expect(ep.score()).toBe(0);
     expect(ep.phase()).toBe("playing");
   });
 
-  it("round advances on clear; score accumulates across rounds", () => {
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()) });
+  it("round advances on clear; score accumulates across rounds", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()) });
     clearRound(ep);
     expect(ep.round()).toBe(2);
     const scoreAfterR1 = ep.score();
@@ -91,8 +91,8 @@ describe("solo episode flow (ticket 36)", () => {
     expect(ep.score()).toBeGreaterThan(scoreAfterR1);
   });
 
-  it("game over → Continue: same round, fresh 3 lives, score −60%", () => {
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 2 });
+  it("game over → Continue: same round, fresh 3 lives, score −60%", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 2 });
     // Force game over: drop the ball 3 times.
     const dbg = ep as unknown as { debugSetBall: (x: number, y: number, vx: number, vy: number) => void };
     for (let loss = 0; loss < 3; loss++) {
@@ -108,8 +108,8 @@ describe("solo episode flow (ticket 36)", () => {
     expect(ep.score()).toBe(Math.floor(scoreBefore * CONTINUE_SCORE_FACTOR));
   });
 
-  it("game over → Restart: round 1, score 0", () => {
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 3 });
+  it("game over → Restart: round 1, score 0", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 3 });
     const dbg = ep as unknown as { debugSetBall: (x: number, y: number, vx: number, vy: number) => void };
     for (let loss = 0; loss < 3; loss++) {
       dbg.debugSetBall(104, 300, 0, 60);
@@ -122,10 +122,10 @@ describe("solo episode flow (ticket 36)", () => {
     expect(ep.score()).toBe(0);
   });
 
-  it("high score + highest round persisted via storage", () => {
+  it("high score + highest round persisted via storage", async () => {
     const backend = fakeBackend();
     const storage = new Storage(backend);
-    const ep = createSoloEpisode({ storage });
+    const ep = await createSoloEpisode({ storage });
     clearRound(ep);
     clearRound(ep);
     const all = storage.loadAll();
@@ -133,8 +133,8 @@ describe("solo episode flow (ticket 36)", () => {
     expect(all.soloHighScore).toBeGreaterThan(0);
   });
 
-  it("pause freezes the sim; resume continues cleanly", () => {
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()) });
+  it("pause freezes the sim; resume continues cleanly", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()) });
     ep.step([frame(0)]);
     const tickBefore = ep.currentTick;
     ep.pause();
@@ -146,14 +146,14 @@ describe("solo episode flow (ticket 36)", () => {
     expect(ep.currentTick).toBe(tickBefore + 1);
   });
 
-  it("episode completes at the final round (SOLO_MAX_ROUND = 33)", () => {
+  it("episode completes at the final round (SOLO_MAX_ROUND = 33)", async () => {
     // Rounds 17–33 landed (ticket 35): clearing round 33 completes the
     // episode; clearing 16 now advances to 17 (no authored-content clamp).
-    const ep = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 16 });
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 16 });
     clearRound(ep);
     expect(ep.phase()).toBe("playing");
     expect(ep.round()).toBe(17);
-    const epFinal = createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 33 });
+    const epFinal = await createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 33 });
     clearRound(epFinal);
     expect(epFinal.phase()).toBe("episodeComplete");
     expect(SOLO_MAX_ROUND).toBe(33);
