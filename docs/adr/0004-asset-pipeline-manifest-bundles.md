@@ -69,3 +69,27 @@ All current assets fit in `boot` bundle (~1.6 MB projected texture memory << 64 
 - **Keep current sequential loading** — rejected: no parallel fetch, no cache-busting, batch breaks
 - **Custom manifest without AssetPack** — rejected: reinventing PixiJS v8 standard
 - **Lazy-load per sprite** — rejected: waterfall requests, worse UX
+
+## As built (ticket 87)
+
+The `boot`/`gameplay` split above is real, but the contents differ from the sketch:
+
+- **Two atlases, one per bundle.** `raw-assets/boot{m}/boot-atlas{tps}` holds the
+  background frame; `raw-assets/gameplay{m}/gameplay-atlas{tps}` holds paddles, balls
+  and all eight particle frames. Aliases are `boot-atlas` and `gameplay-atlas`.
+- **Particles stay in one atlas.** Frames cut from one image share a `TextureSource`,
+  which is what keeps the `ParticleContainer` effect layer at one draw call. Splitting
+  particle frames across bundles would break that; paddles and balls are plain sprites
+  outside the particle layer, so the background having its own source costs nothing.
+- **No level- or mode-specific assets yet.** None exist (art production is out of scope).
+  The bundle is the seam they will be added to, not a place they already live.
+- **Match start waits, with progress.** `startWithGameplayAssets` (`src/app/gameplayLoad.ts`)
+  shows `LoadingScreen` while a cold `gameplay` load is in flight and starts the match
+  without one when the bundle is cached. A failed load still starts the match on
+  procedural geometry and logs the cause.
+- **Not wired: multiplayer.** `MpFlow.mountRender` builds its fields synchronously
+  mid-handshake, so it still requests the bundle without waiting
+  (`void ensureGameplayAssets()`) and upgrades from procedural geometry when it lands.
+- **Rebuilding assets.** `npm run assetpack` regenerates `public/assets`; delete stale
+  `atlas-*` outputs first, since AssetPack does not remove files for removed sources.
+
