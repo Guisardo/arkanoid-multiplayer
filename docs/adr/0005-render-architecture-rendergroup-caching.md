@@ -63,3 +63,22 @@ Introduce **`RenderGroup` + `cacheAsTexture` for the static brick layer** and **
 ## Validation
 
 Per `pixijs-v8-best-practices.md` §3: "RenderGroup + cacheAsTexture for static layers is the single highest-impact render optimization for tile-based games."
+
+## As built (ticket 92, 102)
+
+- **API form.** The brick layer is a `Container({ isRenderGroup: true })` with
+  `cacheAsTexture` on, not a `new RenderGroup()`; that is how Pixi v8.21 spells it.
+- **Contexts are recorded lazily, per brick variant.** `GraphicsContext`s are built the
+  first time a variant is drawn and then shared, not pre-recorded as a fixed 18. Tier
+  contexts draw no cracks, so the three crack styles of a tier are identical and a brick
+  set only ever uses six tier contexts plus the silver hit-states, gold and uncolored.
+- **Invalidation is diff-based for brick changes**, but `FieldView.invalidate()`,
+  `setReducedEffects` and `setTextureResolution` also drop the cached grid, because the
+  texture itself changes.
+- **Draw calls are modelled, not measured.** `BrickLayer.drawCalls` is `cached ? 1 : n`;
+  the perf overlay still receives `drawCalls: null`. Measuring against the renderer is
+  future work (ticket 106).
+- **Texture memory is an estimate** of the cached wall texture (and the sprite atlas in
+  solo only), ignoring DPR. The 64 MB ceiling is flagged in the overlay, not enforced.
+- **Degraded rung** halves the cached wall texture resolution (`textureResolution: 0.5`).
+
