@@ -102,3 +102,20 @@ unit tests; the numbers below can only be measured on real hardware.
 - Two-field never collapses — unit-tested (`tests/render/splitScreen.test.ts`).
 - Context-restore resync wiring — unit-tested
   (`tests/app/soloSession.test.ts`, `tests/app/mpFlowPerf.test.ts`).
+
+## Automated gates (ticket 106)
+
+What CI can prove without a reference device. Frame *times* stay on the manual
+checklist above — SwiftShader and a dev machine say nothing about a Mali-G57.
+
+| Budget | Gate | Measured (headless Chromium, SwiftShader) |
+|---|---|---|
+| Draw calls < 20 per rendered frame (<= 10 expected) | `e2e/perfBudget.spec.ts` counts every WebGL `draw*` call inside each `renderer.render()` | solo: 1-2 per frame; 4 split-screen fields: 4 per frame |
+| Sim <= 2 ms per tick | `tests/perf/simBudget.test.ts` gates the **median** tick of 4 Attack fields and of a solo round | far below budget on a dev machine; this is a regression floor, not a device claim |
+| Perf ladder: dpr 2 -> 1.5 -> 1 -> 30 fps, hysteresis 0.75 s down / 4 s up | `tests/app/perfLadder.test.ts` (transitions + hysteresis), `e2e/perfLadder.spec.ts` (resolution, banner, sim keeps ticking) | pass |
+| Sim rate fixed 60 Hz at every rung | `e2e/perfLadder.spec.ts` ticks advance on the degraded rung; `tests/app/loop.test.ts` | pass |
+| Texture memory <= 64 MB | `textureWithinBudget` is enforced at solo session start only (`soloSession`); the estimator lives in `app/frameStats` and feeds the `?perf=1` overlay in every session | estimate only — `?perf=1` shows it |
+
+Not automated, on purpose: sim/sync/render **timings** and the 8 ms sustained
+headroom (device-bound), and true GPU texture memory (WebGL exposes no
+allocation counter; the overlay figure is an estimate).
