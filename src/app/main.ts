@@ -644,6 +644,9 @@ function startHostFlow(code: string): void {
   const hostLobbyUI: LobbyScreen = new LobbyScreen({
     host: appHost,
     locale,
+    // Ticket 101: the lobby re-shows the join QR (GH Pages subpath preserved).
+    pageHost: globalThis.location.host,
+    pagePath: globalThis.location.pathname,
     defaultSkinId: storedSettings().appearance.skinId,
     onSettings: () => { openSettingsOverlay(flow); },
     onEvent: (event) => { flow.hostLocalEvent(event); },
