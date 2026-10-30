@@ -441,7 +441,7 @@ describe("hydrate — adopting a pre-IndexedDB localStorage save (ticket 103)", 
     local: ReturnType<typeof memoryStorage> & MemoryStorage;
   } {
     const { env } = fakeOrigin();
-    const local = memoryStorage() as ReturnType<typeof memoryStorage> & MemoryStorage;
+    const local = memoryStorage();
     for (const [k, v] of Object.entries(entries)) local.setItem(k, v);
     return { env: { ...env, localStorage: local }, local };
   }
