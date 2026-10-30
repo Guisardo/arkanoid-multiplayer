@@ -333,8 +333,9 @@ async function initAssetsPipeline(): Promise<void> {
 }
 
 /**
- * Cut a bundle's atlas frames into the module-level texture cache. True when
- * every frame the bundle is expected to supply is now cached.
+ * Cut a bundle's atlas frames into the module-level texture cache. True only
+ * when EVERY frame the bundle is expected to supply is now cached: a partial
+ * atlas must not count as loaded, or the missing frames would never be retried.
  */
 async function registerAtlasFrames(bundle: string): Promise<boolean> {
   const atlas = pickAtlasTable(Assets.get(atlasAlias(bundle)));
@@ -342,7 +343,7 @@ async function registerAtlasFrames(bundle: string): Promise<boolean> {
   const frames = framesFor(bundle);
   await registerFrames(atlas, frames);
   atlasResolved = loaded.size > 0;
-  return frames.some((name) => loaded.has(name));
+  return frames.every((name) => loaded.has(name));
 }
 
 /**

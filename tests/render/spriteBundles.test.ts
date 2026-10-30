@@ -184,6 +184,23 @@ describe("progressive bundles (ticket 87)", () => {
     expect(sources.has(undefined)).toBe(false);
   });
 
+  it("does not count a partial atlas as loaded, so the missing frames are retried", async () => {
+    const gameplay = sheets["gameplay-atlas"];
+    if (gameplay === undefined) throw new Error("fixture missing gameplay sheet");
+    const missing = gameplay.textures["ball-red.png"];
+    delete gameplay.textures["ball-red.png"];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await ensureGameplayAssets();
+      expect(spriteDebugState().error).toBeInstanceOf(Error);
+      await ensureGameplayAssets();
+      expect(bundleCalls.filter((b) => b === "gameplay")).toHaveLength(2);
+    } finally {
+      if (missing !== undefined) gameplay.textures["ball-red.png"] = missing;
+      warn.mockRestore();
+    }
+  });
+
   it("initialises the Assets pipeline exactly once across both entry points", async () => {
     // `initAssets` and `ensureGameplayAssets` run CONCURRENTLY at match start.
     // `Assets.init` is not idempotent: the second call leaves the cache

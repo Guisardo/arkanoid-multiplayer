@@ -161,4 +161,67 @@ describe("startWithGameplayAssets (ticket 87)", () => {
     });
     expect(text).toContain("Cargando");
   });
+
+  it("ignores a second start on the same host while the first is still in flight (double click)", async () => {
+    const el = host();
+    let release: () => void = () => undefined;
+    const ensure = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const start = vi.fn(() => ({ id: 1 }));
+    const first = startWithGameplayAssets({ host: el, locale: "en-US", loader: loader({ ensure }), start });
+    const second = startWithGameplayAssets({ host: el, locale: "en-US", loader: loader({ ensure }), start });
+    await Promise.resolve();
+    expect(el.querySelectorAll("[role='progressbar']")).toHaveLength(1);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(start).toHaveBeenCalledOnce();
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(b).toBe(a);
+  });
+
+  it("guards the window while the match itself is being created, not just the load", async () => {
+    const el = host();
+    let finish: (v: string) => void = () => undefined;
+    const start = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const first = startWithGameplayAssets({ host: el, locale: "en-US", loader: loader({ isLoaded: () => true }), start });
+    const second = startWithGameplayAssets({ host: el, locale: "en-US", loader: loader({ isLoaded: () => true }), start });
+    finish("session");
+    await Promise.all([first, second]);
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("allows a new start once the previous one has finished (rematch)", async () => {
+    const el = host();
+    const start = vi.fn(() => "session");
+    const opts = { host: el, locale: "en-US" as const, loader: loader({ isLoaded: () => true }), start };
+    await startWithGameplayAssets(opts);
+    await startWithGameplayAssets(opts);
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a retry after a start that threw", async () => {
+    const el = host();
+    const failing = { host: el, locale: "en-US" as const, loader: loader({ isLoaded: () => true }), start: () => { throw new Error("boom"); } };
+    await expect(startWithGameplayAssets(failing)).rejects.toThrow("boom");
+    const start = vi.fn(() => "session");
+    await expect(startWithGameplayAssets({ ...failing, start })).resolves.toBe("session");
+  });
+
+  it("treats different hosts independently", async () => {
+    const start = vi.fn(() => "session");
+    await Promise.all([
+      startWithGameplayAssets({ host: host(), locale: "en-US", loader: loader({ isLoaded: () => true }), start }),
+      startWithGameplayAssets({ host: host(), locale: "en-US", loader: loader({ isLoaded: () => true }), start }),
+    ]);
+    expect(start).toHaveBeenCalledTimes(2);
+  });
 });

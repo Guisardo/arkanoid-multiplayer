@@ -34,13 +34,30 @@ export interface StartWithGameplayAssetsOptions<T> {
 }
 
 /**
+ * Matches being started, by host. A second start on the same host while one is
+ * still loading or being created (a double click, a rematch fired twice) joins
+ * the first instead of starting a second session behind a second loading
+ * screen. Cleared when the start settles, so a rematch or a retry after a
+ * failure starts fresh.
+ */
+const startsInFlight = new WeakMap<HTMLElement, Promise<unknown>>();
+
+/**
  * Make sure the gameplay bundle is loaded, showing progress if that takes a
  * wait, then create the match. The loading screen is gone before `start` runs,
  * so a match creator that throws cannot leave an overlay stranded on screen.
  */
-export async function startWithGameplayAssets<T>(
-  opts: StartWithGameplayAssetsOptions<T>,
-): Promise<T> {
+export function startWithGameplayAssets<T>(opts: StartWithGameplayAssetsOptions<T>): Promise<T> {
+  const joined = startsInFlight.get(opts.host);
+  if (joined !== undefined) return joined as Promise<T>;
+  const pending = runStart(opts).finally(() => {
+    startsInFlight.delete(opts.host);
+  });
+  startsInFlight.set(opts.host, pending);
+  return pending;
+}
+
+async function runStart<T>(opts: StartWithGameplayAssetsOptions<T>): Promise<T> {
   const loader = opts.loader ?? defaultGameplayLoader;
   if (!loader.isLoaded()) {
     const screen = new LoadingScreen({ host: opts.host, locale: opts.locale });
@@ -49,6 +66,8 @@ export async function startWithGameplayAssets<T>(
         screen.setProgress(progress);
       });
     } catch (err) {
+      // `ensureGameplayAssets` never rejects, but the loader is injected: a
+      // loader that breaks that contract must still not strand the match.
       console.error("[gameplayLoad] gameplay assets failed to load; starting without them", err);
     } finally {
       screen.close();
