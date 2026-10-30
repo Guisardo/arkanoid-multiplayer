@@ -401,6 +401,27 @@ describe("mpFlow wiring (ticket 45)", () => {
     expect(guestSplit.resize).toHaveBeenCalledWith({ w: 360, h: 780 });
   }, 15000);
 
+  it("ticket 100: the host's remote strip lists the guest's player, not an empty band", async () => {
+    const { hostFlow, guestFlow } = makePair();
+    flows.push(hostFlow, guestFlow);
+    await hostFlow.start();
+    await guestFlow.start();
+    guestFlow.guestHello("Ria", "classic");
+    await Promise.resolve();
+    guestFlow.guestIntent({ kind: "ready", ready: true });
+    await Promise.resolve();
+    hostFlow.hostLocalEvent({ type: "setReady", playerId: 0, ready: true });
+    hostFlow.hostStartMatch();
+    await new Promise((r) => globalThis.setTimeout(r, 3400));
+    await new Promise((r) => globalThis.setTimeout(r, 800));
+    expect(hostFlow.currentPhase).toBe("inGame");
+    const hostStrip = document.querySelectorAll<HTMLElement>(".rs-strip")[0];
+    expect(hostStrip).toBeDefined();
+    // The guest's player row: name, score and round/lives — numbers only.
+    expect(hostStrip!.textContent).toContain("Ria");
+    expect(hostStrip!.textContent).toContain("R1/33");
+  }, 15000);
+
   it("protocol version constant is the handshake value", () => {
     // Pinned on purpose: a bump must be a deliberate edit here, and the guest
     // must advertise the same constant (mpFlow passes PROTOCOL_VERSION, never a

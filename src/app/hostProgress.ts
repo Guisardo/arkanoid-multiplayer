@@ -3,6 +3,9 @@
 // small binary payload at ~5 Hz: [u8 3][u8 count] × {u8 player, u32 score,
 // u16 round, u8 lives, u8 state (0 playing / 1 downed / 2 removed)}.
 
+import type { Snapshot } from "shared/protocol";
+import type { ProgressRow } from "app/guestGame";
+
 export const PROGRESS_KIND = 3;
 
 export interface ProgressWireRow {
@@ -11,6 +14,56 @@ export interface ProgressWireRow {
   round: number;
   lives: number;
   state: number;
+}
+
+/**
+ * Wire rows for every player in `players` that is NOT in `exclude` — the
+ * viewer's own players never appear on its strip. Parallel modes carry each
+ * player's field in `snapshots[player]`; single-field modes carry everyone in
+ * `snapshots[0]`. Players with no snapshot row are skipped.
+ */
+export function collectProgressRows(
+  players: readonly { player: number }[],
+  exclude: ReadonlySet<number>,
+  snapshots: readonly Snapshot[],
+): ProgressWireRow[] {
+  const rows: ProgressWireRow[] = [];
+  for (const { player } of players) {
+    if (exclude.has(player)) continue;
+    const snap = snapshots[player] ?? snapshots[0];
+    if (snap === undefined) continue;
+    // Parallel modes renumber each field's lone player to 0 (multiField
+    // remap), so an own-field snapshot's only row is this player's whatever
+    // its id; single-field snapshots carry global ids and are matched by id.
+    const ownField = snapshots[player] !== undefined && snap.players.length === 1;
+    const ps = snap.players.find((x) => x.player === player) ?? (ownField ? snap.players[0] : undefined);
+    if (ps === undefined) continue;
+    rows.push({
+      player,
+      score: ps.score,
+      round: snap.round,
+      lives: ps.lives,
+      state: ps.state === "downed" ? 1 : ps.state === "removed" ? 2 : 0,
+    });
+  }
+  return rows;
+}
+
+/** Strip row for a wire row: names come from the lobby, by sim index. */
+export function wireRowToProgress(
+  row: ProgressWireRow,
+  names: readonly string[],
+  maxRound: number,
+): ProgressRow {
+  return {
+    player: row.player,
+    name: names[row.player] ?? `P${String(row.player + 1)}`,
+    score: row.score,
+    round: row.round,
+    maxRound,
+    lives: row.lives,
+    downed: row.state === 1,
+  };
 }
 
 export function packProgress(
