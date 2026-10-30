@@ -453,10 +453,20 @@ function makeLocalInput(flow: MpFlow) {
         : { ...kf, player };
       const pad = poll(player);
       const gf = pad.sampleFrame(tick);
-      const mouse = mice.get(player);
-      const mf = mouse !== undefined ? mouse.sampleFrame(tick) : null;
       const touch = touches.get(player);
       const tf = touch !== undefined ? touch.sampleFrame(tick) : null;
+      const mouse = mice.get(player);
+      if (mouse !== undefined) {
+        // Another device taking over cancels the pointer chase, so a stale
+        // mouse target cannot override keyboard/gamepad/touch input.
+        if (frame.axisX !== 0 || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
+          mouse.releaseTarget();
+        }
+        const snap = flow.localSnapshots()[mice.size > 1 ? flow.localPlayers.indexOf(player) : 0];
+        const paddleX = snap?.players.find((p) => p.player === player)?.paddle.x;
+        if (paddleX !== undefined) mouse.feedPaddle(paddleX);
+      }
+      const mf = mouse !== undefined ? mouse.sampleFrame(tick) : null;
       const pick: InputFrame =
         tf !== null && tf.axisX !== 0 ? tf :
         mf !== null && mf.axisX !== 0 ? mf :

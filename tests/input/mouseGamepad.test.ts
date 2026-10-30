@@ -26,6 +26,27 @@ describe("MouseAdapter (spec §11)", () => {
     expect(m.sampleFrame(0).launch).toBe(true);
     expect(m.sampleFrame(1).launch).toBe(false);
   });
+  it("feedPaddle: axis returns to 0 once the paddle reaches the pointer", () => {
+    const m = new MouseAdapter({ player: 0 });
+    m.feedPointer(150, 104);
+    expect(m.sampleFrame(0).axisX).toBe(1);
+    m.feedPaddle(149);
+    expect(m.sampleFrame(1).axisX).toBe(0);
+  });
+  it("stale paddle position keeps chasing (why callers must feedPaddle per tick)", () => {
+    const m = new MouseAdapter({ player: 0 });
+    m.feedPointer(150, 104);
+    expect(m.sampleFrame(0).axisX).toBe(1);
+    expect(m.sampleFrame(1).axisX).toBe(1);
+  });
+  it("releaseTarget: axis 0 until the next pointer move re-arms the chase", () => {
+    const m = new MouseAdapter({ player: 0 });
+    m.feedPointer(150, 104);
+    m.releaseTarget();
+    expect(m.sampleFrame(0).axisX).toBe(0);
+    m.feedPointer(150, 104);
+    expect(m.sampleFrame(1).axisX).toBe(1);
+  });
   it("no pointer data → idle axis", () => {
     const m = new MouseAdapter({ player: 0 });
     expect(m.sampleFrame(0).axisX).toBe(0);

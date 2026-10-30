@@ -407,9 +407,16 @@ export async function startSoloSession(
       } else {
         // Merge devices: last device with non-zero axis or edge wins.
         const kf = keyboard.sampleFrame(tick);
-        const mf = mouse.sampleFrame(tick);
         const gf = gamepad.sampleFrame(tick);
         const tf = touch !== null ? touch.sampleFrame(tick) : null;
+        // Another device taking over cancels the pointer chase, so a stale
+        // mouse target cannot override keyboard/gamepad/touch input.
+        if (kf.axisX !== 0 || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
+          mouse.releaseTarget();
+        }
+        const paddleX = latest.players[0]?.paddle.x;
+        if (paddleX !== undefined) mouse.feedPaddle(paddleX);
+        const mf = mouse.sampleFrame(tick);
         const active =
           (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
           (mf.axisX !== 0 ? "mouse" : "") ||
