@@ -47,10 +47,16 @@ import { PROTOCOL_VERSION, type InputFrame, type Snapshot } from "shared/protoco
 import { skinByIndex } from "content/skins";
 import { SplitScreenView } from "render/splitScreen";
 import { REMOTE_STRIP_HEIGHT_PX, stripCompact } from "render/layout";
+import { collectProgressRows, wireRowToProgress } from "app/hostProgress";
 import { RemoteStrip } from "render/remoteStrip";
 import { createAppShell, type AppShell } from "render/appShell";
 import { ensureGameplayAssets } from "render/spriteSheet";
 import { EndScreen, type StandingRow, type CoopOutcome } from "ui/endScreens";
+
+/** Host strip refresh cadence — matches the ~5 Hz guests receive rows at. */
+const HOST_STRIP_INTERVAL_MS = 200;
+/** Last round shown as "R<n>/<max>" on the strip (the Doh round). */
+const MATCH_MAX_ROUND = 33;
 
 /** Channel pair seam — real WebRTC in production, loopback in tests. */
 export interface MpChannels {
@@ -108,6 +114,8 @@ export class MpFlow {
   private shell: AppShell | null = null;
   private split: SplitScreenView | null = null;
   private strip: RemoteStrip | null = null;
+  /** Wall-clock stamp of the host strip's last refresh. */
+  private lastStripMs = 0;
   /** Ticket 100: detaches the renderer-resize hook for the mounted fields. */
   private detachResize: (() => void) | null = null;
   private endScreen: EndScreen | null = null;
@@ -778,6 +786,23 @@ export class MpFlow {
     );
   }
 
+  /**
+   * Ticket 100: the host's remote progress strip shows the guests' players.
+   * Guests get their rows over the wire; the host already holds every
+   * snapshot, so it derives them locally — at the same ~5 Hz cadence, since
+   * a DOM rewrite per rendered frame buys nothing for numbers that move
+   * once a brick.
+   */
+  private updateHostStrip(snaps: readonly Snapshot[]): void {
+    if (this.strip === null) return;
+    const now = performance.now();
+    if (now - this.lastStripMs < HOST_STRIP_INTERVAL_MS) return;
+    this.lastStripMs = now;
+    const players = this.matchNames.map((_, player) => ({ player }));
+    const rows = collectProgressRows(players, new Set(this.matchLocalPlayers), snaps);
+    this.strip.update(rows.map((r) => wireRowToProgress(r, this.matchNames, MATCH_MAX_ROUND)));
+  }
+
   private startHostLoop(): void {
     const game = this.game;
     if (game === null) return;
@@ -809,6 +834,7 @@ export class MpFlow {
         // ADR 0009: effects are local + cosmetic, so only this device's fields
         // run them — same filter as the audio above.
         this.split?.tickEffects();
+        this.updateHostStrip(snaps);
         this.lastSyncMs = performance.now() - syncStart;
       },
       onFrameStats: (sample) => {

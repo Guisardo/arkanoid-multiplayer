@@ -18,7 +18,7 @@ import { createInterpolator, type Interpolator } from "net/interpolate";
 import { createPredictor, type Predictor, type PredictBoundsKind } from "net/predict";
 import { createGuestSilenceMonitor, type GuestBlindState } from "net/heartbeat";
 import { unpackMulti } from "app/hostGame";
-import { unpackProgress } from "app/hostProgress";
+import { unpackProgress, wireRowToProgress } from "app/hostProgress";
 
 export const GUEST_SEND_HZ = 60;
 export const REDUNDANCY_TICKS = 10;
@@ -221,15 +221,7 @@ export function createGuestGameSession(
           // Progress rows (parallel modes): remote players' strip data.
           progressRows.length = 0;
           for (const r of unpackProgress(buffer)) {
-            progressRows.push({
-              player: r.player,
-              name: opts.names[r.player] ?? `P${String(r.player + 1)}`,
-              score: r.score,
-              round: r.round,
-              maxRound,
-              lives: r.lives,
-              downed: r.state === 1,
-            });
+            progressRows.push(wireRowToProgress(r, opts.names, maxRound));
           }
           callbacks.onProgress?.(progressRows);
         } else {

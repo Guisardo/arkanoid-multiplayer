@@ -21,7 +21,7 @@ import { createDelayQueue } from "net/delayQueue";
 import { decodeInputBatch } from "net/inputCodec";
 import { createHostInputGuard, guardGuestFrames } from "net/hostGuard";
 import { serializeSnapshot } from "net/serializer";
-import { packProgress, type ProgressWireRow } from "app/hostProgress";
+import { collectProgressRows, packProgress } from "app/hostProgress";
 
 /** Snapshot broadcast cadence (spec §9). */
 export function snapshotHzFor(mode: LobbyMode): 30 | 60 {
@@ -377,24 +377,7 @@ export async function createHostGameSession(
     // locals show as remote rows for guests too — any player not local to
     // this guest device.
     const mine = new Set(guestPlayers.get(guestIndex) ?? []);
-    const rows: ProgressWireRow[] = [];
-    for (const p of opts.players) {
-      if (mine.has(p.player)) continue;
-      // Parallel modes: per-player snapshot carries their row; single-field
-      // modes: the one snapshot carries all players.
-      const snap =
-        snapshots[p.player] ?? snapshots[0];
-      const ps = snap?.players.find((x) => x.player === p.player);
-      if (ps === undefined || snap === undefined) continue;
-      rows.push({
-        player: p.player,
-        score: ps.score,
-        round: snap.round,
-        lives: ps.lives,
-        state: ps.state === "downed" ? 1 : ps.state === "removed" ? 2 : 0,
-      });
-    }
-    return packProgress(rows);
+    return packProgress(collectProgressRows(opts.players, mine, snapshots));
   }
 
   function broadcast(snapshots: readonly Snapshot[]): void {
