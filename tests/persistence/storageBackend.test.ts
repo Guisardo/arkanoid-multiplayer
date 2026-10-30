@@ -496,6 +496,111 @@ describe("hydrate — adopting a pre-IndexedDB localStorage save (ticket 103)", 
   });
 });
 
+describe("failure reporting — nothing is swallowed (ticket 103, ADR 0008)", () => {
+  type Reported = { context: string; error: unknown };
+
+  function reportingOrigin(opts: FakeOptions = {}): {
+    env: StorageEnvironment;
+    databases: Map<string, FakeDatabase>;
+    reported: Reported[];
+  } {
+    const origin = fakeOrigin(opts);
+    const reported: Reported[] = [];
+    return {
+      ...origin,
+      reported,
+      env: {
+        ...origin.env,
+        onError: (context: string, error: unknown) => {
+          reported.push({ context, error });
+        },
+      },
+    };
+  }
+
+  it("reports a write transaction that aborts", async () => {
+    const { env, databases, reported } = reportingOrigin();
+    const backend = new IndexedDbStorageBackend(env);
+    await backend.ready();
+    const db = databases.get("arkanoid") as FakeDatabase;
+    const real = db.transaction.bind(db);
+    db.transaction = () => {
+      const tx = real();
+      queueMicrotask(() => {
+        tx.onabort?.();
+      });
+      return tx;
+    };
+    backend.setItem(COMPOSITE_KEY, "x");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(reported.map((r) => r.context)).toEqual([expect.stringContaining("write aborted")]);
+  });
+
+  it("reports a transaction the database refuses to open, with the cause", async () => {
+    const { env, databases, reported } = reportingOrigin();
+    const backend = new IndexedDbStorageBackend(env);
+    await backend.ready();
+    const cause = new Error("InvalidStateError");
+    (databases.get("arkanoid") as FakeDatabase).transaction = () => {
+      throw cause;
+    };
+    backend.setItem(COMPOSITE_KEY, "x");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.context).toContain("transaction refused");
+    expect(reported[0]?.error).toBe(cause);
+  });
+
+  it("reports why IndexedDB was abandoned when the chain falls back to localStorage", async () => {
+    const { env, reported } = reportingOrigin({ openErrors: true });
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    expect(backend.kind).toBe("localstorage");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.context).toContain("falling back");
+    expect((reported[0]?.error as Error).message).toBe("SecurityError");
+  });
+
+  it("reports an unreadable key during hydrate instead of silently dropping it", async () => {
+    const { env, databases, reported } = reportingOrigin();
+    const backend = new IndexedDbStorageBackend(env);
+    await backend.ready();
+    (databases.get("arkanoid") as FakeDatabase).transaction = () => {
+      throw new Error("db closed");
+    };
+    await backend.hydrate([COMPOSITE_KEY]);
+    expect(reported.map((r) => r.context)).toEqual([expect.stringContaining(COMPOSITE_KEY)]);
+  });
+
+  it("reports a localStorage that throws while its save is being adopted", async () => {
+    const { env, reported } = reportingOrigin();
+    const cause = new Error("SecurityError");
+    const throwing = {
+      getItem: () => {
+        throw cause;
+      },
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    };
+    const backend = new IndexedDbStorageBackend({ ...env, localStorage: throwing });
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY]);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.error).toBe(cause);
+  });
+
+  it("still boots: reporting never throws into the caller", async () => {
+    const { env } = reportingOrigin({ openErrors: true });
+    const backend = createDefaultStorageBackend({
+      ...env,
+      onError: () => {
+        throw new Error("reporter blew up");
+      },
+    });
+    await expect(backend.ready()).resolves.toBeUndefined();
+  });
+});
+
 describe("browserStorageEnvironment (ticket 103)", () => {
   // The production environment probe. `createSaveBackend` calls this with no
   // arguments, so whatever it reports decides which backend the page gets.

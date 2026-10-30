@@ -27,6 +27,31 @@ export type StorageBackendKind = "indexeddb" | "localstorage" | "memory";
 export interface StorageEnvironment {
   readonly indexedDB?: IDBFactory | undefined;
   readonly localStorage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | undefined;
+  /**
+   * Where a failure the backend recovers from is reported (default: console).
+   * Recovery stays automatic — the game must boot — but never silent, so a save
+   * that stopped persisting is visible in the logs instead of discovered when
+   * the player loses progress.
+   */
+  readonly onError?: ((context: string, error: unknown) => void) | undefined;
+}
+
+/** Default sink for recovered storage failures. */
+export function reportStorageError(context: string, error: unknown): void {
+  console.error(`[storageBackend] ${context}`, error);
+}
+
+/**
+ * Report through the environment's sink. A throwing sink must not take the
+ * game down with the storage failure it was told about, so it is reported to
+ * the console and then dropped.
+ */
+function report(env: StorageEnvironment, context: string, error: unknown): void {
+  try {
+    (env.onError ?? reportStorageError)(context, error);
+  } catch (sinkError) {
+    reportStorageError("error sink threw", sinkError);
+  }
 }
 
 /**
@@ -89,6 +114,11 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
   /** True when the database never opened (the caller should fall back). */
   get failed(): boolean {
     return this.failure !== null;
+  }
+
+  /** Why the database never opened; null while it is usable. */
+  get failureCause(): unknown {
+    return this.failure;
   }
 
   private open(): Promise<void> {
@@ -212,8 +242,9 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
       try {
         const stored = await this.fetchItem(key);
         if (stored === null) this.adoptFromLocalStorage(key);
-      } catch {
-        // Unreadable key — leave it out of the mirror.
+      } catch (err) {
+        // Unreadable key — leave it out of the mirror, but say so.
+        report(this.env, `hydrate failed (key=${key})`, err);
       }
     }
   }
@@ -240,12 +271,17 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
     try {
       const tx = db.transaction(this.storeName, "readwrite");
       act(tx.objectStore(this.storeName));
-      // Failures must not reject into the void; a dropped write degrades to
-      // "the previous save stands", exactly like a localStorage failure.
-      tx.onerror = () => undefined;
-      tx.onabort = () => undefined;
-    } catch {
+      // A failed write degrades to "the previous save stands", exactly like a
+      // localStorage failure — but the player must not lose progress unseen.
+      tx.onerror = () => {
+        report(this.env, "write failed (transaction error)", tx.error);
+      };
+      tx.onabort = () => {
+        report(this.env, "write aborted", tx.error);
+      };
+    } catch (err) {
       // Transaction refused (db closed, storage evicted mid-write).
+      report(this.env, "write dropped: transaction refused", err);
     }
   }
 
@@ -255,6 +291,7 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
         resolve(req.result);
       };
       req.onerror = () => {
+        report(this.env, "read failed (request error)", req.error);
         resolve(undefined);
       };
     });
@@ -326,7 +363,8 @@ export function createDefaultStorageBackend(env: StorageEnvironment): ReadyStora
         local.getItem("arkanoid.backend.probe");
         local.removeItem("arkanoid.backend.probe");
         return local;
-      } catch {
+      } catch (err) {
+        report(env, "localStorage unusable; falling back to memory (nothing persists)", err);
         return memoryBackend();
       }
     }
@@ -335,6 +373,7 @@ export function createDefaultStorageBackend(env: StorageEnvironment): ReadyStora
   let chosen: ReadyStorageBackend = indexed;
   const ready = indexed.ready().then(() => {
     if (!indexed.failed) return;
+    report(env, "IndexedDB unavailable; falling back", indexed.failureCause);
     chosen = fallback();
   });
   return {
