@@ -10,6 +10,9 @@
 //     A beats B  ⟺  A.updatedAt > B.updatedAt
 //                  ∨ (A.updatedAt === B.updatedAt ∧ A.deviceId > B.deviceId)
 //
+// (with a final tie-break on document content, because tabs of one install
+// share a deviceId).
+//
 // Total ordering is the whole point. Wall-clock ms are not unique across tabs,
 // so if the tie-break were "first argument wins", two tabs holding the same
 // pair would disagree and flip the save back and forth forever. Comparing the
@@ -40,7 +43,11 @@ export function beats(a: SaveDocument, b: SaveDocument): boolean {
   if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt;
   // Same millisecond from two different tabs. The id is the tie-break, and
   // string comparison gives an order every tab computes identically.
-  return a.deviceId > b.deviceId;
+  if (a.deviceId !== b.deviceId) return a.deviceId > b.deviceId;
+  // Tabs of one install share the persisted deviceId, so a same-millisecond
+  // pair can tie on both keys. Content is the last key: without it neither
+  // side beats the other and each tab keeps its own bytes forever.
+  return contentKey(a) > contentKey(b);
 }
 
 /** Last-write-wins with a deterministic tie-break. */
@@ -71,10 +78,12 @@ function contentKey(doc: SaveDocument): string {
  * last-write-wins stand: guessing "conflict" on every fresh tab would make the
  * merge UI pop up constantly.
  *
- * Three situations are deliberately NOT conflicts:
+ * Two situations are deliberately NOT conflicts:
  *   - One side is unchanged from base (the other simply overwrote it).
  *   - Both sides are byte-identical (same save, written twice).
- *   - Both sides share a deviceId (one install's own echo arriving back).
+ *
+ * Sharing a deviceId is NOT one of them: two tabs of one install carry the same
+ * id yet can each hold edits the other lacks.
  */
 export function isDivergent(
   local: SaveDocument,
@@ -82,8 +91,9 @@ export function isDivergent(
   base: SaveDocument | null,
 ): boolean {
   if (base === null) return false;
-  // Our own write coming back through the channel is never a conflict.
-  if (local.deviceId === remote.deviceId) return false;
+  // No same-deviceId shortcut: tabs of one install share the persisted id and
+  // BroadcastChannel never echoes a write back to its sender, so a shared id
+  // says nothing about whether both tabs changed the save.
   if (contentKey(local) === contentKey(remote)) return false;
 
   const localChanged = contentKey(local) !== contentKey(base);

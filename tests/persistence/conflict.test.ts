@@ -114,11 +114,40 @@ describe("isDivergent — when the user has a real choice (ticket 103)", () => {
     expect(isDivergent(mine, theirs, base)).toBe(false);
   });
 
-  it("a remote write by the SAME device is not a conflict with itself", () => {
+  it("a remote write by the SAME device with identical content is not a conflict", () => {
     const base = doc({ updatedAt: 1_000, deviceId: "a" });
     const mine = doc({ updatedAt: 2_000, deviceId: "a" });
     const theirs = doc({ updatedAt: 3_000, deviceId: "a" });
     expect(isDivergent(mine, theirs, base)).toBe(false);
+  });
+
+  it("two tabs of ONE install that each changed something are a conflict", () => {
+    // Tabs in one browser share the persisted deviceId, and BroadcastChannel
+    // only ever connects tabs of one browser — so a same-device short-circuit
+    // would make the merge prompt unreachable over the channel.
+    const base = doc({ updatedAt: 1_000, deviceId: "install" });
+    const mine = doc({
+      updatedAt: 2_000,
+      deviceId: "install",
+      settings: { ...BASE.settings, name: "Tab A" },
+    });
+    const theirs = doc({
+      updatedAt: 3_000,
+      deviceId: "install",
+      solo: { highScore: 500, highestRound: 4 },
+    });
+    expect(isDivergent(mine, theirs, base)).toBe(true);
+    expect(classifyWrite(mine, theirs, base)).toBe<WriteClassification>("conflict");
+  });
+});
+
+describe("resolveConflict — a total order (ticket 103)", () => {
+  it("picks the same winner from either tab when timestamp AND deviceId both tie", () => {
+    // Same install, same millisecond, different content: with a content-blind
+    // order both tabs would call the other's write a loser and stay diverged.
+    const a = doc({ updatedAt: 5_000, deviceId: "install", solo: { highScore: 1, highestRound: 1 } });
+    const b = doc({ updatedAt: 5_000, deviceId: "install", solo: { highScore: 2, highestRound: 1 } });
+    expect(resolveConflict(a, b).winner).toEqual(resolveConflict(b, a).winner);
   });
 });
 
@@ -149,16 +178,5 @@ describe("classifyWrite — what the writer should do with an incoming value (ti
       solo: { highScore: 500, highestRound: 4 },
     });
     expect(classifyWrite(mine, theirs, base)).toBe<WriteClassification>("conflict");
-  });
-
-  it("a same-device echo of a divergent-looking pair is not a conflict", () => {
-    const base = doc({ updatedAt: 1_000, deviceId: "a" });
-    const mine = doc({ updatedAt: 2_000, deviceId: "a", settings: { ...BASE.settings, name: "Mine" } });
-    const theirs = doc({
-      updatedAt: 3_000,
-      deviceId: "a",
-      solo: { highScore: 500, highestRound: 4 },
-    });
-    expect(classifyWrite(mine, theirs, base)).toBe<WriteClassification>("apply");
   });
 });
