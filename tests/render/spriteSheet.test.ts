@@ -74,7 +74,7 @@ vi.mock("pixi.js", async () => {
   };
 });
 
-const { gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
+const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
   await import("render/spriteSheet");
 
 beforeEach(() => {
@@ -125,8 +125,9 @@ describe("spriteSheet — atlas registration", () => {
     expect(initCalls[0]!.basePath).toContain("assets");
   });
 
-  it("registers every frame the game looks up", async () => {
+  it("registers every frame the game looks up once both bundles have loaded", async () => {
     await initAssets();
+    await ensureGameplayAssets();
     const debug = spriteDebugState();
     expect(debug.atlasResolved).toBe(true);
     for (const name of [
@@ -142,12 +143,14 @@ describe("spriteSheet — atlas registration", () => {
 
   it("does not register frames the game never looks up", async () => {
     await initAssets();
+    await ensureGameplayAssets();
     expect(spriteDebugState().frames).not.toContain("unused-frame.png");
     expect(spriteTexture("unused-frame.png")).toBeNull();
   });
 
-  it("all frames share one GPU source — the ParticleContainer batching contract", async () => {
+  it("gameplay frames share one GPU source — the ParticleContainer batching contract", async () => {
     await initAssets();
+    await ensureGameplayAssets();
     const star = spriteTexture(SPRITE_PATHS.particles.star)!;
     const circle = spriteTexture(SPRITE_PATHS.particles.circle)!;
     const ball = spriteTexture(SPRITE_PATHS.balls.red)!;
@@ -193,7 +196,7 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
     atlasAliasValue = rawTable;
     const beforePaddle = spriteTexture("paddle-a-red.png");
     const beforeBall = spriteTexture("ball-red.png");
-    await initAssets();
+    await ensureGameplayAssets();
     return {
       beforePaddle,
       beforeBall,
@@ -246,7 +249,7 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
 
   it("gives every cut frame the frame rect and the trim rect", async () => {
     atlasAliasValue = rawTable;
-    await initAssets();
+    await ensureGameplayAssets();
     const paddle = spriteTexture("paddle-a-red.png")!;
     expect(paddle.frame.x).toBe(130);
     expect(paddle.frame.y).toBe(1348);
@@ -261,7 +264,7 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
   it("skips a rotated frame rather than rendering it with wrong UVs", async () => {
     atlasAliasValue = rawTable;
     const before = spriteTexture("ball-green.png");
-    await initAssets();
+    await ensureGameplayAssets();
     // Untouched: the previous registration (or absence) still stands.
     expect(spriteTexture("ball-green.png")).toBe(before);
   });
@@ -269,17 +272,23 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
   it("a table with no image yields nothing instead of throwing", async () => {
     atlasAliasValue = { frames: rawTable.frames, meta: {} };
     const before = spriteTexture("paddle-a-red.png");
-    await expect(initAssets()).resolves.toBeUndefined();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(ensureGameplayAssets()).resolves.toBeUndefined();
+    warn.mockRestore();
     expect(spriteTexture("paddle-a-red.png")).toBe(before);
-    expect(spriteDebugState().error).toBeNull();
+    // No frames arrived, so the bundle counts as failed (and is retried next
+    // match) — recorded, not thrown, so the degraded boot is diagnosable.
+    expect(spriteDebugState().error).toBeInstanceOf(Error);
     expect(added).toHaveLength(0);
   });
 
   it("an alias that resolves to nothing usable leaves the cache alone", async () => {
     const before = spriteTexture("paddle-a-red.png");
     atlasAliasValue = undefined;
-    await initAssets();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await ensureGameplayAssets();
+    warn.mockRestore();
     expect(spriteTexture("paddle-a-red.png")).toBe(before);
-    expect(spriteDebugState().error).toBeNull();
+    expect(spriteDebugState().error).toBeInstanceOf(Error);
   });
 });

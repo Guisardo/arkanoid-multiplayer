@@ -44,39 +44,36 @@ export const SPRITE_PATHS = {
   },
 } as const;
 
-/** Every frame name the game looks up, in one list. */
-const ALL_FRAMES: readonly string[] = [
+/** Frames the landing/menu draws: packed into the `boot` atlas. */
+const BOOT_FRAMES: readonly string[] = Object.values(SPRITE_PATHS.backgrounds);
+
+/**
+ * Frames a match draws: packed into the `gameplay` atlas. Every particle frame
+ * lives here together, because frames cut from one image share a
+ * `TextureSource` — what lets `ParticleContainer` batch the whole effect layer
+ * into one draw call.
+ */
+const GAMEPLAY_FRAMES: readonly string[] = [
   ...Object.values(SPRITE_PATHS.paddles),
   ...Object.values(SPRITE_PATHS.balls),
-  ...Object.values(SPRITE_PATHS.backgrounds),
   ...Object.values(SPRITE_PATHS.particles),
 ];
-
-/** Alias AssetPack gives the packed atlas bundle. */
-const ATLAS_ALIAS = "atlas";
 
 /**
  * Bundle names (ADR 0004, ticket 87).
  *
- * #86 packed every frame into ONE atlas under a single `default` bundle, and
- * that has to stay: frames cut from one image share a `TextureSource`, which
- * is what lets `ParticleContainer` batch the whole effect layer in a single
- * draw call. Splitting the atlas per bundle would give each bundle its own
- * source and blow that budget. (Verified: re-tagging the source folder to
- * `{gameplay}` stops the texture packer running at all and unbundles every
- * frame into its own asset — the opposite of what we want.)
+ * `raw-assets/boot{m}/boot-atlas{tps}` and `raw-assets/gameplay{m}/gameplay-atlas{tps}`
+ * pack into two bundles, each with its own atlas alias (`<bundle>-atlas`).
+ * `boot` is what the landing/menu draws; `gameplay` is deferred until a match is
+ * created, so first paint does not wait on game textures.
  *
- * So the split here is about *when* a bundle is requested, not what it holds.
- * `boot` is what the landing/menu draws; `gameplay` is deferred until a match
- * is created, so first paint does not wait on game textures.
- *
- * `default` is what the shipped manifest actually declares, so it is the
- * fallback: a checkout that has not re-run `npm run assetpack` still boots
- * with art instead of degrading to procedural geometry.
+ * The split follows the *layer*, not the file: all particle frames stay in the
+ * `gameplay` atlas so they keep sharing one source (see `GAMEPLAY_FRAMES`).
+ * Paddles and balls are plain sprites drawn outside the particle layer, so
+ * giving the background its own source costs no batching.
  */
 const BOOT_BUNDLE = "boot";
 const GAMEPLAY_BUNDLE = "gameplay";
-const LEGACY_BUNDLE = "default";
 
 /**
  * Test-only reset for ALL per-page module state: the gameplay-bundle
@@ -92,6 +89,8 @@ export const gameplayAssetsLoaded = {
   reset(): void {
     gameplayLoaded = false;
     gameplayInFlight = null;
+    gameplayListeners.clear();
+    gameplayProgress = 0;
     assetsInitPromise = null;
     loaded.clear();
     atlasResolved = false;
@@ -108,22 +107,54 @@ let gameplayLoaded = false;
  */
 let gameplayInFlight: Promise<void> | null = null;
 
+/** Alias AssetPack gives a bundle's packed atlas. */
+function atlasAlias(bundle: string): string {
+  return `${bundle}-atlas`;
+}
+
+/** The frame names a bundle's atlas is expected to supply. */
+function framesFor(bundle: string): readonly string[] {
+  return bundle === GAMEPLAY_BUNDLE ? GAMEPLAY_FRAMES : BOOT_FRAMES;
+}
+
 /**
- * Load a named bundle, falling back to the single-bundle manifest.
+ * Load a named bundle and cut its atlas frames into the texture cache.
+ * Resolves true only when the bundle's atlas ACTUALLY arrived.
  *
- * The fallback is keyed on the OUTCOME, not on an exception: Pixi's
- * `loadBundle` does not reject for a bundle the manifest does not declare. It
- * logs "Asset id atlas was not found in the Cache" and resolves, so a
- * try/catch fallback never fires and the atlas silently stays unresolved. So
- * request the preferred name, then check whether the atlas actually arrived;
- * only if it did not, try the legacy name.
+ * The outcome is checked rather than an exception caught because Pixi's
+ * `loadBundle` does not reject for a bundle the manifest does not declare: it
+ * logs "Asset id ... was not found in the Cache" and resolves, leaving the
+ * cache empty. A try/catch would never fire.
  */
-async function loadBundleTolerant(name: string): Promise<void> {
-  await Assets.loadBundle(name);
-  if (pickAtlasTable(Assets.get(ATLAS_ALIAS)) !== null) return;
-  // The preferred bundle is absent (the committed manifest declares only
-  // `default`), so ask for that instead.
-  await Assets.loadBundle(LEGACY_BUNDLE);
+async function loadBundleAtlas(bundle: string, onProgress?: (p: number) => void): Promise<boolean> {
+  await Assets.loadBundle(bundle, onProgress);
+  return registerAtlasFrames(bundle);
+}
+
+/** Progress listeners for the one in-flight gameplay load (see `ensureGameplayAssets`). */
+const gameplayListeners = new Set<(progress: number) => void>();
+
+/** Highest progress the in-flight gameplay load has reported, 0..1. */
+let gameplayProgress = 0;
+
+/** Fan one progress value out to every waiting caller, never going backwards. */
+function reportGameplayProgress(raw: number): void {
+  const progress = Math.min(1, Math.max(0, raw));
+  if (progress < gameplayProgress) return;
+  gameplayProgress = progress;
+  for (const listener of gameplayListeners) notifyProgress(listener, progress);
+}
+
+/**
+ * A throwing progress listener is a UI bug, not a reason to abandon the load
+ * the whole match is waiting on — but it must not vanish either.
+ */
+function notifyProgress(listener: (progress: number) => void, progress: number): void {
+  try {
+    listener(progress);
+  } catch (err) {
+    console.error("[spriteSheet] gameplay progress listener threw", err);
+  }
 }
 
 /**
@@ -132,29 +163,42 @@ async function loadBundleTolerant(name: string): Promise<void> {
  * Call this at match creation, not at boot. Never throws: a missing gameplay
  * bundle degrades to procedural geometry so a match can still start, which is
  * the same contract `initAssets` has.
+ *
+ * `onProgress` receives 0..1, monotonic, ending at exactly 1 — also when the
+ * load fails, so a progress bar built on it cannot hang. Concurrent callers
+ * share one load and all receive its progress; a caller joining mid-load is
+ * told where it already is. Nothing is reported when the bundle is already
+ * loaded, since there is nothing to wait for.
  */
-export async function ensureGameplayAssets(): Promise<void> {
+export async function ensureGameplayAssets(onProgress?: (progress: number) => void): Promise<void> {
   if (gameplayLoaded) return;
   // Share the in-flight load. A caller arriving mid-load must not start a
   // second fetch of the same bytes.
-  if (gameplayInFlight) return gameplayInFlight;
+  if (gameplayInFlight) {
+    if (onProgress) {
+      gameplayListeners.add(onProgress);
+      notifyProgress(onProgress, gameplayProgress);
+    }
+    return gameplayInFlight;
+  }
+
+  gameplayProgress = 0;
+  if (onProgress) gameplayListeners.add(onProgress);
 
   gameplayInFlight = (async () => {
     try {
       await initAssetsPipeline();
-      await loadBundleTolerant(GAMEPLAY_BUNDLE);
-      await registerAtlasFrames();
-      // Only a bundle that ACTUALLY produced frames counts as loaded. Pixi
-      // resolves `loadBundle` for a name the manifest does not declare, so
-      // reaching this point does not prove the atlas arrived — and marking it
-      // loaded anyway would pin the session to procedural geometry with no
-      // retry, so a later match could never pick art back up after a
-      // transient network failure.
-      if (atlasResolved) {
+      const arrived = await loadBundleAtlas(GAMEPLAY_BUNDLE, reportGameplayProgress);
+      // Only a bundle that ACTUALLY produced frames counts as loaded — marking
+      // it loaded anyway would pin the session to procedural geometry with no
+      // retry, so a later match could never pick art back up after a transient
+      // network failure.
+      if (arrived) {
         gameplayLoaded = true;
         lastError = null;
       } else {
         lastError = new Error(`[spriteSheet] ${GAMEPLAY_BUNDLE} bundle produced no atlas frames`);
+        console.warn(`[spriteSheet] ${GAMEPLAY_BUNDLE} bundle produced no atlas frames; using procedural art`);
       }
     } catch (err) {
       // Deliberately does NOT set gameplayLoaded: a transient network failure
@@ -162,6 +206,9 @@ export async function ensureGameplayAssets(): Promise<void> {
       lastError = err;
       console.warn(`[spriteSheet] ${GAMEPLAY_BUNDLE} bundle failed; using procedural art`, err);
     } finally {
+      // Always finish at 1 so whoever is showing progress can dismiss it.
+      if (gameplayProgress < 1) reportGameplayProgress(1);
+      gameplayListeners.clear();
       gameplayInFlight = null;
     }
   })();
@@ -239,8 +286,7 @@ export async function initAssets(): Promise<void> {
   atlasResolved = false;
   try {
     await initAssetsPipeline();
-    await loadBundleTolerant(BOOT_BUNDLE);
-    await registerAtlasFrames();
+    await loadBundleAtlas(BOOT_BUNDLE);
   } catch (err) {
     // Missing manifest/bundle must never break the game — geometry fallback covers it.
     lastError = err;
@@ -281,12 +327,17 @@ async function initAssetsPipeline(): Promise<void> {
   }
 }
 
-/** Cut the atlas frames into the module-level texture cache. */
-async function registerAtlasFrames(): Promise<void> {
-  const atlas = pickAtlasTable(Assets.get(ATLAS_ALIAS));
-  if (atlas === null) return;
-  await registerFrames(atlas);
+/**
+ * Cut a bundle's atlas frames into the module-level texture cache. True when
+ * every frame the bundle is expected to supply is now cached.
+ */
+async function registerAtlasFrames(bundle: string): Promise<boolean> {
+  const atlas = pickAtlasTable(Assets.get(atlasAlias(bundle)));
+  if (atlas === null) return false;
+  const frames = framesFor(bundle);
+  await registerFrames(atlas, frames);
   atlasResolved = loaded.size > 0;
+  return frames.some((name) => loaded.has(name));
 }
 
 /**
@@ -331,19 +382,22 @@ function isAtlasTable(value: unknown): value is AtlasJson {
  * source is what lets `ParticleContainer` batch a whole field of particles into
  * a single draw call.
  */
-async function registerFrames(atlas: AtlasSpritesheet | AtlasJson): Promise<void> {
+async function registerFrames(
+  atlas: AtlasSpritesheet | AtlasJson,
+  frameNames: readonly string[],
+): Promise<void> {
   if (isSpritesheet(atlas)) {
-    for (const name of ALL_FRAMES) {
+    for (const name of frameNames) {
       const texture = atlas.textures[name];
       if (texture !== undefined) loaded.set(name, texture);
     }
     return;
   }
-  await cutRawAtlas(atlas);
+  await cutRawAtlas(atlas, frameNames);
 }
 
 /** Manual frame-cutting, for a manifest that resolves to a bare frame table. */
-async function cutRawAtlas(atlas: AtlasJson): Promise<void> {
+async function cutRawAtlas(atlas: AtlasJson, frameNames: readonly string[]): Promise<void> {
   const frames = atlas.frames;
   const image = atlas.meta.image;
   if (typeof image !== "string" || image.length === 0) return;
@@ -353,7 +407,7 @@ async function cutRawAtlas(atlas: AtlasJson): Promise<void> {
   const base = await Assets.load<Texture>(alias);
   const source = base.source;
 
-  for (const name of ALL_FRAMES) {
+  for (const name of frameNames) {
     const frame = frames[name];
     if (frame === undefined) continue;
     // The packer runs with allowRotation: false, so frames are axis-aligned.
