@@ -185,12 +185,42 @@ export class FieldView {
   }
 
   /**
+   * The orchestrator writes a shake *offset* (0,0 at rest). The shake layer is
+   * pivoted on the field center, so its resting position is that center, not
+   * the origin: map the offset onto it, or the field content jumps by the
+   * pivot and renders off-screen.
+   */
+  private shakeOffsetTarget(): VisualEffectsScene["shakeTarget"] {
+    const layer = this.shakeLayer;
+    return {
+      get x() {
+        return layer.x - FIELD_W / 2;
+      },
+      set x(v: number) {
+        layer.x = FIELD_W / 2 + v;
+      },
+      get y() {
+        return layer.y - FIELD_H / 2;
+      },
+      set y(v: number) {
+        layer.y = FIELD_H / 2 + v;
+      },
+      get rotation() {
+        return layer.rotation;
+      },
+      set rotation(v: number) {
+        layer.rotation = v;
+      },
+    };
+  }
+
+  /**
    * The scene surface the orchestrator writes to. Shake targets the shake
    * layer (in field units); flash/pops/particles are separate mount points.
    */
   private effectScene(): VisualEffectsScene {
     return {
-      shakeTarget: this.shakeLayer,
+      shakeTarget: this.shakeOffsetTarget(),
       particleLayer: this.particleLayer,
       popLayer: this.popLayer,
       flashLayer: this.flashGfx,
