@@ -431,6 +431,71 @@ describe("hydrate — the cold-read hazard (ticket 103)", () => {
   });
 });
 
+describe("hydrate — adopting a pre-IndexedDB localStorage save (ticket 103)", () => {
+  // A player who saved under the localStorage backend has nothing in the new
+  // database. Without adoption the first IndexedDB boot reads "no save" and the
+  // next write buries the real one.
+
+  function envWithLocalSave(entries: Record<string, string>): {
+    env: StorageEnvironment;
+    local: ReturnType<typeof memoryStorage> & MemoryStorage;
+  } {
+    const { env } = fakeOrigin();
+    const local = memoryStorage() as ReturnType<typeof memoryStorage> & MemoryStorage;
+    for (const [k, v] of Object.entries(entries)) local.setItem(k, v);
+    return { env: { ...env, localStorage: local }, local };
+  }
+
+  it("exposes the composite document that only localStorage held", async () => {
+    const { env } = envWithLocalSave({ [COMPOSITE_KEY]: '{"schemaVersion":1,"name":"Old"}' });
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY]);
+    expect(backend.kind).toBe("indexeddb");
+    expect(backend.getItem(COMPOSITE_KEY)).toBe('{"schemaVersion":1,"name":"Old"}');
+  });
+
+  it("exposes legacy per-key values that only localStorage held", async () => {
+    const { env } = envWithLocalSave({ "settings.name": "Legacy" });
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY, "settings.name"]);
+    expect(backend.getItem("settings.name")).toBe("Legacy");
+  });
+
+  it("writes the adopted value into IndexedDB, so the next boot needs no localStorage", async () => {
+    const { env } = envWithLocalSave({ [COMPOSITE_KEY]: "adopted" });
+    const first = createDefaultStorageBackend(env);
+    await first.ready();
+    await first.hydrate([COMPOSITE_KEY]);
+
+    const idbOnly = new IndexedDbStorageBackend({ indexedDB: env.indexedDB });
+    await idbOnly.ready();
+    expect(await idbOnly.fetchItem(COMPOSITE_KEY)).toBe("adopted");
+  });
+
+  it("prefers the IndexedDB value when both stores hold the key", async () => {
+    const { env } = envWithLocalSave({ [COMPOSITE_KEY]: "stale-local" });
+    const seed = new IndexedDbStorageBackend({ indexedDB: env.indexedDB });
+    await seed.ready();
+    seed.setItem(COMPOSITE_KEY, "fresh-idb");
+    await seed.fetchItem(COMPOSITE_KEY);
+
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY]);
+    expect(backend.getItem(COMPOSITE_KEY)).toBe("fresh-idb");
+  });
+
+  it("leaves localStorage untouched, so a rollback to the old build still finds the save", async () => {
+    const { env, local } = envWithLocalSave({ [COMPOSITE_KEY]: "kept" });
+    const backend = createDefaultStorageBackend(env);
+    await backend.ready();
+    await backend.hydrate([COMPOSITE_KEY]);
+    expect(local.getItem(COMPOSITE_KEY)).toBe("kept");
+  });
+});
+
 describe("browserStorageEnvironment (ticket 103)", () => {
   // The production environment probe. `createSaveBackend` calls this with no
   // arguments, so whatever it reports decides which backend the page gets.

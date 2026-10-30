@@ -210,11 +210,26 @@ export class IndexedDbStorageBackend implements ReadyStorageBackend {
   async hydrate(keys: readonly string[]): Promise<void> {
     for (const key of keys) {
       try {
-        await this.fetchItem(key);
+        const stored = await this.fetchItem(key);
+        if (stored === null) this.adoptFromLocalStorage(key);
       } catch {
         // Unreadable key — leave it out of the mirror.
       }
     }
+  }
+
+  /**
+   * One-way import of a save written under the localStorage backend. A player
+   * upgrading to IndexedDB has nothing in the database yet; without this the
+   * first boot reads "no save" and the next write buries the real one. The
+   * database always wins when it already holds the key (the caller only gets
+   * here on a miss), and localStorage is left intact so rolling back to the
+   * previous build still finds the save.
+   */
+  private adoptFromLocalStorage(key: string): void {
+    const legacy = this.env.localStorage?.getItem(key) ?? null;
+    if (legacy === null) return;
+    this.setItem(key, legacy);
   }
 
   private readonly mirror = new Map<string, string>();
