@@ -1,6 +1,7 @@
 // Field theme registry (spec §13): host-chosen, visual-only. UUID ids minted
 // at authoring — never a small enum. Brick sets + background + UI chrome tint.
 // All shipped themes pass the readability gate (content/readabilityGate).
+import { SPRITE_PATHS } from "./spriteFrames";
 import type { AssetProvenance, FieldTheme } from "./skinTypes";
 
 export type { FieldTheme } from "./skinTypes";
@@ -54,7 +55,7 @@ const DEEP_SPACE: FieldTheme = {
     crackStyle: "shatter",
     provenance: PROCEDURAL,
   },
-  background: { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15, sprite: "/assets/backgrounds/pixel-space.png" },
+  background: { color: 0x080818, starDensity: 0.06, darkenAlpha: 0.15, sprite: SPRITE_PATHS.backgrounds.pixelSpace },
   chromeTint: 0x00fcfc,
   provenance: PROCEDURAL,
 };

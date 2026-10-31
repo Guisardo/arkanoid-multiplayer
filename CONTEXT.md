@@ -195,6 +195,14 @@ _Avoid_: Asset manifest (generic), bundle config
 The deferred AssetPack bundle holding paddles, balls and every particle frame in one atlas (so the effect layer batches in one draw call). Loaded at match start behind a progress screen on a cold first match; cached afterwards. The `boot` bundle holds only what the landing screen draws.
 _Avoid_: Level pack (it holds no level data), game assets (vague)
 
+**Skin**:
+A player's look: the Paddle art and the ball art they play with, picked in Settings and shown on every field they appear on. Its sprite art is the canonical look; the procedural geometry in the same palette is only the fallback when the art is unavailable. Ball ownership is never carried by the Skin alone (readability gate).
+_Avoid_: Theme (that is the field's look), cosmetic, outfit
+
+**Field theme**:
+The host-chosen look of a play field: the brick set, the background and the UI chrome tint. Visual only; the same for every player on the session.
+_Avoid_: Skin (that is a player's look), level style, map
+
 **Composite save key**:
 A single `localStorage` key (`arkanoid.save.v1`) holding the entire save document (settings, solo progress, optional episode state) as one JSON blob with schema version, updatedAt, and deviceId. Written atomically; replaces 11 legacy per-key writes.
 _Avoid_: Save blob (vague), unified storage

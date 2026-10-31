@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SPRITE_PATHS } from "render/spriteSheet";
+import { SPRITE_PATHS } from "content/spriteFrames";
 
 const ASSETS_DIR = join(process.cwd(), "public", "assets");
 

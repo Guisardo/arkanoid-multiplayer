@@ -21,6 +21,7 @@ import { HitStop } from "./hitStop";
 import { ParticleSystem } from "./particles";
 import { ScorePopManager } from "./scorePops";
 import { SquashStretch } from "./squashStretch";
+import type { SquashTarget } from "./skinSprites";
 import { TraumaShake, type ShakeOffset } from "./traumaShake";
 import {
   BOLT_RECIPES,
@@ -50,9 +51,12 @@ export interface VisualEffectsScene {
   readonly popLayer: { addChild(child: never): unknown };
   /** Additive full-field flash quad. */
   readonly flashLayer: { visible: boolean; alpha: number; tint: number };
-  /** Optional sprite squash targets — null in procedural-geometry mode. */
-  readonly ballSprite?: { scale: { set(x: number, y: number): void } } | null;
-  readonly paddleSprite?: { scale: { set(x: number, y: number): void } } | null;
+  /**
+   * Squash targets (issue #152): they multiply the squash onto the size the
+   * last sync fitted, rather than overwriting it. Null = headless.
+   */
+  readonly ballSquash?: SquashTarget | null;
+  readonly paddleSquash?: SquashTarget | null;
   /** Bolt Brick flash painter (FieldView's Graphics, field units); null = headless. */
   readonly brickFlashLayer?: BrickFlashPainter | null;
 }
@@ -297,12 +301,8 @@ export class VisualEffects {
     scene.flashLayer.alpha = this.flash.currentAlpha;
     scene.flashLayer.tint = this.flash.currentColor;
 
-    if (scene.ballSprite != null) {
-      scene.ballSprite.scale.set(this.squash.scaleX("ball"), this.squash.scaleY("ball"));
-    }
-    if (scene.paddleSprite != null) {
-      scene.paddleSprite.scale.set(this.squash.scaleX("paddle"), this.squash.scaleY("paddle"));
-    }
+    scene.ballSquash?.setSquash(this.squash.scaleX("ball"), this.squash.scaleY("ball"));
+    scene.paddleSquash?.setSquash(this.squash.scaleX("paddle"), this.squash.scaleY("paddle"));
 
     const painter = scene.brickFlashLayer;
     if (painter != null) {

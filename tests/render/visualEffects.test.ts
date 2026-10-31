@@ -52,8 +52,8 @@ function makeScene(): RecordingScene {
     particleLayer: { addChild: () => added.push("particles") },
     popLayer: { addChild: () => added.push("pops") },
     flashLayer: { visible: false, alpha: 0, tint: 0xffffff },
-    ballSprite: null,
-    paddleSprite: null,
+    ballSquash: null,
+    paddleSquash: null,
   };
 }
 
@@ -544,22 +544,20 @@ describe("score pops", () => {
   });
 });
 
-/** Records the last scale the orchestrator wrote. */
-interface ScaleSpy {
-  scale: { set(x: number, y: number): void };
+/** Records the last squash the orchestrator wrote. */
+interface SquashSpy {
+  setSquash(x: number, y: number): void;
   lastX: number;
   lastY: number;
 }
 
-function spy(): ScaleSpy {
-  const s: ScaleSpy = {
+function spy(): SquashSpy {
+  const s: SquashSpy = {
     lastX: 1,
     lastY: 1,
-    scale: {
-      set(x: number, y: number): void {
-        s.lastX = x;
-        s.lastY = y;
-      },
+    setSquash(x: number, y: number): void {
+      s.lastX = x;
+      s.lastY = y;
     },
   };
   return s;
@@ -568,14 +566,14 @@ function spy(): ScaleSpy {
 describe("scene application", () => {
   it("writes squash onto the sprites when they exist", () => {
     const scene = makeScene();
-    const ballSprite = spy();
-    const paddleSprite = spy();
-    const withSprites: VisualEffectsScene = { ...scene, ballSprite, paddleSprite };
+    const ballSquash = spy();
+    const paddleSquash = spy();
+    const withSprites: VisualEffectsScene = { ...scene, ballSquash, paddleSquash };
     const fx = new VisualEffects(withSprites);
     fire(fx, "paddleBounce", snap({ balls: [ball()], players: [player()] }));
     fx.applyToScene();
-    expect(ballSprite.lastX).toBeGreaterThan(1);
-    expect(paddleSprite.lastY).toBeGreaterThan(1);
+    expect(ballSquash.lastX).toBeGreaterThan(1);
+    expect(paddleSquash.lastY).toBeGreaterThan(1);
   });
 
   it("mounts particle and pop layers once", () => {

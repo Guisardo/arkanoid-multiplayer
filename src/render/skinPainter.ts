@@ -1,5 +1,6 @@
 // Skin painter (spec §13): draws paddle/ball/capsule/boss sprites from
-// content descriptors — procedural geometry, no PNG assets. Owner-colored
+// content descriptors — procedural geometry, no PNG assets. For Paddles and
+// balls this is the fallback when the Skin's sprite frame is unavailable. Owner-colored
 // ball variants = render-time tint on white-base sprites (never per-owner
 // PNGs). Pixi Graphics only — no DOM, safe in node tests.
 import type { Graphics } from "pixi.js";
@@ -7,34 +8,76 @@ import type { BallSkin, BossSprite, CapsulePill, PaddleSkin } from "content/skin
 import { CAPSULE_W, CAPSULE_H } from "shared/gridConstants";
 import { glyphPixels } from "./pillGlyphs";
 
-/** Draw a paddle skin at center (x, y) with logical w × h. */
+/** Axis-aligned rect in field units. */
+export interface PaintRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Depth of a bevel corner cut or a notch, in field units. */
+const PADDLE_CUT = 1;
+
+/**
+ * Draw a paddle skin at center (x, y) with logical w × h: the procedural
+ * stand-in for the Skin's sprite art (issue #152), in the same palette. The
+ * shape is traced, filled with the trim color, then inset by the trim and
+ * filled with the body, so corners and notches are cut out of the shape —
+ * the field shows through them — never painted over in black.
+ */
 export function paintPaddle(gfx: Graphics, skin: PaddleSkin, x: number, y: number, w: number, h: number): void {
   const t = skin.trimThickness;
   const left = x - w / 2;
   const top = y - h / 2;
-  // Body
-  gfx.rect(left, top, w, h).fill(skin.bodyColor);
-  // Shape variants: notch a center gap; bevel = inset corners
-  if (skin.shape === "notched") {
-    const gap = w / 6;
-    gfx.rect(x - gap / 2, top, gap, h).fill(0x000000);
-  } else if (skin.shape === "beveled") {
-    // corner cuts (dark = field bg shows through)
-    gfx.rect(left, top, 1, 1).fill(0x000000);
-    gfx.rect(left + w - 1, top, 1, 1).fill(0x000000);
-    gfx.rect(left, top + h - 1, 1, 1).fill(0x000000);
-    gfx.rect(left + w - 1, top + h - 1, 1, 1).fill(0x000000);
+  tracePaddle(gfx, skin.shape, left, top, w, h).fill(skin.trimColor);
+  tracePaddle(gfx, skin.shape, left + t, top + t, w - 2 * t, h - 2 * t).fill(skin.bodyColor);
+  for (const r of paddleStripes(skin, left, top, w, h)) {
+    gfx.rect(r.x, r.y, r.w, r.h).fill(skin.stripeColor);
   }
-  // Trim: top + bottom edges
-  gfx.rect(left, top, w, t).fill(skin.trimColor);
-  gfx.rect(left, top + h - t, w, t).fill(skin.trimColor);
-  // Stripes: horizontal bands over the body
-  if (skin.stripes > 0) {
-    const bandH = (h - 2 * t) / (skin.stripes + 1);
-    for (let i = 1; i <= skin.stripes; i++) {
-      gfx.rect(left + t, top + t + bandH * i, w - 2 * t, Math.max(0.5, bandH * 0.4)).fill(skin.stripeColor);
-    }
+}
+
+/**
+ * Stripe rows for a paddle whose top-left is (left, top). Stripes are whole
+ * 1-unit rows with a body row between them and against the trim: a fractional
+ * band is sub-pixel at game scale and reads as a barcode. Stripes that do not
+ * fit are dropped; the ones that do are centred in the interior.
+ */
+export function paddleStripes(skin: PaddleSkin, left: number, top: number, w: number, h: number): PaintRect[] {
+  const t = skin.trimThickness;
+  const rows = Math.floor(h - 2 * t);
+  const count = Math.min(skin.stripes, Math.floor((rows - 1) / 2));
+  if (count <= 0) return [];
+  const first = Math.floor((rows - (2 * count - 1)) / 2);
+  // Keep stripes off the shaped ends: the pill's round caps, the bevel cuts.
+  const inset = skin.shape === "rounded" ? h / 2 : t + (skin.shape === "beveled" ? PADDLE_CUT : 0);
+  const out: PaintRect[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({ x: left + inset, y: top + t + first + 2 * i, w: w - 2 * inset, h: 1 });
   }
+  return out;
+}
+
+/** Trace (not fill) a paddle outline; the caller fills it. */
+function tracePaddle(gfx: Graphics, shape: PaddleSkin["shape"], left: number, top: number, w: number, h: number): Graphics {
+  const right = left + w;
+  const bottom = top + h;
+  if (shape === "rounded") return gfx.roundRect(left, top, w, h, h / 2);
+  if (shape === "beveled") {
+    const c = Math.min(PADDLE_CUT, h / 2, w / 2);
+    return gfx.poly([
+      left + c, top, right - c, top, right, top + c, right, bottom - c,
+      right - c, bottom, left + c, bottom, left, bottom - c, left, top + c,
+    ]);
+  }
+  // Notched: a centre notch cut into the top and bottom edges.
+  const cx = left + w / 2;
+  const half = w / 12;
+  const d = Math.min(PADDLE_CUT, h / 4);
+  return gfx.poly([
+    left, top, cx - half, top, cx - half, top + d, cx + half, top + d, cx + half, top, right, top,
+    right, bottom, cx + half, bottom, cx + half, bottom - d, cx - half, bottom - d, cx - half, bottom, left, bottom,
+  ]);
 }
 
 /**

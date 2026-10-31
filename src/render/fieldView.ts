@@ -3,13 +3,14 @@
 // bricks + background from the host-chosen field theme. Owner-colored ball
 // glow = render-time tint layer over the white-base ball skin (readability
 // gate — never the sole ownership signal).
-import { BitmapText, Container, Graphics, Rectangle, Sprite, TilingSprite } from "pixi.js";
-import type { Snapshot } from "shared/protocol";
+import { BitmapText, Container, Graphics, Rectangle, TilingSprite } from "pixi.js";
+import type { PlayerSnapshot, Snapshot } from "shared/protocol";
 import { FIELD_H, FIELD_W } from "shared/gridConstants";
 import { ownerColor } from "shared/playerColors";
 import { capDpr, fieldCullRect, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
-import { spriteTexture } from "./spriteSheet";
+import { skinSpriteTexture } from "./spriteSheet";
+import { BallSpritePool, PaddleSprite, type BallDraw } from "./skinSprites";
 import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
 import { LASER_COLOR, laserShapes, type LaserShapes } from "./laserView";
 import { format, t, type Locale } from "ui/strings";
@@ -57,6 +58,46 @@ export interface FieldViewOptions {
   rendererResolution?: number;
 }
 
+/** Squash pair at rest. */
+const NO_SQUASH: Readonly<{ x: number; y: number }> = { x: 1, y: 1 };
+
+/** Sprite tint that leaves the white-base art as drawn (solo balls). */
+const UNTINTED = 0xffffff;
+
+/** How one Paddle or ball was drawn on the last sync (test/e2e probe, issue #152). */
+export type DrawnFrom = "sprite" | "procedural";
+
+export interface PaddleProbe {
+  player: number;
+  drawnFrom: DrawnFrom;
+  /** Atlas frame drawn, or null for procedural geometry. */
+  frame: string | null;
+  /** Drawn size in field units, squash included. */
+  width: number;
+  height: number;
+}
+
+export interface BallProbe {
+  drawnFrom: DrawnFrom;
+  width: number;
+  height: number;
+  tint: number;
+}
+
+export interface FieldSpriteProbe {
+  paddles: readonly PaddleProbe[];
+  balls: readonly BallProbe[];
+}
+
+/** One Paddle drawn on the last sync; the sprite is read live for the probe. */
+interface PaddleDraw {
+  player: number;
+  sprite: PaddleSprite | null;
+  frame: string | null;
+  w: number;
+  h: number;
+}
+
 export class FieldView {
   readonly container = new Container();
   private readonly fieldContainer = new Container();
@@ -71,8 +112,23 @@ export class FieldView {
   private readonly laserGfx = new Graphics();
   private readonly brickFlashGfx = new Graphics();
   private lastLaserShapes: LaserShapes = { bolts: [], readyTicks: [] };
-  private readonly paddleSprite: Sprite | null;
-  private readonly ballSprite: Sprite | null;
+  /**
+   * Issue #152: one three-slice sprite per player slot, each wearing that
+   * player's Skin, and a pool covering every ball. Created on the first sync
+   * that finds the frame, so a field built before the gameplay atlas lands
+   * (multiplayer mounts without waiting) upgrades from geometry on its own.
+   */
+  private readonly paddleSpriteLayer = new Container();
+  private readonly ballSpriteLayer = new Container();
+  private readonly paddleSprites = new Map<number, PaddleSprite>();
+  private ballPool: BallSpritePool | null = null;
+  /** Squash pairs last written by the orchestrator (ADR 0009). */
+  private paddleSquash = NO_SQUASH;
+  private ballSquash = NO_SQUASH;
+  /** Player whose Paddle the paddle squash deforms: this field's own. */
+  private squashedPlayer = -1;
+  private lastPaddleDraws: PaddleDraw[] = [];
+  private lastProceduralBalls: BallProbe[] = [];
   private readonly bgSprite: TilingSprite | null;
   private readonly layout: FieldLayout;
   private readonly player: number;
@@ -138,7 +194,10 @@ export class FieldView {
     // layer over the procedural geometry. Null in node tests / load failure —
     // geometry fallback stays the source of truth for readability. Reduced
     // effects (ticket 54) skips the background tile entirely.
-    const bgTex = this.theme.background.sprite !== null ? spriteTexture(this.theme.background.sprite) : null;
+    const bgTex =
+      this.theme.background.sprite !== null
+        ? skinSpriteTexture(this.theme.background.sprite, { kind: "theme", id: this.theme.id })
+        : null;
     this.bgSprite =
       bgTex !== null && !this.reducedEffects
         ? new TilingSprite({ texture: bgTex, width: FIELD_W, height: FIELD_H })
@@ -147,10 +206,6 @@ export class FieldView {
       this.bgSprite.tint = 0x808080; // darkening pass (spec §13) over the tile
       this.fieldContainer.addChild(this.bgSprite);
     }
-    const paddleTex = this.skin.paddle.sprite !== null ? spriteTexture(this.skin.paddle.sprite) : null;
-    this.paddleSprite = paddleTex !== null ? new Sprite(paddleTex) : null;
-    const ballTex = this.skin.ball.sprite !== null ? spriteTexture(this.skin.ball.sprite) : null;
-    this.ballSprite = ballTex !== null ? new Sprite(ballTex) : null;
     // ADR 0009: the shake layer pivots on the field center so camera roll swings
     // the field about its middle instead of whipping it around the top-left.
     this.shakeLayer.pivot.set(FIELD_W / 2, FIELD_H / 2);
@@ -172,9 +227,9 @@ export class FieldView {
       this.ballGfx,
       this.bossGfx,
     );
-    if (this.paddleSprite !== null) this.shakeLayer.addChild(this.paddleSprite);
-    if (this.ballSprite !== null) this.shakeLayer.addChild(this.ballSprite);
-    this.shakeLayer.addChild(this.laserGfx);
+    // Sprites over the geometry layers: the owner glow ring (ballGfx) sits
+    // under the ball sprites, so it stays visible around them.
+    this.shakeLayer.addChild(this.paddleSpriteLayer, this.ballSpriteLayer, this.laserGfx);
 
     // Effect layers sit inside the shake layer, so they inherit both the field
     // scale and the shake — and their coordinates are field units.
@@ -238,8 +293,18 @@ export class FieldView {
       particleLayer: this.particleLayer,
       popLayer: this.popLayer,
       flashLayer: this.flashGfx,
-      ballSprite: this.ballSprite,
-      paddleSprite: this.paddleSprite,
+      ballSquash: {
+        setSquash: (x, y) => {
+          this.ballSquash = { x, y };
+          this.ballPool?.setSquash(x, y);
+        },
+      },
+      paddleSquash: {
+        setSquash: (x, y) => {
+          this.paddleSquash = { x, y };
+          this.paddleSprites.get(this.squashedPlayer)?.setSquash(x, y);
+        },
+      },
       brickFlashLayer: this.brickFlashGfx,
     };
   }
@@ -262,77 +327,58 @@ export class FieldView {
     this.brickLayer.sync(snap.bricks);
 
     // Paddles: EVERY player on this field (single-field variants — duel/
-    // sharedField — carry all players in one snapshot, ticket 56). Own
-    // player renders with the skin sprite (when loaded); every other
-    // player renders procedurally via their own skin — paddleGfx stays
-    // visible so other players' paddles never disappear behind the sprite.
+    // sharedField — carry all players in one snapshot, ticket 56), each in
+    // its owner's Skin: the own player's from `skinId`, the others' from
+    // `skinIds`. Sprite art when the frame is loaded, geometry otherwise.
     // Owner bar (readability): a 2px strip in the player's color under
     // every paddle — maps paddle ↔ owner color ↔ ball tint/ring.
     // Ownership marking (readability gate): only when 2+ players share
     // this field (duel/sharedField) — solo fields carry no ownership
     // semantics, so no tint, no ring, no bars.
     const markOwnership = snap.players.length >= 2;
-    const me = player;
+    this.squashedPlayer = player.player;
     this.paddleGfx.clear();
-    for (const pl of snap.players) {
-      if (pl === me) continue; // own paddle = sprite below (or fallback paint)
-      const otherSkin = getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
-      paintPaddle(this.paddleGfx, otherSkin.paddle, pl.paddle.x, pl.paddle.y, pl.paddle.w, pl.paddle.h);
-      if (markOwnership) {
+    this.lastPaddleDraws = snap.players.map((pl) => this.drawPaddle(pl, pl === player ? this.skin : this.skinFor(pl)));
+    for (const [slot, sprite] of this.paddleSprites) {
+      if (!snap.players.some((pl) => pl.player === slot)) sprite.view.visible = false;
+    }
+    if (markOwnership) {
+      for (const pl of snap.players) {
         this.paddleGfx
           .rect(pl.paddle.x - pl.paddle.w / 2, pl.paddle.y + pl.paddle.h / 2 + 1, pl.paddle.w, 2)
           .fill(ownerColor(pl.player));
       }
-    }
-    if (this.paddleSprite !== null) {
-      const p = me.paddle;
-      this.paddleSprite.visible = true;
-      this.paddleSprite.position.set(p.x - p.w / 2, p.y - p.h / 2);
-      this.paddleSprite.width = p.w;
-      this.paddleSprite.height = p.h;
-    } else {
-      paintPaddle(this.paddleGfx, this.skin.paddle, me.paddle.x, me.paddle.y, me.paddle.w, me.paddle.h);
-    }
-    if (markOwnership) {
-      this.paddleGfx
-        .rect(me.paddle.x - me.paddle.w / 2, me.paddle.y + me.paddle.h / 2 + 1, me.paddle.w, 2)
-        .fill(ownerColor(me.player));
     }
     this.paddleGfx.visible = true;
 
     // Balls: owner-colored outline glow UNDER the ball skin (readability
     // gate — glow ring stays visible around whatever skin the ball wears;
     // never the sole ownership signal). Glow always renders on ballGfx;
-    // the body is either the sprite (when loaded) or procedural geometry.
+    // every body is a pooled sprite when the frame is loaded, geometry
+    // otherwise. The white-base frame carries the owner tint with 2+
+    // players (spec §13: owner variants = render-time tint, never per-owner
+    // PNGs); solo balls stay untinted white.
     // Reduced effects (ticket 54): skip the glow ring layer — the ball
     // body still carries the owner tint (readability gate preserved).
     this.ballGfx.clear();
     this.ballGfx.visible = true;
-    if (this.ballSprite !== null) this.ballSprite.visible = false;
+    const pool = this.ensureBallPool();
+    const draws: BallDraw[] = [];
+    this.lastProceduralBalls = [];
     for (const b of snap.balls) {
       const owner = markOwnership && b.owner !== null ? ownerColor(b.owner) : null;
       if (owner !== null && !this.reducedEffects) {
         paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
       }
-      if (this.ballSprite === null) {
+      if (pool !== null) {
+        draws.push({ x: b.x, y: b.y, tint: owner ?? UNTINTED });
+      } else {
         paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
+        const d = this.skin.ball.radius * 2;
+        this.lastProceduralBalls.push({ drawnFrom: "procedural", width: d, height: d, tint: owner ?? this.skin.ball.baseColor });
       }
     }
-    // Single-ball fields: sprite body over the glow ring (ring stays
-    // visible). White-base sprite tinted with the owner color (spec §13:
-    // owner variants = render-time tint, never per-owner PNGs) — the ball
-    // body itself carries ownership; no owner → untinted white.
-    if (this.ballSprite !== null && snap.balls.length === 1) {
-      const b0 = snap.balls[0];
-      if (b0 !== undefined) {
-        this.ballSprite.visible = true;
-        this.ballSprite.tint =
-          markOwnership && b0.owner !== null ? ownerColor(b0.owner) : 0xffffff;
-        this.ballSprite.position.set(b0.x - this.skin.ball.radius, b0.y - this.skin.ball.radius);
-        this.ballSprite.width = this.skin.ball.radius * 2;
-        this.ballSprite.height = this.skin.ball.radius * 2;
-      }
-    }
+    pool?.sync(draws);
 
     // Falling capsules: lettered pills
     this.capsuleGfx.clear();
@@ -367,6 +413,73 @@ export class FieldView {
     // geometry. The effects advance themselves in tickEffects().
     if (replayEvents) this.syncEffects(snap);
     this.drawLaser(snap);
+  }
+
+  /** Skin for a player other than this field's own (ticket 56). */
+  private skinFor(pl: PlayerSnapshot): PlayerSkin {
+    return getSkin(this.skinIds?.[pl.player] ?? null) ?? DEFAULT_SKIN;
+  }
+
+  /** Draw one Paddle in `skin`: its sprite slot when the frame is in, geometry otherwise. */
+  private drawPaddle(pl: PlayerSnapshot, skin: PlayerSkin): PaddleDraw {
+    const p = pl.paddle;
+    const key = skin.paddle.sprite;
+    const sprite = key !== null ? this.paddleSpriteFor(pl.player, key, skin) : null;
+    if (sprite === null) {
+      paintPaddle(this.paddleGfx, skin.paddle, p.x, p.y, p.w, p.h);
+      return { player: pl.player, sprite: null, frame: null, w: p.w, h: p.h };
+    }
+    sprite.view.visible = true;
+    sprite.fit(p.x, p.y, p.w, p.h, p.edge);
+    // Only this field's own Paddle squashes: the channel is per field, and
+    // another player's bounce must not deform it.
+    const squash = pl.player === this.squashedPlayer ? this.paddleSquash : NO_SQUASH;
+    sprite.setSquash(squash.x, squash.y);
+    return { player: pl.player, sprite, frame: key, w: p.w, h: p.h };
+  }
+
+  /** The slot's sprite, created once its Skin's frame is available; null until then. */
+  private paddleSpriteFor(slot: number, key: string, skin: PlayerSkin): PaddleSprite | null {
+    const existing = this.paddleSprites.get(slot);
+    if (existing !== undefined) return existing;
+    const texture = skinSpriteTexture(key, { kind: "skin", id: skin.id });
+    if (texture === null) return null;
+    const sprite = new PaddleSprite(texture);
+    this.paddleSprites.set(slot, sprite);
+    this.paddleSpriteLayer.addChild(sprite.view);
+    return sprite;
+  }
+
+  /** The ball pool, created once the Skin's ball frame is available; null until then. */
+  private ensureBallPool(): BallSpritePool | null {
+    if (this.ballPool !== null) return this.ballPool;
+    const key = this.skin.ball.sprite;
+    if (key === null) return null;
+    const texture = skinSpriteTexture(key, { kind: "skin", id: this.skin.id });
+    if (texture === null) return null;
+    this.ballPool = new BallSpritePool(texture, this.ballSpriteLayer, this.skin.ball.radius);
+    this.ballPool.setSquash(this.ballSquash.x, this.ballSquash.y);
+    return this.ballPool;
+  }
+
+  /** Test/e2e probe (issue #152): how each Paddle and ball was drawn on the last sync. */
+  get spriteProbe(): FieldSpriteProbe {
+    const paddles = this.lastPaddleDraws.map((d): PaddleProbe => {
+      if (d.sprite === null) {
+        return { player: d.player, drawnFrom: "procedural", frame: null, width: d.w, height: d.h };
+      }
+      const shown = d.sprite.displayed;
+      return { player: d.player, drawnFrom: "sprite", frame: d.frame, width: shown.width, height: shown.height };
+    });
+    const pool = this.ballPool;
+    const balls: BallProbe[] =
+      pool === null
+        ? this.lastProceduralBalls
+        : Array.from({ length: pool.visibleCount }, (_, i) => {
+            const b = pool.displayed(i);
+            return { drawnFrom: "sprite", width: b.width, height: b.height, tint: b.tint };
+          });
+    return { paddles, balls };
   }
 
   /** Bolts + ready-ticks (ticket #148): thin yellow bars, no trail, no glow. */

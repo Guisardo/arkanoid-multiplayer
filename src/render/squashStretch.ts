@@ -5,12 +5,12 @@
 // holds the target deformation separately from the live interpolation, so
 // easing always reads from the original rather than compounding on itself.
 //
-// Scope note (differs from ADR 0009's sketch, which had a `SquashStretch.apply`
-// that multiplied onto FieldView's sprite): FieldView sizes its sprites from
-// the snapshot every sync, so the orchestrator writes the live pair straight
-// onto `sprite.scale` *after* the sync. Sprites are only present when a skin
-// texture loaded — in procedural-geometry mode there is nothing to scale, and
-// the squash channel is a no-op rather than a second source of truth.
+// Scope note: the orchestrator hands the live pair to a `SquashTarget`
+// (render/skinSprites), which multiplies it onto the size FieldView fitted
+// from the snapshot. Writing it straight onto `sprite.scale` (issue #152)
+// threw that fitted size away. Sprites are only present when a skin texture
+// loaded — in procedural-geometry mode there is nothing to scale, and the
+// squash channel is a no-op rather than a second source of truth.
 
 export type StretchTarget = "ball" | "paddle";
 

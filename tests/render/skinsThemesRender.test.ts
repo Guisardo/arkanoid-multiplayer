@@ -3,7 +3,7 @@ import { Graphics } from "pixi.js";
 import { brickDamage, crackSegments } from "render/brickCracks";
 import { starPositions, paintFieldBackground } from "render/themeBackground";
 import { glyphPixels, PILL_GLYPHS, PILL_LETTERS } from "render/pillGlyphs";
-import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule, paintBoss } from "render/skinPainter";
+import { paintPaddle, paintBall, paintOwnerGlow, paintCapsule, paintBoss, paddleStripes } from "render/skinPainter";
 import { SKINS, DEFAULT_SKIN } from "content/skins";
 import { DEFAULT_THEME } from "content/themes";
 import { pillFor } from "content/capsulePills";
@@ -118,5 +118,60 @@ describe("skin painter (spec §13, headless Graphics)", () => {
     paintOwnerGlow(gfx, 104, 100, 3, 0x3cbcfc);
     const instructions = (gfx.context as unknown as { instructions: unknown[] }).instructions;
     expect(instructions.length).toBe(2); // ring + white base, no third layer
+  });
+});
+
+describe("Paddle fallback painter matches the art (issue #152)", () => {
+  const neon = SKINS.find((s) => s.paddle.shape === "beveled")!.paddle;
+  const retro = SKINS.find((s) => s.paddle.shape === "notched")!.paddle;
+  const classic = SKINS.find((s) => s.paddle.shape === "rounded")!.paddle;
+
+  /** Fill colors a Graphics recorded, in order. */
+  function fillColors(gfx: Graphics): number[] {
+    const instructions = (gfx.context as unknown as {
+      instructions: Array<{ action: string; data: { style: { color: number } } }>;
+    }).instructions;
+    return instructions.filter((i) => i.action === "fill").map((i) => i.data.style.color);
+  }
+
+  it("draws stripes as whole-unit rows, dropping the ones that do not fit", () => {
+    // 32×6 Paddle, 1-unit trim: 4 interior rows hold one stripe with a body
+    // row either side; Neon asks for 3, so 2 are dropped.
+    expect(paddleStripes(neon, 88, 239, 32, 6)).toEqual([{ x: 90, y: 241, w: 28, h: 1 }]);
+    // 10 tall: 8 interior rows hold all 3, one body row apart.
+    const tall = paddleStripes(neon, 88, 235, 32, 10);
+    expect(tall.map((r) => r.y)).toEqual([237, 239, 241]);
+    for (const r of tall) expect(r.h).toBe(1);
+    expect(paddleStripes(classic, 88, 239, 32, 6)).toEqual([]);
+  });
+
+  it("cuts corners and notches out of the shape instead of painting them black", () => {
+    for (const skin of SKINS) {
+      const gfx = new Graphics();
+      paintPaddle(gfx, skin.paddle, 104, 242, 32, 6);
+      expect(fillColors(gfx), skin.name).not.toContain(0x000000);
+    }
+    const corner = { x: 88.2, y: 239.2 };
+    const centre = { x: 104, y: 242 };
+    for (const skin of [neon, classic]) {
+      const gfx = new Graphics();
+      paintPaddle(gfx, skin, 104, 242, 32, 6);
+      expect(gfx.containsPoint(corner), skin.shape).toBe(false);
+      expect(gfx.containsPoint(centre), skin.shape).toBe(true);
+    }
+    const notched = new Graphics();
+    paintPaddle(notched, retro, 104, 242, 32, 6);
+    expect(notched.containsPoint({ x: 104, y: 239.2 })).toBe(false); // the notch
+    expect(notched.containsPoint({ x: 92, y: 239.2 })).toBe(true); // top edge beside it
+  });
+
+  it("paints the art palette: gray body under the Skin's accent trim", () => {
+    for (const skin of SKINS) {
+      const gfx = new Graphics();
+      paintPaddle(gfx, skin.paddle, 104, 242, 32, 6);
+      const colors = fillColors(gfx);
+      expect(colors[0], skin.name).toBe(skin.paddle.trimColor);
+      expect(colors[1], skin.name).toBe(skin.paddle.bodyColor);
+    }
   });
 });

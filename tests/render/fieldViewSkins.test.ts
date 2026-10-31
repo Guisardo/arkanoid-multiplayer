@@ -166,8 +166,8 @@ describe("FieldView multi-paddle + field-local fallback (ticket 56)", () => {
     view.sync(snap);
     const gfx = (view as unknown as { paddleGfx: { context: { instructions: unknown[] } } }).paddleGfx;
     // 1 player → own paddle only (node: no sprite → procedural paint =
-    // body + 2 trims = 3 instructions), NO owner bar on top.
-    expect(gfx.context.instructions.length).toBe(3);
+    // trim outline + inset body = 2 instructions), NO owner bar on top.
+    expect(gfx.context.instructions.length).toBe(2);
     view.container.destroy({ children: true });
   });
 
