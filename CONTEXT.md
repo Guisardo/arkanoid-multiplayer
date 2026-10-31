@@ -26,6 +26,17 @@ _Avoid_: Power-up (superseded — earlier tickets' "power-up" means Capsule), bo
 The per-level, deterministic sequence of capsules a level drops: which capsules, in what order, each bound to a specific brick-break count. Encoded in level data; no randomness.
 _Avoid_: Drop table (implies random rolls), loot table
 
+**Laser**:
+The Capsule (L) that arms the catching Paddle; while armed, the primary action fires Bolts. Lasts until the last ball is lost or the round ends.
+_Avoid_: Gun, blaster
+
+**Bolt**:
+A projectile fired from an armed Paddle's ends; breaks Bricks only, never Paddles, balls or Capsules.
+_Avoid_: Bullet, beam, shot
+
+**Armed**:
+The state of a Paddle holding Laser.
+
 **Breakout reflection**:
 The physics regime: constant velocity, perfect elastic reflection, paddle-offset deflection, brick-count speed tiers, deterministic 60 Hz tick. No gravity, no friction, no angular momentum.
 _Avoid_: Physics engine, realistic physics, Breakout physics (differs from Arkanoid ceiling speed-up)
@@ -95,7 +106,7 @@ A complete competitive session composed of rounds under a chosen structure: best
 _Avoid_: Session (means the lobby connection), series
 
 **Chain**:
-A run of consecutive brick breaks without the ball touching the paddle; an attack trigger in Attack.
+A run of consecutive brick breaks (by ball or Bolt) without the ball touching the paddle; an attack trigger in Attack.
 _Avoid_: Combo, streak
 
 **Attack meter**:
