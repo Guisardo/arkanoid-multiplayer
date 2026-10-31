@@ -52,10 +52,14 @@ import {
 } from "./simState";
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
+import { Bolts } from "./bolts";
+import { armedFields, laserHooks, loadoutWidth, makeLoadout, type PaddleLoadout } from "./laserWiring";
 
 const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
 export const DUEL_MAX_ROUND = 32;
+/** Both Paddle indices, in step order (Paddle 0 wins same-tick contention). */
+const DUEL_PADDLES = [0, 1] as const;
 
 export function assertDuelRound(round: number): void {
   if (round > DUEL_MAX_ROUND) {
@@ -137,6 +141,33 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     { x: FIELD_W / 4, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H },
     { x: (FIELD_W * 3) / 4, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H },
   ];
+
+  /** Per-Paddle width sources: the exclusive E/C/L slot and the independent R shrink. */
+  const loadouts: [PaddleLoadout, PaddleLoadout] = [makeLoadout(), makeLoadout()];
+  /** Which players' launch released a ball this tick (reused: no per-tick allocation). */
+  const launched: [boolean, boolean] = [false, false];
+
+  // ---- Laser (ticket #146, spec #140): the catcher is both Paddle and shooter ----
+  // Duel never selects round 33, so there is no boss to hit.
+  const bolts = new Bolts(2, laserHooks({
+    bricks,
+    pushEvent,
+    hitBrick: (index, shooter) => {
+      hitBrick(index, duelPlayer(shooter, "hitBrick"));
+    },
+    liveBoss: () => null,
+    damageBoss: (shooter) => {
+      throw new Error(
+        `duel.damageBoss: a Bolt hit a boss, but Duel never selects the boss round (round=${String(level.round)}, shooter=${String(shooter)})`,
+      );
+    },
+  }));
+
+  /** A Bolt shooter in Duel is always a Paddle index; anything else is a wiring bug. */
+  function duelPlayer(shooter: number, method: string): 0 | 1 {
+    if (shooter === 0 || shooter === 1) return shooter;
+    throw new RangeError(`duel.${method}: Bolt shooter is not a Duel Paddle (shooter=${String(shooter)})`);
+  }
 
   function pushEvent(type: SimEvent["type"], source: number, target: number): void {
     events.push({ type, source, target, tick });
@@ -348,7 +379,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       bricks[index] = BRICK_EMPTY;
       points = brickBreakScore(cellV);
     }
-    // Brick points to ball owner (spec §6.3).
+    // Brick points to ball owner (spec §6.3), or to the shooter for a Bolt.
     scores[owner] += points;
     pushEvent("brickBreak", owner, index);
     brickBreaks++;
@@ -371,15 +402,19 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
   function applyCapsule(type: CapsuleTypeId, catcher: 0 | 1): void {
     pushEvent("capsuleCatch", catcher, -1);
     scores[catcher] += CAPSULE_EFFECTS.capsuleCatchBonus;
-    const p = paddles[catcher];
     switch (type) {
       case "E":
-        p.w = PADDLE_W * CAPSULE_EFFECTS.expandFactor;
-        separateAfterWidthChange(p, paddles[catcher === 0 ? 1 : 0]);
+      case "C":
+      case "L":
+        // One exclusive slot (spec #140): the catch evicts the other two.
+        // Every L catch (a repeat only refreshes) readies the Laser at once.
+        loadouts[catcher].slot = type;
+        if (type === "L") bolts.resetCooldown(catcher);
+        refitPaddle(catcher);
         break;
       case "R":
-        p.w = PADDLE_W * CAPSULE_EFFECTS.reduceFactor;
-        clampToWalls(p);
+        loadouts[catcher].reduced = true; // stacks with the slot
+        refitPaddle(catcher);
         break;
       case "P":
         // No lives in duel — P converts to points for the catcher.
@@ -427,6 +462,33 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
     }
   }
 
+  /** Recompute a Paddle's width from its effects, keeping both solid and in-field. */
+  function refitPaddle(i: 0 | 1): void {
+    const p = paddles[i];
+    p.w = loadoutWidth(loadouts[i]);
+    separateAfterWidthChange(p, paddles[i === 0 ? 1 : 0]);
+  }
+
+  function isArmed(i: 0 | 1): boolean {
+    return loadouts[i].slot === "L";
+  }
+
+  /** Re-serve or round end: both Paddles disarm and every Bolt is dropped. */
+  function disarmLasers(): void {
+    for (const i of DUEL_PADDLES) {
+      if (isArmed(i)) {
+        loadouts[i].slot = null;
+        refitPaddle(i);
+      }
+    }
+    bolts.clear();
+  }
+
+  /** Read through a call: TS keeps `phase` narrowed from the step's early return. */
+  function currentPhase(): Snapshot["phase"] {
+    return phase;
+  }
+
   function stepCapsules(): void {
     for (let i = capsules.length - 1; i >= 0; i--) {
       const c = capsules[i];
@@ -469,6 +531,8 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
       movePaddle(1, f1 ? Math.max(-1, Math.min(1, f1.axisX)) : 0);
 
       // Launch: attached ball's owner launches.
+      launched[0] = false;
+      launched[1] = false;
       for (const f of inputs) {
         if (!f.launch) continue;
         for (const b of balls) {
@@ -479,10 +543,21 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
             b.attachedTo = null;
             phase = "play";
             pushEvent("ballLaunch", f.player, -1);
+            if (f.player === 0 || f.player === 1) launched[f.player] = true;
             break;
           }
         }
       }
+
+      // Laser: held primary fires an Armed Paddle in play; a launch spends
+      // that player's frame. Paddle 0 first, so it wins same-tick contention.
+      for (const i of DUEL_PADDLES) {
+        const f = i === 0 ? f0 : f1;
+        if (f?.primaryHeld !== true || launched[i] || currentPhase() !== "play" || !isArmed(i)) continue;
+        if (bolts.tryFire(i, i, paddles[i])) pushEvent("laserFire", i, -1);
+      }
+      // Bolts before balls: a Bolt wins a Brick both reach this tick.
+      bolts.step();
 
       for (const b of [...balls]) stepBall(b);
       stepCapsules();
@@ -501,6 +576,7 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           if (balls.length === 0) {
             attachBall(dropper);
             phase = "serve";
+            disarmLasers();
           }
         }
       }
@@ -511,6 +587,9 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         result = { winner: winnerByScore(), scores: [scores[0], scores[1]] };
         pushEvent("roundClear", -1, -1);
       }
+
+      // Round end (last Brick, B or timeout) ends the Laser for both Paddles.
+      if (currentPhase() === "roundClear") disarmLasers();
 
       tick++;
     },
@@ -530,13 +609,14 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
           target: -1,
           chain: 0,
           state: "playing" as const,
-          effects: {},
+          ...armedFields(isArmed(i as 0 | 1), bolts.cooldown(i)),
         })),
         balls: balls.map((b) => ({
           x: b.x, y: b.y, vx: b.vx, vy: b.vy,
           attachedTo: b.attachedTo, owner: b.owner,
         })),
         capsules: capsules.map((c) => ({ x: c.x, y: c.y, type: c.type })),
+        bolts: bolts.toSnapshot(),
         bricks: [...bricks],
         events: [...events],
         inputAcks: [tick, tick],
