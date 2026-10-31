@@ -1,9 +1,15 @@
 // Bot input source (spec §7): one implementation, three data-driven parameter
 // sets. Produces Input frames through the same pipeline as a human local
 // player. Deterministic given seed + state sequence — seeded LCG, zero global RNG.
-import type { InputFrame, InputFrameActions, Snapshot } from "shared/protocol";
-import { EMPTY_ACTIONS } from "shared/protocol";
-import { FIELD_H, PADDLE_Y } from "./constants";
+import type { InputFrame, InputFrameActions, PlayerSnapshot, Snapshot } from "shared/protocol";
+import {
+  BRICK_EMPTY,
+  EMPTY_ACTIONS,
+  isArmedPlayer,
+  isDestructibleCell,
+  laserBoltXs,
+} from "shared/protocol";
+import { BRICK_COLS, BRICK_W, FIELD_H, FIELD_W, PADDLE_Y } from "./constants";
 
 export type BotDifficulty = "easy" | "normal" | "hard";
 
@@ -53,6 +59,85 @@ export const BOT_PARAMS: Record<BotDifficulty, BotParams> = {
   },
 };
 
+/**
+ * How a Bot aims the Laser (ticket #147, decision #137):
+ * - `blind`: fire on a coin flip, whatever is above.
+ * - `brickAbove`: fire when a destructible Brick is anywhere above a Paddle end.
+ * - `skipGold`: as `brickAbove`, but only when the first Brick above that end
+ *   is destructible (gold would just eat the Bolt).
+ */
+export type BotLaserAim = "blind" | "brickAbove" | "skipGold";
+
+export interface BotLaserParams {
+  aim: BotLaserAim;
+  /** Fire chance per tick for `blind` aim (0 otherwise). */
+  blindFireChance: number;
+  /** Armed + idle + no capsule: park a Paddle end under the nearest open column. */
+  reparkWhenArmed: boolean;
+}
+
+/** Laser policy per difficulty, kept apart from the §7 knobs it extends. */
+export const BOT_LASER_PARAMS: Record<BotDifficulty, BotLaserParams> = {
+  easy: { aim: "blind", blindFireChance: 0.03, reparkWhenArmed: false },
+  normal: { aim: "brickAbove", blindFireChance: 0, reparkWhenArmed: false },
+  hard: { aim: "skipGold", blindFireChance: 0, reparkWhenArmed: true },
+};
+
+/** Grid column under an x coordinate, or -1 off the grid. */
+function columnOf(x: number): number {
+  const col = Math.floor(x / BRICK_W);
+  return col >= 0 && col < BRICK_COLS ? col : -1;
+}
+
+/** Any destructible Brick in the column (behind gold or not). */
+function columnHasBrick(bricks: readonly number[], col: number): boolean {
+  if (col < 0) return false;
+  for (let i = col; i < bricks.length; i += BRICK_COLS) {
+    if (isDestructibleCell(bricks[i] ?? BRICK_EMPTY)) return true;
+  }
+  return false;
+}
+
+/** The first Brick a Bolt climbing the column meets is destructible. */
+function columnOpen(bricks: readonly number[], col: number): boolean {
+  if (col < 0) return false;
+  const lastRow = Math.floor((bricks.length - 1 - col) / BRICK_COLS);
+  for (let row = lastRow; row >= 0; row--) {
+    const cell = bricks[row * BRICK_COLS + col] ?? BRICK_EMPTY;
+    if (cell !== BRICK_EMPTY) return isDestructibleCell(cell);
+  }
+  return false;
+}
+
+/**
+ * Paddle x that puts one end Bolt over the open column nearest the Paddle,
+ * or -1 when no column is open. Each column has two such spots (left or
+ * right end on it); the nearer reachable one wins.
+ */
+function reparkX(bricks: readonly number[], paddle: PlayerSnapshot["paddle"]): number {
+  const [left] = laserBoltXs(paddle.x, paddle.w);
+  const reach = paddle.x - left;
+  const minX = paddle.w / 2;
+  const maxX = FIELD_W - paddle.w / 2;
+  let best = -1;
+  let bestDist = Number.POSITIVE_INFINITY;
+  const consider = (spot: number): void => {
+    const x = Math.max(minX, Math.min(maxX, spot));
+    const d = Math.abs(x - paddle.x);
+    if (d < bestDist) {
+      bestDist = d;
+      best = x;
+    }
+  };
+  for (let col = 0; col < BRICK_COLS; col++) {
+    if (!columnOpen(bricks, col)) continue;
+    const centre = col * BRICK_W + BRICK_W / 2;
+    consider(centre + reach);
+    consider(centre - reach);
+  }
+  return best;
+}
+
 /** Deterministic LCG (mulberry-style constants) — never Math.random. */
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -71,6 +156,7 @@ export interface BotSource {
 
 export function createBot(player: number, difficulty: BotDifficulty, seed: number): BotSource {
   const params = BOT_PARAMS[difficulty];
+  const laser = BOT_LASER_PARAMS[difficulty];
   const rng = lcg(seed);
   let noise = 0;
   let lastDescentKey = "";
@@ -97,6 +183,15 @@ export function createBot(player: number, difficulty: BotDifficulty, seed: numbe
       }
     }
     return -1;
+  }
+
+  /** Hold primary this tick? Only while Armed in play; the sim cooldown caps the rate. */
+  function wantsFire(me: PlayerSnapshot, snap: Snapshot): boolean {
+    if (snap.phase !== "play" || me.state !== "playing" || !isArmedPlayer(me)) return false;
+    if (laser.aim === "blind") return rng() < laser.blindFireChance;
+    const ends = laserBoltXs(me.paddle.x, me.paddle.w);
+    const hasLine = laser.aim === "skipGold" ? columnOpen : columnHasBrick;
+    return ends.some((x) => hasLine(snap.bricks, columnOf(x)));
   }
 
   return {
@@ -163,8 +258,11 @@ export function createBot(player: number, difficulty: BotDifficulty, seed: numbe
         // Idle: catch a falling capsule if reachable; else (hard) park under
         // the lowest remaining brick column to break orbits, others center.
         let desired = 104;
+        const repark = laser.reparkWhenArmed && isArmedPlayer(me) ? reparkX(snap.bricks, me.paddle) : -1;
         if (capsuleX >= 0) {
           desired = capsuleX;
+        } else if (repark >= 0) {
+          desired = repark;
         } else if (params.smartTargeting) {
           const lowest = lowestBrickColumn(snap);
           if (lowest >= 0) desired = lowest;
@@ -187,7 +285,8 @@ export function createBot(player: number, difficulty: BotDifficulty, seed: numbe
         actions.fire = fire;
       }
 
-      return { player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions };
+      const primaryHeld = wantsFire(me, snap);
+      return { player, tick, axisX, axisY: 0, launch: false, primaryHeld, actions };
     },
   };
 }

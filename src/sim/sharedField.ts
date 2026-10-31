@@ -52,6 +52,8 @@ import {
 } from "./simState";
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
+import { Bolts } from "./bolts";
+import { armedFields, laserHooks, loadoutWidth, makeLoadout, type PaddleLoadout } from "./laserWiring";
 
 const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 /** Ball speed scaling per player beyond 2 (spec: +5–8%; 6.5% mid). */
@@ -147,6 +149,9 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
   capsulePool.prewarm(POOL_PREWARM.capsules);
 
   const paddles: PaddleState[] = makePaddles();
+  const loadouts: PaddleLoadout[] = paddles.map(makeLoadout);
+  /** Players whose launch released a ball this tick (reused: no per-tick allocation). */
+  const launchedBy = new Set<number>();
 
   function spawnBall(init: BallInit): BallState {
     const b = applyBallInit(ballPool.acquire(), init);
@@ -168,6 +173,17 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
 
   // ---- Doh boss (ticket 49): round 33 only ----
   const boss: BossState | null = level.round === BOSS_ROUND ? createBossState() : null;
+
+  // ---- Laser (ticket #145, spec #140): one flight per Paddle (C: one shared
+  // Paddle, so the Bolt's Paddle is 0 while the credit stays with the shooter).
+  // A fresh sim per round, so the team-wide boss counter starts at 0.
+  const bolts = new Bolts(paddles.length, laserHooks({
+    bricks,
+    pushEvent,
+    hitBrick,
+    liveBoss: () => (boss && !boss.dead ? boss : null),
+    damageBoss,
+  }));
 
   function makePaddles(): PaddleState[] {
     const out: PaddleState[] = [];
@@ -346,13 +362,19 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         if (b.y > box.y + box.h / 2) b.vy = Math.abs(b.vy);
         else if (b.y < box.y - box.h / 2) b.vy = -Math.abs(b.vy);
         else b.vx = b.x > box.x ? Math.abs(b.vx) : -Math.abs(b.vx);
-        pushEvent("bossHit", b.owner ?? 0, -1);
-        if (hitBoss(boss)) {
-          pushEvent("bossDead", b.owner ?? 0, -1);
-          phase = "roundClear";
-          pushEvent("roundClear", b.owner ?? 0, -1);
-        }
+        damageBoss(b.owner ?? 0);
       }
+    }
+  }
+
+  /** The boss loses 1 HP (a ball contact or every 4th Bolt); its death clears the round. */
+  function damageBoss(player: number): void {
+    if (!boss || boss.dead) return;
+    pushEvent("bossHit", player, -1);
+    if (hitBoss(boss)) {
+      pushEvent("bossDead", player, -1);
+      phase = "roundClear";
+      pushEvent("roundClear", player, -1);
     }
   }
 
@@ -415,14 +437,27 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
   function applyCapsule(type: CapsuleTypeId, catcher: number): void {
     pushEvent("capsuleCatch", catcher, -1);
     score += CAPSULE_EFFECTS.capsuleCatchBonus;
-    const p = paddles[placement === "C" ? 0 : catcher] ?? paddles[0];
-    if (!p) return;
+    const index = placement === "C" ? 0 : catcher;
+    const p = paddles[index];
+    const loadout = loadouts[index];
+    if (!p || !loadout) {
+      throw new RangeError(
+        `sharedField.applyCapsule: no Paddle for the catcher (catcher=${String(catcher)}, index=${String(index)}, paddles=${String(paddles.length)})`,
+      );
+    }
     switch (type) {
       case "E":
-        p.w = PADDLE_W * CAPSULE_EFFECTS.expandFactor;
+      case "C":
+      case "L":
+        // One exclusive slot: the catch evicts the other two. A repeat L only
+        // refreshes, and every L catch readies the Laser at once.
+        loadout.slot = type;
+        if (type === "L") bolts.resetCooldown(index);
+        refitPaddle(p, loadout);
         break;
       case "R":
-        p.w = PADDLE_W * CAPSULE_EFFECTS.reduceFactor;
+        loadout.reduced = true;
+        refitPaddle(p, loadout);
         break;
       case "P":
         lives++;
@@ -495,8 +530,59 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
     }
   }
 
+  /** Recompute the width and keep the Paddle inside its range and the walls. */
+  function refitPaddle(p: PaddleState, loadout: PaddleLoadout): void {
+    p.w = loadoutWidth(loadout);
+    clampPaddleX(p);
+  }
+
+  function clampPaddleX(p: PaddleState): void {
+    p.x = Math.max(Math.max(p.minX, p.w / 2), Math.min(Math.min(p.maxX, FIELD_W - p.w / 2), p.x));
+  }
+
+  function isArmed(index: number): boolean {
+    return loadouts[index]?.slot === "L";
+  }
+
+  /** Every Laser ends (team's last ball lost, round clear): disarm and drop the Bolts. */
+  function disarmLasers(): void {
+    for (const l of loadouts) if (l.slot === "L") l.slot = null;
+    bolts.clear();
+  }
+
   function clearEffectsOnBallLoss(): void {
+    for (const l of loadouts) {
+      l.slot = null;
+      l.reduced = false;
+    }
     for (const p of paddles) p.w = PADDLE_W;
+    bolts.clear();
+  }
+
+  function currentPhase(): Snapshot["phase"] {
+    return phase;
+  }
+
+  /**
+   * Held primary fires an Armed Paddle in play. A/B: the owner's input; C:
+   * any player's input fires the shared Paddle, credited to that player (the
+   * lowest held index wins a tick). A frame whose launch released a ball is
+   * spent on the launch.
+   */
+  function fireLasers(byPlayer: ReadonlyMap<number, InputFrame>, launchedBy: ReadonlySet<number>): void {
+    if (phase !== "play") return;
+    for (let i = 0; i < paddles.length; i++) {
+      const p = paddles[i];
+      if (!p || !isArmed(i)) continue;
+      const shooters = placement === "C" ? playerCount : 1;
+      for (let k = 0; k < shooters; k++) {
+        const shooter = placement === "C" ? k : i;
+        const f = byPlayer.get(shooter);
+        if (f?.primaryHeld !== true || launchedBy.has(shooter)) continue;
+        if (bolts.tryFire(i, shooter, p)) pushEvent("laserFire", shooter, -1);
+        break;
+      }
+    }
   }
 
   // Initial serve: shared model → player 0; perPlayer → each player a ball.
@@ -522,7 +608,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         const p = paddles[0];
         if (p) {
           p.x += Math.max(-1, Math.min(1, sum)) * PADDLE_VMAX * TICK_DT;
-          p.x = Math.max(p.minX, Math.min(p.maxX, p.x));
+          clampPaddleX(p);
         }
       } else {
         for (let i = 0; i < paddles.length; i++) {
@@ -533,7 +619,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
           if (p.edge === "bottom" || p.edge === "top") {
             const axis = Math.max(-1, Math.min(1, f.axisX));
             p.x += axis * PADDLE_VMAX * TICK_DT;
-            p.x = Math.max(p.minX, Math.min(p.maxX, p.x));
+            clampPaddleX(p);
           } else {
             // Side paddles move vertically.
             const axis = Math.max(-1, Math.min(1, f.axisY));
@@ -544,6 +630,7 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       }
 
       // Launch: any attached ball's owner (or any player in C / shared).
+      launchedBy.clear();
       for (const f of inputs) {
         if (!f.launch) continue;
         for (const b of balls) {
@@ -567,10 +654,15 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
             b.attachedTo = null;
             phase = "play";
             pushEvent("ballLaunch", f.player, -1);
+            launchedBy.add(f.player);
             break;
           }
         }
       }
+
+      fireLasers(byPlayer, launchedBy);
+      // Bolts before balls: a Bolt wins a Brick both reach this tick.
+      bolts.step();
 
       for (const b of [...balls]) stepBall(b);
       stepCapsules();
@@ -611,6 +703,10 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         }
       }
 
+      // Round clear (last Brick, boss death or B) ends every Laser. Read
+      // through a call: TS keeps `phase` narrowed from the early return.
+      if (currentPhase() === "roundClear") disarmLasers();
+
       tick++;
     },
     snapshot() {
@@ -631,13 +727,14 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
           target: -1,
           chain: 0,
           state: "playing" as const,
-          effects: {},
+          ...armedFields(isArmed(i), bolts.cooldown(i)),
         })),
         balls: balls.map((b) => ({
           x: b.x, y: b.y, vx: b.vx, vy: b.vy,
           attachedTo: b.attachedTo, owner: b.owner,
         })),
         capsules: capsules.map((c) => ({ x: c.x, y: c.y, type: c.type })),
+        bolts: bolts.toSnapshot(),
         bricks: [...bricks],
         events: [...events],
         inputAcks: new Array<number>(playerCount).fill(tick),

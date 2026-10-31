@@ -25,6 +25,7 @@ import {
   type Box,
 } from "./collision";
 import {
+  ARMED_EFFECT,
   BRICK_EMPTY,
   BRICK_GOLD,
   brickBreakScore,
@@ -55,6 +56,13 @@ import {
 } from "./simState";
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
+import { Bolts } from "./bolts";
+import {
+  ARMED_FLAG,
+  PADDLE_SLOT_EFFECTS,
+  laserHooks,
+  type PaddleSlotEffect,
+} from "./laserWiring";
 
 const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 
@@ -191,6 +199,17 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
 
   // ---- Doh boss (ticket 49): round 33 only ----
   const boss: BossState | null = level.round === BOSS_ROUND ? createBossState() : null;
+  // ---- Laser (ticket #144, spec #140): one Paddle, the shooter is player 0 ----
+  // A sim lives one round, so the boss counter starts each round at 0.
+  const bolts = new Bolts(1, laserHooks({
+    bricks,
+    pushEvent,
+    hitBrick: (index, shooter) => {
+      hitBrick(index, bricks[index] ?? BRICK_EMPTY, shooter);
+    },
+    liveBoss: () => (boss && !boss.dead ? boss : null),
+    damageBoss,
+  }));
 
   // ---- Attack-mode hooks (ticket 39) — inert (1.0) outside Attack ----
   let attackWidthFactor = 1;
@@ -337,13 +356,19 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         if (b.y > box.y + box.h / 2) b.vy = Math.abs(b.vy);
         else if (b.y < box.y - box.h / 2) b.vy = -Math.abs(b.vy);
         else b.vx = b.x > box.x ? Math.abs(b.vx) : -Math.abs(b.vx);
-        pushEvent("bossHit", player, -1);
-        if (hitBoss(boss)) {
-          pushEvent("bossDead", player, -1);
-          phase = "roundClear";
-          pushEvent("roundClear", player, -1);
-        }
+        damageBoss(player);
       }
+    }
+  }
+
+  /** The boss loses 1 HP (a ball contact or every 4th Bolt); its death clears the round. */
+  function damageBoss(player: number): void {
+    if (!boss || boss.dead) return;
+    pushEvent("bossHit", player, -1);
+    if (hitBoss(boss)) {
+      pushEvent("bossDead", player, -1);
+      phase = "roundClear";
+      pushEvent("roundClear", player, -1);
     }
   }
 
@@ -405,12 +430,13 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     lastCaught = type;
     switch (type) {
       case "E":
-        effects.set("E", Number.MAX_SAFE_INTEGER); // until ball loss
-        paddle.w = paddleWidth();
+      case "C":
+      case "L":
+        takePaddleSlot(type);
         break;
       case "R":
         effects.set("R", Number.MAX_SAFE_INTEGER);
-        paddle.w = paddleWidth();
+        refitPaddle();
         break;
       case "P":
         lives++;
@@ -466,15 +492,50 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         pushEvent("roundClear", player, -1);
         break;
       }
-      case "C":
-      case "L":
       case "D":
       case "?":
-        // Catch/Laser/Disrupt timers: effect machinery lands with modes that
-        // need them (laser rendering, catch hold); durations tracked now.
+        // Disrupt timer: effect machinery lands with the modes that need it.
         effects.set(type, CAPSULE_EFFECTS.catchMaxMs);
         break;
     }
+  }
+
+  /**
+   * E, C and L share one exclusive Paddle slot (spec #140): the catch evicts
+   * the other two and the width is recomputed. A repeat L only refreshes,
+   * and every L catch readies the Laser at once.
+   */
+  function takePaddleSlot(type: PaddleSlotEffect): void {
+    for (const other of PADDLE_SLOT_EFFECTS) if (other !== type) effects.delete(other);
+    switch (type) {
+      case "E":
+        effects.set("E", Number.MAX_SAFE_INTEGER); // until ball loss
+        break;
+      case "C":
+        effects.set("C", CAPSULE_EFFECTS.catchMaxMs);
+        break;
+      case "L":
+        effects.set(ARMED_EFFECT, ARMED_FLAG); // presence flag: until last ball loss / round clear / revive
+        bolts.resetCooldown(0);
+        break;
+    }
+    refitPaddle();
+  }
+
+  /** Recompute the Paddle width from its effects and keep it inside the walls. */
+  function refitPaddle(): void {
+    paddle.w = paddleWidth();
+    paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
+  }
+
+  function currentPhase(): Snapshot["phase"] {
+    return phase;
+  }
+
+  /** The Laser ends: disarm and drop every Bolt in flight. */
+  function disarmLaser(): void {
+    effects.delete(ARMED_EFFECT);
+    bolts.clear();
   }
 
   /** Classic rule: effects clear on ball loss. */
@@ -482,8 +543,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
     for (const type of EFFECTS_CLEAR_ON_BALL_LOSS) {
       if (effects.has(type)) effects.delete(type);
     }
-    paddle.w = paddleWidth();
-    paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
+    disarmLaser();
+    refitPaddle();
   }
 
   function stepCapsules(player: number): void {
@@ -546,8 +607,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
 
     setAttackWidthFactor(factor) {
       attackWidthFactor = factor;
-      paddle.w = paddleWidth();
-      paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
+      refitPaddle();
     },
 
     setAttackSpeedFactor(factor) {
@@ -590,6 +650,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       releaseAllBalls();
       releaseAllCapsules();
       effects.clear();
+      disarmLaser();
       paddle.w = paddleWidth();
       attachBall(0);
     },
@@ -632,6 +693,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       paddle.x = Math.max(paddle.w / 2, Math.min(FIELD_W - paddle.w / 2, paddle.x));
 
       // serve: attach-and-launch (edge event)
+      let launched = false;
       if (frame && frame.launch) {
         const b = balls.find((x) => x.attachedTo !== null);
         if (b && b.attachedTo === 0) {
@@ -641,8 +703,16 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           b.attachedTo = null;
           phase = "play";
           pushEvent("ballLaunch", 0, -1);
+          launched = true;
         }
       }
+
+      // Laser: held primary fires while Armed in play; a launch spends the frame.
+      if (frame?.primaryHeld === true && !launched && phase === "play" && effects.has(ARMED_EFFECT)) {
+        if (bolts.tryFire(0, 0, paddle)) pushEvent("laserFire", 0, -1);
+      }
+      // Bolts before balls: a Bolt wins a Brick both reach this tick.
+      bolts.step();
 
       for (const b of [...balls]) stepBall(b, 0);
       stepCapsules(0);
@@ -678,6 +748,10 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         }
       }
 
+      // Round clear (last Brick, boss death or B) ends the Laser. Read through
+      // a call: TS keeps `phase` narrowed from the early return above.
+      if (currentPhase() === "roundClear") disarmLaser();
+
       tick++;
       consumedLaunch.clear();
     },
@@ -704,6 +778,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
             effects: Object.fromEntries(
               [...effects].map(([k, v]) => [k, v === Number.MAX_SAFE_INTEGER ? -1 : v]),
             ),
+            ...(effects.has(ARMED_EFFECT) ? { laserReady: bolts.cooldown(0) === 0 } : {}),
           },
         ],
         balls: balls.map((b) => ({
@@ -711,6 +786,7 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
           attachedTo: b.attachedTo, owner: b.owner,
         })),
         capsules: capsules.map((c) => ({ x: c.x, y: c.y, type: c.type })),
+        bolts: bolts.toSnapshot(),
         bricks: [...bricks],
         events: [...events],
         inputAcks: [tick],

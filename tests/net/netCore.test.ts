@@ -13,6 +13,8 @@ function frame(player: number, tick: number, axisX: number, launch = false): Inp
 function fourPlayerSnapshot(): Snapshot {
   const base = createRoundSim(getLevelSync(1), { lives: 3, score: 1000 });
   const snap = base.snapshot();
+  // No Bolt tail by default: the Laser cases add their own.
+  delete snap.bolts;
   return {
     ...snap,
     players: [
