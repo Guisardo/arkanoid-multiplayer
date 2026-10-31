@@ -118,4 +118,30 @@ describe("guest interpolation across Sim epochs (ticket #151)", () => {
     expect(interp.size).toBe(1);
     expect(interp.sample(5000)?.epoch).toBe(1);
   });
+
+  it("an epoch flush is not starvation: the delay stays nominal while the new epoch fills", () => {
+    // Regression (#155): after the flush the lone new snapshot is younger than
+    // the target time, so every render frame read as starved and grew the
+    // delay to the cap: up to 150 ms of extra lag after every round advance.
+    const interp = createInterpolator({ snapshotHz: 30 });
+    const intervalMs = 1000 / 30;
+    const renderMs = 1000 / 60;
+    let next = 0;
+    let now = 0;
+    const run = (epoch: number, firstTick: number, untilMs: number): void => {
+      let tick = firstTick;
+      for (; now < untilMs; now += renderMs) {
+        while (next <= now) {
+          interp.push(epochSnapshot(epoch, tick++), next);
+          next += intervalMs;
+        }
+        interp.sample(now);
+      }
+    };
+    run(0, 1, 2000);
+    const steady = interp.delayMs;
+    run(1, 0, 2300);
+    expect(interp.delayMs).toBeLessThanOrEqual(steady);
+    expect(interp.sample(now)?.epoch).toBe(1);
+  });
 });

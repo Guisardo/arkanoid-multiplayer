@@ -93,9 +93,8 @@ async function runMatch(
       localPlayers: players.filter((p) => p.guestIndex === 0).map((p) => p.player),
       remotePlayers: [0],
       names: players.map((p) => p.name),
-      // Ticket 46: prediction needs mode + D + player count.
+      // Ticket 46: prediction needs mode + player count.
       mode,
-      delayTicks: host.delayTicks,
       playerCount: players.length,
     },
     (buf) => ch.guestToHost.push(buf),
@@ -367,7 +366,6 @@ describe("host + guest loopback (spec §9 data plane)", () => {
         remotePlayers: [0],
         names: ["HostP", "Guest0"],
         mode: "race",
-        delayTicks: 4,
         playerCount: 2,
       },
       () => undefined,

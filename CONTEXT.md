@@ -250,8 +250,12 @@ _Avoid_: Particle system (narrower), effects manager (vague), juice system (info
 ### Input
 
 **Input frame**:
-The per-player, per-sim-tick normalized input sample the simulation consumes: a 2D move axis in `[-1..1]` plus edge events (launch, cycle target, fire action type). Device adapters translate keyboard, mouse, gamepad, and touch into it; the simulation never sees raw devices.
+The per-player, per-match-tick normalized input sample the simulation consumes: a 2D move axis in `[-1..1]` plus edge events (launch, cycle target, fire action type). Device adapters translate keyboard, mouse, gamepad, and touch into it; the simulation never sees raw devices.
 _Avoid_: Input packet (means the network message carrying frames), input event (means the raw device occurrence)
+
+**Match tick**:
+The match-long count of 60 Hz steps that stamps every input frame and orders input delivery. It never restarts within a match, unlike the ticks of a sim epoch, which start over each time a field's simulation is replaced.
+_Avoid_: Sim tick (restarts every sim epoch), host tick (guests count match ticks too), frame number (ambiguous with render frames)
 
 ### Netcode
 
