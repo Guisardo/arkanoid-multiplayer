@@ -117,6 +117,12 @@ export interface PlayerSnapshot {
    * Armed with the Laser.
    */
   effects: Record<string, number>;
+  /**
+   * Laser (ticket #148): the Armed Paddle is off cooldown and would fire now.
+   * Host-authoritative (sims set it from the Bolt cooldown), so ready-ticks
+   * follow the Paddle, not the shooter. Absent when not Armed.
+   */
+  laserReady?: boolean;
 }
 
 export interface BallSnapshot {
@@ -172,7 +178,23 @@ export type SimEventType =
   /** A Bolt was spent on a gold Brick (no damage); source = shooter, target = cell. */
   | "boltGoldHit";
 
-/** Ring buffer event (last 8): type, source, target, tick (spec §9). */
+/**
+ * Sim event ring size (ticket #148; spec §9 had 8). Laser bursts need room:
+ * every Bolt hit pushes 2 events and every volley 1, so 4 Armed Paddles can
+ * push well past 8 in one tick. Sessions read the whole ring on the host;
+ * the wire carries a bounded slice (see `serializeSnapshot`).
+ */
+export const SIM_EVENT_RING_SIZE = 32;
+/** Events every snapshot carries regardless of age (the spec §9 ring). */
+export const SNAPSHOT_EVENTS_BASE = 8;
+/**
+ * Extra events from the last this-many ticks ride along on top of the base
+ * 8, so a burst survives a 30 Hz broadcast and a few lost snapshots without
+ * paying 32 events on every quiet one.
+ */
+export const SNAPSHOT_EVENT_BURST_TICKS = 8;
+
+/** Ring buffer event: type, source, target, tick (spec §9). */
 export interface SimEvent {
   type: SimEventType;
   source: number;
@@ -203,7 +225,7 @@ export interface Snapshot {
   /** Boss projectiles (round 33 only; absent otherwise). */
   bossProjectiles?: BossProjectileSnapshot[];
   /** Laser Bolts in flight (absent when the sim has no Laser state). */
-  bolts?: BoltSnapshot[];
+  bolts?: readonly BoltSnapshot[];
 }
 
 /** Laser Bolt in a snapshot (ticket #141): tip position + shooting player. */
@@ -233,12 +255,35 @@ export function isBoltBrickEvent(
   );
 }
 
-/** Fire cooldown (spec #140): 350 ms, auto-repeat while held. */
-export const LASER_COOLDOWN_MS = 350;
-/** The cooldown in whole 60 Hz ticks, rounded up (21). */
-export const LASER_COOLDOWN_TICKS = Math.ceil((LASER_COOLDOWN_MS * 60) / 1000);
+/**
+ * Visit the ring events newer than `afterTick` in order, each with the ring
+ * event just before it (`prev`, for `isBoltBrickEvent` pairing), and return
+ * the new watermark. The ring repeats across snapshots, so every consumer
+ * (audio, visual effects) keeps a watermark and walks only the fresh suffix.
+ */
+export function forEachFreshEvent(
+  events: readonly SimEvent[],
+  afterTick: number,
+  visit: (event: SimEvent, prev: SimEvent | undefined) => void,
+): number {
+  let first = events.length;
+  while (first > 0 && (events[first - 1]?.tick ?? -Infinity) > afterTick) first--;
+  for (let i = first; i < events.length; i++) {
+    const event = events[i];
+    if (event !== undefined) visit(event, events[i - 1]);
+  }
+  // Nothing fresh: the watermark stays where it was.
+  return first < events.length ? (events[events.length - 1]?.tick ?? afterTick) : afterTick;
+}
+
 /** Bolts spawn this far in from each Paddle end (classic 1986 placement). */
 export const LASER_BOLT_INSET = 2;
+
+/** The two Bolt columns for a Paddle centred at `x` with live width `w` (left, right). */
+export function laserBoltXs(x: number, w: number): readonly [number, number] {
+  const reach = w / 2 - LASER_BOLT_INSET;
+  return [x - reach, x + reach];
+}
 
 /** Effect id of the Laser's Armed presence flag in `PlayerSnapshot.effects`. */
 export const ARMED_EFFECT: CapsuleTypeId = "L";

@@ -140,6 +140,7 @@ const enUS = {
   "pause.resume": "Resume",
   "pause.quitConfirm": "Quit match? You forfeit",
   "perf.degraded": "Reduced performance mode",
+  "touch.laserBadge": "LASER",
   "perf.contextLost": "Graphics context lost — recovering…",
   "perf.contextRestored": "Graphics recovered",
   "save.conflictTitle": "Save changed in another tab",
@@ -288,6 +289,8 @@ const es419: Record<StringKey, string> = {
   "pause.resume": "Continuar",
   "pause.quitConfirm": "¿Abandonar la partida? Pierdes",
   "perf.degraded": "Modo de rendimiento reducido",
+  // Arcade term kept as-is (and the game font has no accented capitals).
+  "touch.laserBadge": "LASER",
   "perf.contextLost": "Contexto gráfico perdido — recuperando…",
   "perf.contextRestored": "Gráficos recuperados",
   "save.conflictTitle": "El guardado cambió en otra pestaña",

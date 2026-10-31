@@ -1,6 +1,7 @@
 // Capsule system (spec §4, §5): deterministic script-driven drops, zero RNG,
 // classic-accurate effect behaviors. Data-only tuning values.
-import { LASER_COOLDOWN_MS, type CapsuleTypeId } from "shared/protocol";
+import type { CapsuleTypeId } from "shared/protocol";
+import { LASER_COOLDOWN_MS } from "shared/simRates";
 import type { CapsuleScriptEntry } from "content/levelFormat";
 
 /**

@@ -1,6 +1,6 @@
 // Laser feedback (ticket #148, spec #140 Variant C: quiet and readable),
 // built against snapshot fixtures: thin yellow Bolts, two ready-ticks over an
-// Armed Paddle's ends while off cooldown, a ~0.12 s white flash plus a score
+// Armed Paddle's ends while the host reports it off cooldown (`laserReady`), a ~0.12 s white flash plus a score
 // pop on a Bolt's Brick hit (no shake, particles or full-field flash, and it
 // survives reduced effects), nothing visual on gold.
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { layoutField } from "render/layout";
 import { VisualEffects, type VisualEffectsScene } from "render/visualEffects";
 import { BRICK_FLASH_SECONDS } from "render/brickFlash";
 import { LASER_COLOR, laserShapes } from "render/laserView";
-import { LASER_COOLDOWN_TICKS, type PlayerSnapshot, type SimEvent, type Snapshot } from "shared/protocol";
+import { type PlayerSnapshot, type SimEvent, type Snapshot } from "shared/protocol";
 
 function player(over: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
   return {
@@ -76,36 +76,44 @@ function fakeScene(): { scene: VisualEffectsScene; flashRects: { x: number; y: n
 
 describe("laserShapes (pure geometry)", () => {
   it("draws each Bolt as a 1-wide, 8-long yellow bar from its tip down", () => {
-    const shapes = laserShapes(snapWith({ bolts: [{ x: 90, y: 120, owner: 0 }] }), () => undefined);
+    const shapes = laserShapes(snapWith({ bolts: [{ x: 90, y: 120, owner: 0 }] }));
     expect(shapes.bolts).toEqual([{ x: 89.5, y: 120, w: 1, h: 8 }]);
     expect(LASER_COLOR).toBe(0xffe040);
   });
 
   it("no ready-ticks on an unarmed Paddle", () => {
-    expect(laserShapes(snapWith(), () => undefined).readyTicks).toEqual([]);
+    expect(laserShapes(snapWith()).readyTicks).toEqual([]);
+    // A stray ready flag without Armed draws nothing either.
+    expect(laserShapes(snapWith({ players: [player({ laserReady: true })] })).readyTicks).toEqual([]);
   });
 
   it("two ready-ticks over the Paddle ends while Armed and off cooldown", () => {
-    const snap = snapWith({ players: [player({ effects: { L: 1 } })] });
+    const snap = snapWith({ players: [player({ effects: { L: 1 }, laserReady: true })] });
     // Ends at x = 104 ± (16 - 2) = 90 / 118; Paddle top y = 239.
-    expect(laserShapes(snap, () => undefined).readyTicks).toEqual([
+    expect(laserShapes(snap).readyTicks).toEqual([
       { x: 89.5, y: 236, w: 1, h: 2 },
       { x: 117.5, y: 236, w: 1, h: 2 },
     ]);
   });
 
-  it("ticks hide during the cooldown after a shot and return once it elapses", () => {
-    const fired = 100;
-    const at = (tick: number): number =>
-      laserShapes(snapWith({ tick, players: [player({ effects: { L: 1 } })] }), () => fired).readyTicks.length;
-    expect(at(fired)).toBe(0);
-    expect(at(fired + LASER_COOLDOWN_TICKS - 1)).toBe(0);
-    expect(at(fired + LASER_COOLDOWN_TICKS)).toBe(2);
+  it("ticks hide while the host reports the Paddle cooling down", () => {
+    const snap = snapWith({ players: [player({ effects: { L: 1 }, laserReady: false })] });
+    expect(laserShapes(snap).readyTicks).toEqual([]);
+  });
+
+  it("ticks follow each Paddle's own readiness (shared Paddle / several players)", () => {
+    const snap = snapWith({
+      players: [
+        player({ effects: { L: 1 }, laserReady: false }),
+        player({ player: 1, effects: { L: 1 }, laserReady: true, paddle: { x: 50, y: 242, w: 32, h: 6, edge: "bottom" } }),
+      ],
+    });
+    expect(laserShapes(snap).readyTicks.map((r) => r.x + 0.5)).toEqual([36, 64]);
   });
 
   it("ticks follow the live Paddle width", () => {
-    const snap = snapWith({ players: [player({ effects: { L: 1 }, paddle: { x: 104, y: 242, w: 48, h: 6, edge: "bottom" } })] });
-    expect(laserShapes(snap, () => undefined).readyTicks.map((r) => r.x + 0.5)).toEqual([82, 126]);
+    const snap = snapWith({ players: [player({ effects: { L: 1 }, laserReady: true, paddle: { x: 104, y: 242, w: 48, h: 6, edge: "bottom" } })] });
+    expect(laserShapes(snap).readyTicks.map((r) => r.x + 0.5)).toEqual([82, 126]);
   });
 });
 
@@ -168,6 +176,17 @@ describe("VisualEffects: Bolt hits", () => {
     expect(fx.state.pops).toEqual(["+50", "+50"]);
   });
 
+  it("a held laser climbing the Chain gets no escalation shake or particles", () => {
+    const { scene } = fakeScene();
+    const fx = new VisualEffects(scene);
+    const events = [15, 16, 17, 18].flatMap((cell) => [ev("boltHit", cell), ev("brickBreak", cell)]);
+    fx.consume(snapWith({ events }));
+    expect(fx.state.chain).toBe(4);
+    expect(fx.state.trauma).toBe(0);
+    expect(fx.state.flashAlpha).toBe(0);
+    expect(fx.state.pops).not.toContain("x2");
+  });
+
   it("Bolt breaks still extend the Chain", () => {
     const { scene } = fakeScene();
     const fx = new VisualEffects(scene);
@@ -175,15 +194,11 @@ describe("VisualEffects: Bolt hits", () => {
     expect(fx.state.chain).toBe(2);
   });
 
-  it("remembers each shooter's last fire tick; reset forgets it", () => {
+  it("reset clears live Brick flashes", () => {
     const { scene } = fakeScene();
     const fx = new VisualEffects(scene);
-    fx.consume(snapWith({ events: [ev("laserFire", -1, 90, 0), ev("laserFire", -1, 95, 1)] }));
-    expect(fx.lastLaserFire(0)).toBe(90);
-    expect(fx.lastLaserFire(1)).toBe(95);
-    expect(fx.lastLaserFire(2)).toBeUndefined();
+    fx.consume(snapWith({ events: [ev("boltHit", 15), ev("brickBreak", 15)] }));
     fx.reset();
-    expect(fx.lastLaserFire(0)).toBeUndefined();
     expect(fx.state.brickFlashes).toEqual([]);
   });
 });
@@ -195,18 +210,17 @@ describe("FieldView: laser wiring", () => {
 
   it("draws Bolts and ready-ticks from the snapshot", () => {
     const view = makeView();
-    view.sync(snapWith({ players: [player({ effects: { L: 1 } })], bolts: [{ x: 90, y: 120, owner: 0 }] }));
+    view.sync(snapWith({ players: [player({ effects: { L: 1 }, laserReady: true })], bolts: [{ x: 90, y: 120, owner: 0 }] }));
     expect(view.laserShapes.bolts).toHaveLength(1);
     expect(view.laserShapes.readyTicks).toHaveLength(2);
     view.container.destroy({ children: true });
   });
 
-  it("a laserFire in the ring hides the ticks until the cooldown elapses", () => {
+  it("ticks follow the replicated laserReady flag", () => {
     const view = makeView();
-    const armed = [player({ effects: { L: 1 } })];
-    view.sync(snapWith({ tick: 100, players: armed, events: [ev("laserFire", -1, 100)] }));
+    view.sync(snapWith({ players: [player({ effects: { L: 1 }, laserReady: false })] }));
     expect(view.laserShapes.readyTicks).toEqual([]);
-    view.sync(snapWith({ tick: 100 + LASER_COOLDOWN_TICKS, players: armed, events: [ev("laserFire", -1, 100)] }));
+    view.sync(snapWith({ tick: 101, players: [player({ effects: { L: 1 }, laserReady: true })] }));
     expect(view.laserShapes.readyTicks).toHaveLength(2);
     view.container.destroy({ children: true });
   });

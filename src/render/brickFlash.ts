@@ -4,6 +4,8 @@
 // a readability cue (it marks *which* Brick took the hit), so reduced effects
 // keep it.
 
+/** Flash colour: plain white, like the classic hit flash. */
+export const BRICK_FLASH_COLOR = 0xffffff;
 /** Flash life, seconds. */
 export const BRICK_FLASH_SECONDS = 0.12;
 /** Flashes alive at once: two Bolts per shot, four Paddles, with headroom. */

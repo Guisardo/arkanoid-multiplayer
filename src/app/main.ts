@@ -341,7 +341,7 @@ function makeLocalInput(flow: MpFlow) {
       const app = flow.renderApp;
       const region = flow.localRegion(player);
       if (app !== null && region !== null) {
-        const overlay = new TouchOverlay(adapter, region, touchClusterFor(flow.currentMode ?? "race"));
+        const overlay = new TouchOverlay(adapter, region, touchClusterFor(flow.currentMode ?? "race"), locale);
         app.stage.addChild(overlay.container);
         touchOverlays.set(player, overlay);
       }

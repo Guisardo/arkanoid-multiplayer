@@ -45,13 +45,13 @@ function makeHooks(): { hooks: BoltHooks; rec: Recorder } {
 /** Cell index of grid (col, row). */
 const cell = (col: number, row: number): number => row * BRICK_COLS + col;
 
-/** Fire one shot from a default Paddle centred at x. */
+/** Fire one volley from a default Paddle centred at x. */
 function fire(bolts: Bolts, paddle: number, x: number, w = PADDLE_W, owner = paddle): boolean {
-  return bolts.tryFire(paddle, owner, x, PADDLE_Y, w, PADDLE_H);
+  return bolts.tryFire(paddle, owner, { x, y: PADDLE_Y, w, h: PADDLE_H });
 }
 
 describe("Bolts: spawn geometry", () => {
-  it("a shot spawns 2 Bolts at the Paddle ends, tip at the Paddle top", () => {
+  it("a volley spawns 2 Bolts at the Paddle ends, tip at the Paddle top", () => {
     const { hooks } = makeHooks();
     const bolts = new Bolts(1, hooks);
     expect(fire(bolts, 0, 100)).toBe(true);
@@ -185,7 +185,7 @@ describe("Bolts: Brick kinds", () => {
     const { hooks, rec } = makeHooks();
     const bolts = new Bolts(1, hooks);
     rec.bricks[cell(5, 10)] = 1;
-    bolts.tryFire(0, 2, 100, PADDLE_Y, PADDLE_W, PADDLE_H);
+    bolts.tryFire(0, 2, { x: 100, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H });
     for (let i = 0; i < 70; i++) bolts.step();
     expect(rec.brickHits).toEqual([{ index: cell(5, 10), shooter: 2 }]);
     expect(bolts.toSnapshot().every((b) => b.owner === 2)).toBe(true);
@@ -210,10 +210,10 @@ describe("Bolts: per-Paddle cap and cooldown", () => {
     expect(firstAgain).toBe(21);
   });
 
-  it("caps each Paddle at 8 Bolts; an over-cap shot is dropped and keeps the cooldown ready", () => {
+  it("caps each Paddle at 8 Bolts; an over-cap volley is dropped and keeps the cooldown ready", () => {
     const { hooks } = makeHooks();
     const bolts = new Bolts(2, hooks);
-    // A Bolt lives 61 ticks, so the 21-tick cooldown alone keeps 3 shots in
+    // A Bolt lives 61 ticks, so the 21-tick cooldown alone keeps 3 volleys in
     // flight; repeat Laser catches (resetCooldown) are what reach the cap.
     for (let s = 0; s < 4; s++) {
       bolts.resetCooldown(0);
@@ -330,6 +330,13 @@ describe("Bolts: pooling (ADR 0006)", () => {
     expect(new Bolts(1, hooks).pooled).toBe(8);
     expect(new Bolts(3, hooks).pooled).toBe(24);
     expect(new Bolts(4, hooks).pooled).toBe(32);
+  });
+
+  it("an empty field snapshots without allocating", () => {
+    const { hooks } = makeHooks();
+    const bolts = new Bolts(1, hooks);
+    expect(bolts.toSnapshot()).toBe(bolts.toSnapshot());
+    expect(bolts.toSnapshot()).toEqual([]);
   });
 
   it("4 Paddles at the cap never allocate past the prewarm", () => {

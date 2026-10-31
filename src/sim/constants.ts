@@ -33,4 +33,10 @@ export const POOL_PREWARM = {
   balls: 12,
   capsules: 24,
   bossProjectiles: 8,
+  /**
+   * Laser Bolts (ticket #142): `LASER_BOLTS_PER_PADDLE` (8) per Paddle,
+   * capped here at 4 Paddles at the cap. `Bolts` scales its prewarm by
+   * Paddle count up to this.
+   */
+  bolts: 32,
 } as const;

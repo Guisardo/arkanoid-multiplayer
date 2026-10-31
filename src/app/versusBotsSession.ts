@@ -188,7 +188,7 @@ export async function startVersusBotsSession(
   // Touch overlay floats over the whole canvas (single-field anchor).
   let touchOverlay: TouchOverlay | null = null;
   if (touch !== null) {
-    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant));
+    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant), locale);
     app.stage.addChild(touchOverlay.container);
   }
 

@@ -16,6 +16,7 @@ import {
   BRICK_ROWS,
   BRICK_TOP_OFFSET,
   BRICK_W,
+  POOL_PREWARM,
   TICK_DT,
 } from "./constants";
 import type { Box } from "./collision";
@@ -23,17 +24,19 @@ import { Pool } from "./pool";
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
-  LASER_BOLT_INSET,
   LASER_BOLTS_PER_PADDLE,
-  LASER_COOLDOWN_TICKS,
   SNAPSHOT_PLAYERS_MAX,
+  laserBoltXs,
   type BoltSnapshot,
 } from "shared/protocol";
 
+import { LASER_COOLDOWN_TICKS } from "shared/simRates";
+
+/** Shared, frozen snapshot for an empty field. */
+const NO_BOLTS: readonly BoltSnapshot[] = Object.freeze([]);
+
 /** Units a Bolt climbs per tick (4 at 240 u/s, 60 Hz). */
 export const BOLT_STEP = BOLT_SPEED * TICK_DT;
-/** Largest Bolt pool any sim needs: every snapshot player firing at the cap. */
-export const BOLT_POOL_MAX = SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE;
 
 /**
  * A Bolt in flight. `x` is the centre column, `y` the tip (top edge); the box
@@ -103,7 +106,7 @@ export class Bolts {
 
   /**
    * @param paddleCount Paddles that may fire; sizes the pool prewarm
-   *   (`LASER_BOLTS_PER_PADDLE` each, capped at `BOLT_POOL_MAX`).
+   *   (`LASER_BOLTS_PER_PADDLE` each, capped at `POOL_PREWARM.bolts`).
    */
   constructor(paddleCount: number, hooks: BoltHooks) {
     if (!Number.isInteger(paddleCount) || paddleCount < 1 || paddleCount > SNAPSHOT_PLAYERS_MAX) {
@@ -115,24 +118,24 @@ export class Bolts {
     this.flights = Array.from({ length: paddleCount }, () => []);
     this.cooldowns = new Array<number>(paddleCount).fill(0);
     this.pool = new Pool(makeBoltState, resetBoltState);
-    this.pool.prewarm(Math.min(BOLT_POOL_MAX, paddleCount * LASER_BOLTS_PER_PADDLE));
+    this.pool.prewarm(Math.min(POOL_PREWARM.bolts, paddleCount * LASER_BOLTS_PER_PADDLE));
   }
 
   /**
-   * Fire one shot (2 Bolts) from a Paddle if its cooldown has elapsed and the
-   * shot fits under the per-Paddle cap. A shot over the cap is dropped and
-   * does not consume the cooldown, so the next tick may fire again.
-   * Geometry is the live Paddle box (centre x/y, full w/h).
-   * @returns whether the shot fired.
+   * Fire one volley (2 Bolts) from a Paddle if its cooldown has elapsed and
+   * the volley fits under the per-Paddle cap. A volley over the cap is
+   * dropped and does not consume the cooldown, so the next tick may fire.
+   * `box` is the live Paddle box (centre x/y, full w/h).
+   * @returns whether the volley fired.
    */
-  tryFire(paddle: number, owner: number, px: number, py: number, pw: number, ph: number): boolean {
+  tryFire(paddle: number, owner: number, box: Box): boolean {
     const flight = this.flightOf(paddle, "tryFire");
     if ((this.cooldowns[paddle] ?? 0) > 0) return false;
     if (flight.length + 2 > LASER_BOLTS_PER_PADDLE) return false;
-    const tip = py - ph / 2;
-    const reach = pw / 2 - LASER_BOLT_INSET;
-    this.spawn(flight, px - reach, tip, paddle, owner);
-    this.spawn(flight, px + reach, tip, paddle, owner);
+    const tip = box.y - box.h / 2;
+    const [left, right] = laserBoltXs(box.x, box.w);
+    this.spawn(flight, left, tip, paddle, owner);
+    this.spawn(flight, right, tip, paddle, owner);
     this.cooldowns[paddle] = LASER_COOLDOWN_TICKS;
     return true;
   }
@@ -221,8 +224,13 @@ export class Bolts {
     return this.pool.available;
   }
 
-  /** Snapshot rows in step order (Paddle ascending, then spawn order). */
-  toSnapshot(): BoltSnapshot[] {
+  /**
+   * Snapshot rows in step order (Paddle ascending, then spawn order). A copy,
+   * because sessions keep snapshots (interpolation buffers) while the pooled
+   * Bolts move on; with nothing in flight (most ticks) it allocates nothing.
+   */
+  toSnapshot(): readonly BoltSnapshot[] {
+    if (this.count === 0) return NO_BOLTS;
     const out: BoltSnapshot[] = [];
     for (const flight of this.flights) {
       for (const b of flight) out.push({ x: b.x, y: b.y, owner: b.owner });

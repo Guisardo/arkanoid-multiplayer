@@ -30,6 +30,7 @@ import {
   coloredCell,
   isDestructibleCell,
   isGoldCell,
+  SIM_EVENT_RING_SIZE,
   type CapsuleTypeId,
   type InputFrame,
   type PaddleEdge,
@@ -54,7 +55,7 @@ import {
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
-const EVENT_RING_SIZE = 8;
+const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 
 /**
  * Ticket 102: cap on the destroyed-brick history behind Attack's brick rain.

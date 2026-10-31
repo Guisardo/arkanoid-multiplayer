@@ -28,6 +28,7 @@ import {
   coloredCell,
   isDestructibleCell,
   isGoldCell,
+  SIM_EVENT_RING_SIZE,
   type CapsuleTypeId,
   type InputFrame,
   type SimEvent,
@@ -51,7 +52,7 @@ import {
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
-const EVENT_RING_SIZE = 8;
+const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
 export const DUEL_MAX_ROUND = 32;
 

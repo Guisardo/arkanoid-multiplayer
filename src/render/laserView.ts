@@ -2,14 +2,9 @@
 // snapshot → rectangles, so FieldView only paints and the look is testable
 // without Pixi: each Bolt is a thin yellow bar with no trail, and an Armed
 // Paddle shows two tiny yellow ready-ticks over its ends while off cooldown
-// (no glow). Cooldown is inferred from the replicated `laserFire` events, so
-// guests show the same ticks as the host.
-import {
-  LASER_BOLT_INSET,
-  LASER_COOLDOWN_TICKS,
-  isArmedPlayer,
-  type Snapshot,
-} from "shared/protocol";
+// (no glow). Readiness is the host's `laserReady`, so guests match the host
+// and a shared Paddle (Shared Field mode C) shows its own cooldown.
+import { isArmedPlayer, laserBoltXs, type Snapshot } from "shared/protocol";
 
 /** Bolt and ready-tick yellow. */
 export const LASER_COLOR = 0xffe040;
@@ -33,25 +28,18 @@ export interface LaserShapes {
   readyTicks: DrawRect[];
 }
 
-/**
- * Rectangles for this frame. `lastFireTick(player)` is the tick of that
- * player's most recent shot (undefined = none seen): the ticks stay hidden
- * until `LASER_COOLDOWN_TICKS` have passed since it.
- */
-export function laserShapes(snap: Snapshot, lastFireTick: (player: number) => number | undefined): LaserShapes {
+/** Rectangles for this frame: every Bolt, and ticks on Armed, ready Paddles. */
+export function laserShapes(snap: Snapshot): LaserShapes {
   const bolts: DrawRect[] = [];
   for (const b of snap.bolts ?? []) {
     bolts.push({ x: b.x - BOLT_DRAW_W / 2, y: b.y, w: BOLT_DRAW_W, h: BOLT_DRAW_LEN });
   }
   const readyTicks: DrawRect[] = [];
   for (const p of snap.players) {
-    if (!isArmedPlayer(p)) continue;
-    const fired = lastFireTick(p.player);
-    if (fired !== undefined && snap.tick - fired < LASER_COOLDOWN_TICKS) continue;
+    if (!isArmedPlayer(p) || p.laserReady !== true) continue;
     const { x, y, w, h } = p.paddle;
-    const reach = w / 2 - LASER_BOLT_INSET;
     const top = y - h / 2 - READY_TICK_GAP - READY_TICK_H;
-    for (const end of [x - reach, x + reach]) {
+    for (const end of laserBoltXs(x, w)) {
       readyTicks.push({ x: end - READY_TICK_W / 2, y: top, w: READY_TICK_W, h: READY_TICK_H });
     }
   }

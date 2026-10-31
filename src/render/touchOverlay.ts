@@ -8,6 +8,7 @@
 import { BitmapText, Container, Graphics } from "pixi.js";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import type { LaunchGlyph } from "./launchGlyph";
+import { DEFAULT_LOCALE, t, type Locale } from "ui/strings";
 import { LASER_COLOR } from "./laserView";
 import {
   BUTTON_MIN_PX,
@@ -99,13 +100,14 @@ export class TouchOverlay {
     adapter: TouchAdapter,
     region: { x: number; y: number; w: number; h: number },
     mode: TouchClusterMode,
+    locale: Locale = DEFAULT_LOCALE,
   ) {
     this.adapter = adapter;
     this.region = region;
     this.mode = mode;
     installGameFont();
     this.badgeText = new BitmapText({
-      text: "LASER",
+      text: t(locale, "touch.laserBadge"),
       style: { fontFamily: GAME_FONT_NAME, fontSize: LASER_BADGE_FONT_PX },
     });
     this.badgeText.anchor.set(0.5, 1);

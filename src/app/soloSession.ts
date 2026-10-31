@@ -225,7 +225,7 @@ export async function startSoloSession(
   // Touch overlay floats over the whole canvas, anchored to the field region.
   if (touch !== null) {
     const region = { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height };
-    touchOverlay = new TouchOverlay(touch, region, "solo");
+    touchOverlay = new TouchOverlay(touch, region, "solo", locale);
     app.stage.addChild(touchOverlay.container);
     const route = (e: PointerEvent, down: boolean): void => {
       const rect = app.canvas.getBoundingClientRect();

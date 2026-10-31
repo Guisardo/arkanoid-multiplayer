@@ -359,13 +359,12 @@ export class FieldView {
     // ADR 0009: events fire after the state draw so anchors read this frame's
     // geometry. The effects advance themselves in tickEffects().
     if (replayEvents) this.syncEffects(snap);
-    // Laser after the events: this frame's `laserFire` gates the ready-ticks.
     this.drawLaser(snap);
   }
 
   /** Bolts + ready-ticks (ticket #148): thin yellow bars, no trail, no glow. */
   private drawLaser(snap: Snapshot): void {
-    const shapes = laserShapes(snap, (p) => this.effects.lastLaserFire(p));
+    const shapes = laserShapes(snap);
     this.lastLaserShapes = shapes;
     this.laserGfx.clear();
     for (const r of shapes.bolts) this.laserGfx.rect(r.x, r.y, r.w, r.h).fill(LASER_COLOR);

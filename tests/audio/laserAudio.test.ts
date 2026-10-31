@@ -121,4 +121,18 @@ describe("laser SFX through the session glue", () => {
     audio.consume(snap([ev("brickBreak", 41, 11)]));
     expect(played).toEqual([durations["sfx:brickHit"]]);
   });
+
+  it("Bolt breaks count toward the Chain but never play the escalation", () => {
+    const { ctx, played } = fakeCtx();
+    const audio = createSessionAudio(() => ctx as unknown as AudioContext);
+    audio.unlock();
+    const durations = Object.fromEntries(Object.entries(synthSfx()).map(([k, v]) => [k, v.data.length / SAMPLE_RATE]));
+    const events = [40, 41, 42, 43].flatMap((cell) => [ev("boltHit", cell), ev("brickBreak", cell)]);
+    audio.consume(snap(events));
+    expect(played).toEqual(new Array(4).fill(durations["sfx:boltHit"]));
+    // The Chain still stands at 4: the next ball break is the 5th, not an escalation tier.
+    played.length = 0;
+    audio.consume(snap([ev("brickBreak", 44, 11), ev("brickBreak", 45, 11), ev("brickBreak", 46, 11)]));
+    expect(played).toEqual([durations["sfx:brickHit"], durations["sfx:brickHit"], durations["sfx:brickHit"], durations["sfx:chainEscalate"]]);
+  });
 });
