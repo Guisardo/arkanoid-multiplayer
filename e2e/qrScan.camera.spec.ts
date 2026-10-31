@@ -3,7 +3,7 @@
 // e2e/fixtures/room-link-qr.y4m — a Room link QR for room SCAN2 (regenerate
 // with scripts/gen-qr-fixture.mjs).
 import { expect, test } from "@playwright/test";
-import { abortSignaling } from "./support/copyPaste";
+import { abortSignaling } from "./support/multiplayer";
 
 /** Room code inside the fixture QR (scripts/gen-qr-fixture.mjs). */
 const FIXTURE_ROOM_CODE = "SCAN2";

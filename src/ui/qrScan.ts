@@ -4,13 +4,18 @@
 // sits behind `QrScanner` in ui/cameraQrScanner and loads on demand.
 import { ROOM_CODE_REGEX } from "signaling/code";
 
-/** Read ?code= from a Room link (any host); null when absent/invalid. */
+/** Read ?code= from a Room link (any host); null when not a URL or the code is absent/invalid. */
 export function codeFromUrl(url: string): string | null {
-  // The lookahead rejects a longer value instead of reading its first 5 chars.
-  const m = /[?&]code=([A-Za-z0-9]{5})(?![A-Za-z0-9])/.exec(url);
-  const code = m?.[1];
-  if (code === undefined || !ROOM_CODE_REGEX.test(code)) return null;
-  return code;
+  let parsed: URL;
+  try {
+    // Not URL.canParse: it is too new for the older phone browsers this boots on.
+    parsed = new URL(url);
+  } catch {
+    // "Not a URL" is a valid answer here (a scanned QR may hold any text).
+    return null;
+  }
+  const code = parsed.searchParams.get("code");
+  return code !== null && ROOM_CODE_REGEX.test(code) ? code : null;
 }
 
 /** The slice of `navigator.mediaDevices` camera access needs (fakeable in tests). */

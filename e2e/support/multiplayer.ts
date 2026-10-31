@@ -1,6 +1,7 @@
-// Shared e2e steps for the copy-paste connect fallback (spec §9): abort the
-// signaling WS so the fallback engages at once, then carry the offer and
-// answer codes between two pages through the UI, as a human would.
+// Shared multiplayer e2e steps: create a room, then connect over the
+// copy-paste fallback (spec §9) — abort the signaling WS so the fallback
+// engages at once, then carry the offer and answer codes between two pages
+// through the UI, as a human would.
 import { expect, type Locator, type Page } from "@playwright/test";
 
 /**

@@ -906,6 +906,27 @@ describe("RoomCodeScreen join by QR (#159)", () => {
     withCam.close();
   });
 
+  it("a failed camera probe is logged and leaves Scan QR hidden", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const boom = new Error("enumerateDevices exploded");
+    document.body.innerHTML = "";
+    const screen = new RoomCodeScreen({
+      host: document.body,
+      locale: "en-US",
+      mode: "join",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => {},
+      qrScan: { scanner: fakeScanner(), hasCamera: () => Promise.reject(boom) },
+    });
+    await flush();
+    expect(isShown(buttonNamed(screen.root, "Scan QR"))).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("RoomCodeScreen"), boom);
+    error.mockRestore();
+    screen.close();
+  });
+
   it("create mode never offers Scan QR", async () => {
     document.body.innerHTML = "";
     const screen = new RoomCodeScreen({

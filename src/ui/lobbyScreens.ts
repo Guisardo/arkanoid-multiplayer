@@ -454,10 +454,7 @@ export class RoomCodeScreen {
   }
 
   private fillBoxes(code: string): void {
-    for (let i = 0; i < 5; i++) {
-      const box = this.boxes[i];
-      if (box !== undefined) box.value = code[i] ?? "";
-    }
+    this.boxes.forEach((box, i) => { box.value = code[i] ?? ""; });
   }
 
   /** Back / gamepad B: out of the camera view when scanning, else out of the screen. */

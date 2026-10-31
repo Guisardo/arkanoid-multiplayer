@@ -565,6 +565,7 @@ function showMultiplayerChoice(): void {
 }
 
 function openRoomCode(mode: MultiplayerChoice, joinCode?: string): void {
+  const media = globalThis.navigator.mediaDevices;
   const screen = new RoomCodeScreen({
     host: appHost,
     locale,
@@ -577,8 +578,8 @@ function openRoomCode(mode: MultiplayerChoice, joinCode?: string): void {
     ...(mode === "join"
       ? {
           qrScan: {
-            scanner: new CameraQrScanner(globalThis.navigator.mediaDevices),
-            hasCamera: () => detectCamera(globalThis.navigator.mediaDevices),
+            scanner: new CameraQrScanner(media),
+            hasCamera: () => detectCamera(media),
           },
         }
       : {}),

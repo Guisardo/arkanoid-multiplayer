@@ -73,5 +73,7 @@ describe("roomCodeFromScan", () => {
     expect(roomCodeFromScan("https://example.com/?code=ABC234")).toBeNull();
     expect(roomCodeFromScan("https://example.com/?code=abc23")).toBeNull();
     expect(roomCodeFromScan("https://example.com/")).toBeNull();
+    // A Room link is a URL: free text that merely contains "code=" is not.
+    expect(roomCodeFromScan("foo &code=ABC23")).toBeNull();
   });
 });

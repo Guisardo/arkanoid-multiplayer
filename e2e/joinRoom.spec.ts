@@ -2,7 +2,7 @@
 // room code — landing → Multiplayer → Join room → code → lobby. Connects
 // over the copy-paste fallback like lobby.spec.
 import { expect, test } from "@playwright/test";
-import { abortSignaling, createRoom, exchangeCodes, hostOffer, lobbyOf } from "./support/copyPaste";
+import { abortSignaling, createRoom, exchangeCodes, hostOffer, lobbyOf } from "./support/multiplayer";
 
 test("join room by typing the code reaches the lobby", async ({ browser }) => {
   // Real ICE + DTLS handshake on a loaded box (see lobby.spec budgets).

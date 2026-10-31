@@ -4,7 +4,7 @@
 // through the UI itself — the same bytes a human would paste. Then: lobby
 // syncs both sides, ready gate, 3-2-1 countdown, match starts.
 import { expect, test } from "@playwright/test";
-import { abortSignaling, createRoom, exchangeCodes, hostOffer, lobbyOf } from "./support/copyPaste";
+import { abortSignaling, createRoom, exchangeCodes, hostOffer, lobbyOf } from "./support/multiplayer";
 
 test("lobby: two contexts connect via copy-paste, ready gate, countdown, match starts", async ({ browser }) => {
   // Budget: ~30 s for the real ICE + DTLS handshake on a loaded box, a countdown
