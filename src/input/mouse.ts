@@ -3,7 +3,7 @@ import { EMPTY_ACTIONS } from "shared/protocol";
 
 // Mouse adapter (spec §11): paddle chases the pointer at full speed beyond a
 // small dead band — binary ±1/0, max-speed parity with keyboard. Click =
-// launch. Wheel unmapped.
+// launch; button 0 held = held fire (ticket #143). Wheel unmapped.
 export interface MouseAdapterOptions {
   player: number;
   /** Dead band in field units. */
@@ -16,6 +16,7 @@ export class MouseAdapter {
   private pointerX: number | null = null;
   private paddleX: number | null = null;
   private launchEdge = false;
+  private held = false;
 
   constructor(opts: MouseAdapterOptions) {
     this.player = opts.player;
@@ -46,6 +47,20 @@ export class MouseAdapter {
     this.launchEdge = true;
   }
 
+  /**
+   * Feed `PointerEvent.buttons` from every pointer event. Held fire is bit 0,
+   * re-derived each time, so a pointerup lost outside the window heals on
+   * the next move instead of sticking.
+   */
+  feedButtons(buttons: number): void {
+    this.held = (buttons & 1) !== 0;
+  }
+
+  /** Forget the held button (pointercancel, lost capture, blur, pause). */
+  releaseHeld(): void {
+    this.held = false;
+  }
+
   sampleFrame(tick: number): InputFrame {
     let axisX = 0;
     if (this.pointerX !== null && this.paddleX !== null) {
@@ -60,7 +75,7 @@ export class MouseAdapter {
       axisX,
       axisY: 0,
       launch: this.launchEdge,
-      primaryHeld: false,
+      primaryHeld: this.held,
       actions: EMPTY_ACTIONS,
     };
     this.launchEdge = false;

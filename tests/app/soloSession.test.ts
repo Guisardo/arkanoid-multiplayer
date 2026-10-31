@@ -234,6 +234,50 @@ describe("solo session wiring", () => {
     expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(5);
   });
 
+  // ---- Ticket #143: held input never sticks ----
+
+  it("window blur releases a held arrow: the paddle stops drifting", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight" }));
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    // Focus leaves mid-hold: the browser never sends the keyup.
+    window.dispatchEvent(new Event("blur"));
+    s.loop.advance(1000 / 60);
+    const x1 = s.latestSnapshot().players[0]?.paddle.x ?? 0;
+    for (let i = 0; i < 20; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().players[0]?.paddle.x).toBe(x1);
+  });
+
+  it("opening the pause menu releases held input (no drift after Resume)", async () => {
+    const s = await makeSession();
+    sessions.push(s);
+    s.loop.advance(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowLeft" }));
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+    expect(document.querySelector("[data-pause-menu]")).not.toBeNull();
+    const resume = [...document.querySelectorAll("[data-pause-menu] button")].find(
+      (b) => b.textContent === "Resume",
+    ) as HTMLButtonElement | undefined;
+    resume?.click();
+    s.loop.advance(1000 / 60);
+    const x1 = s.latestSnapshot().players[0]?.paddle.x ?? 0;
+    for (let i = 0; i < 20; i++) s.loop.advance(1000 / 60);
+    expect(s.latestSnapshot().players[0]?.paddle.x).toBe(x1);
+  });
+
+  it("dispose unbinds the input-safety listeners", async () => {
+    const removed = vi.spyOn(window, "removeEventListener");
+    const s = await makeSession();
+    s.loop.advance(0);
+    s.dispose();
+    const types = removed.mock.calls.map((c) => c[0]);
+    expect(types).toContain("blur");
+    expect(types).toContain("contextmenu");
+  });
+
   it("dispose removes listeners (keydown no longer reaches the sim)", async () => {
     const s = await makeSession();
     s.loop.advance(0);

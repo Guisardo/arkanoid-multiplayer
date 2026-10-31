@@ -163,6 +163,11 @@ export class TouchAdapter {
     this.axisY = 0;
   }
 
+  /** Held-fire safety (ticket #143): same as `releaseAll`. */
+  releaseHeld(): void {
+    this.releaseAll();
+  }
+
   /** Consume the pause edge (app polls this in render, like menu keys). */
   consumePause(): boolean {
     const p = this.queuedPause;
@@ -188,7 +193,8 @@ export class TouchAdapter {
       axisX: this.axisX,
       axisY: this.axisY,
       launch: this.queuedLaunch,
-      primaryHeld: false,
+      // The launch button is the touch primary action (spec #140).
+      primaryHeld: this.held.has("launch"),
       actions: this.queued,
     };
     // Edge actions clear after one tick (buffered max 1 per action, spec §11).

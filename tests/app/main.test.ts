@@ -89,7 +89,7 @@ const constructedFlows: {
   reconnect?: () => Promise<unknown>;
 }[] = [];
 /** The mocked MpFlow instances themselves (phase-driven UI tests). */
-const flowInstances: { currentPhase: string }[] = [];
+const flowInstances: { currentPhase: string; localInputBlocked: boolean }[] = [];
 /** localPausePressed calls captured by the mocked flow (ticket 48). */
 const pausePresses: { host: boolean }[] = [];
 function applyMocks(): void {
@@ -172,6 +172,8 @@ function applyMocks(): void {
       localRegion = vi.fn(() => null);
       localPlayers: readonly number[] = [];
       currentPhase = "lobby";
+      /** Ticket #143: held input releases when this turns true. */
+      localInputBlocked = true;
       currentMode = null;
       localSnapshots = vi.fn(() => []);
       /** Captured seams. */
@@ -679,6 +681,31 @@ describe("main multiplayer flows (ticket 46 input wiring)", () => {
     expect(p1.player).toBe(1);
     expect(p1.axisX).toBe(1);
     globalThis.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyD" }));
+  });
+
+  it("host flow: window blur releases held input on every local player (ticket #143)", async () => {
+    await bootHostFlow();
+    const seam = constructedFlows[0]?.sampleLocal;
+    if (seam === undefined) throw new Error("sampleLocal seam missing");
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight" }));
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { code: "Space" }));
+    expect(seam(0, 0)).toMatchObject({ axisX: 1, primaryHeld: true });
+    globalThis.dispatchEvent(new Event("blur"));
+    expect(seam(0, 1)).toMatchObject({ axisX: 0, primaryHeld: false });
+  });
+
+  it("host flow: held input releases when the match blocks local input (pause / end screen)", async () => {
+    await bootHostFlow();
+    const flow = flowInstances[0];
+    const seam = constructedFlows[0]?.sampleLocal;
+    if (flow === undefined || seam === undefined) throw new Error("flow seam missing");
+    flow.localInputBlocked = false;
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    globalThis.dispatchEvent(new KeyboardEvent("keydown", { code: "Space" }));
+    expect(seam(0, 0)).toMatchObject({ primaryHeld: true });
+    flow.localInputBlocked = true; // pause overlay opened
+    await new Promise((r) => globalThis.setTimeout(r, 200));
+    expect(seam(0, 1)).toMatchObject({ primaryHeld: false });
   });
 
   it("host flow: Esc menu edge routes to localPausePressed (ticket 48)", async () => {
