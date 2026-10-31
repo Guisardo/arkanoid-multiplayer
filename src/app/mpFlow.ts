@@ -365,7 +365,6 @@ export class MpFlow {
         themeId?: string;
         mode?: LobbyMode;
         snapshotHz?: 30 | 60;
-        delayTicks?: number;
       };
       if (parsed.type !== "game-start" || this.isHost) return;
       const mode = parsed.mode ?? "race";
@@ -374,7 +373,6 @@ export class MpFlow {
       const skinIndices = (parsed.players ?? []).map((p) => p.skinIndex);
       const allPlayers = names.map((_, i) => i);
       const remotePlayers = allPlayers.filter((p) => !localPlayers.includes(p));
-      const delayTicks = typeof parsed.delayTicks === "number" ? parsed.delayTicks : 4;
       this.beginGuestMatch(
         mode,
         localPlayers,
@@ -382,7 +380,6 @@ export class MpFlow {
         skinIndices,
         parsed.themeId ?? DEFAULT_THEME_ID,
         remotePlayers,
-        delayTicks,
       );
     } catch {
       // Non-JSON or wrong shape: control parser already handles protocol.
@@ -1275,7 +1272,6 @@ export class MpFlow {
     skinIndices: number[],
     themeId: string,
     remotePlayers: number[],
-    delayTicks = 4,
   ): void {
     this.guestGame = createGuestGameSession(
       {
@@ -1283,10 +1279,10 @@ export class MpFlow {
         localPlayers,
         remotePlayers,
         names,
-        // Ticket 46: local-paddle prediction needs the mode's clamp set,
-        // the input delay D, and the shared-field slice width.
+        // Ticket 46: local-paddle prediction needs the mode's clamp set and
+        // the shared-field slice width. The input delay D isn't needed: the
+        // host's input acks name the consumed Match tick directly (#155).
         mode,
-        delayTicks: mode === "sharedField" || mode === "parallelAssist" ? 0 : delayTicks,
         playerCount: names.length,
       },
       (buf) => this.channels?.guestToHost(buf),
