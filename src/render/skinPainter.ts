@@ -7,6 +7,7 @@ import type { Graphics } from "pixi.js";
 import type { BallSkin, BossSprite, CapsulePill, PaddleSkin } from "content/skinTypes";
 import { CAPSULE_W, CAPSULE_H } from "shared/gridConstants";
 import { glyphPixels } from "./pillGlyphs";
+import { darken, lighten } from "./colorMix";
 
 /** Axis-aligned rect in field units. */
 export interface PaintRect {
@@ -18,6 +19,10 @@ export interface PaintRect {
 
 /** Depth of a bevel corner cut or a notch, in field units. */
 const PADDLE_CUT = 1;
+
+/** How far a capsule's top band mixes toward white, its bottom band toward black. */
+const CAPSULE_HIGHLIGHT_MIX = 0.4;
+const CAPSULE_SHADE_MIX = 0.35;
 
 /**
  * Draw a paddle skin at center (x, y) with logical w × h: the procedural
@@ -110,16 +115,40 @@ export function paintOwnerGlow(gfx: Graphics, x: number, y: number, r: number, o
   gfx.circle(x, y, r).fill(0xffffff);
 }
 
+/** A filled rect: a band of a procedural sprite. */
+export interface PaintBand {
+  rect: PaintRect;
+  color: number;
+}
+
+/**
+ * Cylinder bands for a capsule whose top-left is (left, top): a 1-unit
+ * highlight row along the top and a 1-unit shade row along the bottom, both
+ * tones derived from the body color. Without them a 6-unit pill in a Brick
+ * color reads as a Brick (issue #160). Bands stop where the round caps begin
+ * so the caps keep their curve.
+ */
+export function capsuleBands(pill: CapsulePill, left: number, top: number): PaintBand[] {
+  const cap = CAPSULE_H / 2;
+  const x = left + cap;
+  const w = CAPSULE_W - 2 * cap;
+  return [
+    { rect: { x, y: top, w, h: 1 }, color: lighten(pill.color, CAPSULE_HIGHLIGHT_MIX) },
+    { rect: { x, y: top + CAPSULE_H - 1, w, h: 1 }, color: darken(pill.color, CAPSULE_SHADE_MIX) },
+  ];
+}
+
 /** Draw a lettered capsule pill at center (x, y) — pill body + glyph composite. */
 export function paintCapsule(gfx: Graphics, pill: CapsulePill, x: number, y: number): void {
   const w = CAPSULE_W;
   const h = CAPSULE_H;
   const left = x - w / 2;
   const top = y - h / 2;
-  // Pill body with rounded ends: body rect + two end caps (radius h/2)
-  gfx.rect(left, top, w, h).fill(pill.color);
-  gfx.circle(left + h / 2, y, h / 2).fill(pill.color);
-  gfx.circle(left + w - h / 2, y, h / 2).fill(pill.color);
+  // One rounded shape: a full rect under end-cap circles hides the caps (issue #160)
+  gfx.roundRect(left, top, w, h, h / 2).fill(pill.color);
+  for (const band of capsuleBands(pill, left, top)) {
+    gfx.rect(band.rect.x, band.rect.y, band.rect.w, band.rect.h).fill(band.color);
+  }
   // Letter glyph: 3×5 pixels centered, 1 unit per pixel → 3×5 of the 12×6 pill
   const pixels = glyphPixels(pill.letter);
   const gx = x - 1.5;

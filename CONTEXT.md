@@ -20,7 +20,7 @@ _Avoid_: Block, tile
 
 **Capsule**:
 A collectible dropped from destroyed bricks that grants a temporary or permanent effect when caught by the paddle (expand, laser, multiball, extra life, etc.).
-_Avoid_: Power-up (superseded — earlier tickets' "power-up" means Capsule), bonus item, drop
+_Avoid_: Power-up (superseded — earlier tickets' "power-up" means Capsule), bonus item, drop, pill (the Capsule's look, not a separate concept)
 
 **Capsule script**:
 The per-level, deterministic sequence of capsules a level drops: which capsules, in what order, each bound to a specific brick-break count. Encoded in level data; no randomness.
