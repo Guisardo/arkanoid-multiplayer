@@ -29,7 +29,7 @@ function testLevel(): LevelData {
 }
 
 function input(player: number, tick: number, axisX = 0, launch = false): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 /** Deterministic movement script: returns frames holding axis, then launch. */

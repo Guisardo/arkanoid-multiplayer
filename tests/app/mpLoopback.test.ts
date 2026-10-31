@@ -18,12 +18,10 @@ import { packProgress, unpackProgress } from "app/hostProgress";
 import { encodeInputBatch } from "net/inputCodec";
 import { deserializeSnapshot, serializeSnapshot } from "net/serializer";
 import { parseRejoinRefused } from "net/rejoin";
-import type { Snapshot } from "shared/protocol";
+import type { InputFrame, Snapshot } from "shared/protocol";
 
 /** Single-frame guest batch helper (stall-decay test). */
-function encodeBatch(
-  frames: { player: number; tick: number; axisX: number; axisY: number; launch: boolean; actions: typeof EMPTY_ACTIONS }[],
-): ArrayBuffer {
+function encodeBatch(frames: InputFrame[]): ArrayBuffer {
   return encodeInputBatch(frames);
 }
 
@@ -106,9 +104,9 @@ async function runMatch(
   const ticks = opts.ticks ?? 120;
   for (let t = 0; t < ticks; t++) {
     const axis = opts.guestInput?.(t) ?? (t > 30 && t < 60 ? 1 : 0);
-    guest.collect({ player: 0, tick: t, axisX: axis, axisY: 0, launch: t === 30, actions: EMPTY_ACTIONS });
+    guest.collect({ player: 0, tick: t, axisX: axis, axisY: 0, launch: t === 30, primaryHeld: false, actions: EMPTY_ACTIONS });
     guest.sendTick();
-    host.tick([{ player: 0, tick: t, axisX: t > 20 && t < 50 ? -1 : 0, axisY: 0, launch: t === 10, actions: EMPTY_ACTIONS }]);
+    host.tick([{ player: 0, tick: t, axisX: t > 20 && t < 50 ? -1 : 0, axisY: 0, launch: t === 10, primaryHeld: false, actions: EMPTY_ACTIONS }]);
     pump(ch, host, guest);
   }
   return { host, guest, ch, progress };
@@ -251,7 +249,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     );
     // Real input until tick 20 (axis 1), then silence.
     for (let t = 0; t < 20; t++) {
-      host.guestBinary(0, encodeBatch([{ player: 0, tick: t, axisX: 1, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]));
+      host.guestBinary(0, encodeBatch([{ player: 0, tick: t, axisX: 1, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]));
       host.tick([]);
     }
     const xAt20 = host.snapshots()[1]?.players[0]?.paddle.x ?? -1;
@@ -315,7 +313,7 @@ describe("host + guest loopback (spec §9 data plane)", () => {
     // Remove the guest's player (rejoin expiry path).
     host.removePlayers([1]);
     // Removed player's input is ignored.
-    host.guestBinary(0, encodeBatch([{ player: 0, tick: 100, axisX: 1, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]));
+    host.guestBinary(0, encodeBatch([{ player: 0, tick: 100, axisX: 1, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]));
     host.tick([]);
     // The wire carries state "removed" for the removed player's field
     // (parallel modes renumber each field's player to 0 — multiField remap).

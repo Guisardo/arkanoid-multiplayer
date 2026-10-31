@@ -3,7 +3,7 @@ import { createHostInputGuard, guardGuestFrames, RATE_CAP_PER_TICK } from "net/h
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 function frame(player: number, tick: number, axisX: number): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("host input guard (spec §9, ADR 0003)", () => {
@@ -58,12 +58,28 @@ describe("host input guard (spec §9, ADR 0003)", () => {
       axisX: 0,
       axisY: 0,
       launch: "yes" as unknown as boolean,
+      primaryHeld: false,
       actions: undefined as unknown as InputFrame["actions"],
     };
     const r = guardGuestFrames(guard, [weird], 5);
     expect(r.accepted).toHaveLength(1);
     expect(r.accepted[0]!.launch).toBe(false);
     expect(r.accepted[0]!.actions.fire).toEqual([false, false, false, false]);
+  });
+
+  it("coerces non-boolean primaryHeld to a strict boolean (only true holds)", () => {
+    const guard = createHostInputGuard();
+    const junk: unknown[] = [1, "true", {}, null, undefined, Number.NaN];
+    const frames = junk.map((v, i) => ({ ...frame(i % 4, 10 + i, 0), primaryHeld: v as boolean }));
+    const accepted = frames.flatMap((f, i) => guardGuestFrames(guard, [f], i).accepted);
+    expect(accepted).toHaveLength(junk.length);
+    for (const f of accepted) expect(f.primaryHeld).toBe(false);
+  });
+
+  it("passes a genuine primaryHeld: true through", () => {
+    const guard = createHostInputGuard();
+    const r = guardGuestFrames(guard, [{ ...frame(0, 10, 0), primaryHeld: true }], 5);
+    expect(r.accepted[0]!.primaryHeld).toBe(true);
   });
 
   it("NaN axes clamp to 0", () => {

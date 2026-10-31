@@ -154,6 +154,7 @@ export class KeyboardAdapter {
       axisX,
       axisY: 0,
       launch: this.launchEdge,
+      primaryHeld: false,
       actions,
     };
     this.launchEdge = false;

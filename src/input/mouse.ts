@@ -60,6 +60,7 @@ export class MouseAdapter {
       axisX,
       axisY: 0,
       launch: this.launchEdge,
+      primaryHeld: false,
       actions: EMPTY_ACTIONS,
     };
     this.launchEdge = false;

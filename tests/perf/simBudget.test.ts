@@ -14,7 +14,7 @@ const SIM_BUDGET_MS = 2;
 const TICKS = 600;
 
 function frame(player: number, tick: number, axisX: number, launch: boolean): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function median(values: number[]): number {

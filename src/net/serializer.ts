@@ -14,17 +14,24 @@
 //   per event: u8 type, u8 source, u8 target, u32 tick
 //   per ack: u32
 //   bricks: u8[brickCount]
-import type {
-  BallSnapshot,
-  CapsuleSnapshot,
-  CapsuleTypeId,
-  PaddleEdge,
-  PlayerSnapshot,
-  PlayerSlotState,
-  SimEvent,
-  SimEventType,
-  SimPhase,
-  Snapshot,
+//   boss tail: u8 present (+ boss fields + projectiles when 1)
+//   laser tail (ticket #141): u8 armedMask (bit i = players[i] Armed) |
+//     u8 boltsPresent (+ u8 boltCount, per bolt f32 x, f32 y, u8 owner when 1)
+import {
+  ARMED_EFFECT,
+  LASER_BOLTS_PER_PADDLE,
+  SNAPSHOT_PLAYERS_MAX,
+  type BallSnapshot,
+  type BoltSnapshot,
+  type CapsuleSnapshot,
+  type CapsuleTypeId,
+  type PaddleEdge,
+  type PlayerSnapshot,
+  type PlayerSlotState,
+  type SimEvent,
+  type SimEventType,
+  type SimPhase,
+  type Snapshot,
 } from "shared/protocol";
 import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
 
@@ -38,6 +45,18 @@ const EVENT_TYPES: readonly SimEventType[] = [
 const EDGES: readonly PaddleEdge[] = ["bottom", "left", "right", "top"];
 const STATES: readonly PlayerSlotState[] = ["playing", "downed", "removed"];
 const CAPSULES: readonly CapsuleTypeId[] = ["B", "C", "D", "E", "L", "M", "P", "S", "R", "?"];
+const BOLTS_MAX = SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE;
+/** Per-bolt wire bytes: f32 x + f32 y + u8 owner. */
+const BOLT_BYTES = 9;
+
+/** Armed = key present and non-zero (sims encode "until ball loss" as -1). */
+function isArmed(p: PlayerSnapshot): boolean {
+  return (p.effects[ARMED_EFFECT] ?? 0) !== 0;
+}
+
+function hasPlayer(players: readonly PlayerSnapshot[], player: number): boolean {
+  return players.some((p) => p.player === player);
+}
 
 class Writer {
   private view: DataView;
@@ -146,6 +165,24 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   const bossProjectiles = snap.bossProjectiles ?? [];
   // Boss tail (ticket 49): u8 present-flag always written (absent = u8(0)).
   const bossTail = 1 + (boss !== null ? 5 + 15 + bossProjectiles.length * 16 : 0);
+  const bolts = snap.bolts;
+  if (bolts !== undefined) {
+    // A host bug must throw here, not wrap the u8 count into a corrupt packet.
+    if (bolts.length > BOLTS_MAX) {
+      throw new Error(
+        `serializeSnapshot: bolt count ${String(bolts.length)} exceeds ${String(BOLTS_MAX)} (tick=${String(snap.tick)})`,
+      );
+    }
+    for (const b of bolts) {
+      if (!hasPlayer(players, b.owner)) {
+        throw new Error(
+          `serializeSnapshot: bolt owner ${String(b.owner)} out of range (tick=${String(snap.tick)})`,
+        );
+      }
+    }
+  }
+  // Laser tail (ticket #141): u8 armedMask + u8 boltsPresent (+ count + bolts).
+  const laserTail = 2 + (bolts !== undefined ? 1 + bolts.length * BOLT_BYTES : 0);
   const size =
     14 +
     players.length * 30 +
@@ -155,7 +192,8 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
     events.length * 7 +
     snap.inputAcks.length * 4 +
     bricks.length +
-    bossTail;
+    bossTail +
+    laserTail;
   const w = new Writer(new ArrayBuffer(size));
 
   w.u32(snap.tick);
@@ -228,6 +266,24 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
     w.u8(0);
   }
 
+  // Laser tail (ticket #141): Armed mask, then bolts (absent = u8(0)).
+  let armedMask = 0;
+  players.forEach((p, i) => {
+    if (isArmed(p)) armedMask |= 1 << i;
+  });
+  w.u8(armedMask);
+  if (bolts !== undefined) {
+    w.u8(1);
+    w.u8(bolts.length);
+    for (const b of bolts) {
+      w.f32(b.x);
+      w.f32(b.y);
+      w.u8(b.owner);
+    }
+  } else {
+    w.u8(0);
+  }
+
   return w.buffer.slice(0, w.pos);
 }
 
@@ -245,7 +301,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   const ackCount = r.u8();
   const brickCount = r.u16();
   if (
-    playerCount > 4 || ballCount > 64 || capsuleCount > 64 ||
+    playerCount > SNAPSHOT_PLAYERS_MAX || ballCount > 64 || capsuleCount > 64 ||
     eventCount > 8 || brickCount > BRICK_COLS * BRICK_ROWS
   ) {
     throw new Error("malformed snapshot: counts out of bounds");
@@ -358,6 +414,28 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
     }
   }
 
+  // Laser tail (ticket #141): Armed mask, then u8 boltsPresent; 0 = absent.
+  const armedMask = r.u8();
+  if (armedMask >> players.length !== 0) throw new Error("malformed snapshot: armed mask beyond player count");
+  players.forEach((p, i) => {
+    if ((armedMask & (1 << i)) !== 0) p.effects[ARMED_EFFECT] = 1;
+  });
+  const boltsPresent = r.u8();
+  if (boltsPresent > 1) throw new Error("malformed snapshot: bolts flag");
+  let bolts: BoltSnapshot[] | undefined;
+  if (boltsPresent === 1) {
+    const boltCount = r.u8();
+    if (boltCount > BOLTS_MAX) throw new Error("malformed snapshot: bolt count out of bounds");
+    bolts = [];
+    for (let i = 0; i < boltCount; i++) {
+      const x = r.f32();
+      const y = r.f32();
+      const owner = r.u8();
+      if (!hasPlayer(players, owner)) throw new Error("malformed snapshot: bolt owner out of range");
+      bolts.push({ x, y, owner });
+    }
+  }
+
   const result: Snapshot = {
     tick, phase, round, players, balls, capsules, events, inputAcks, bricks,
   };
@@ -365,5 +443,6 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
     result.boss = boss;
     result.bossProjectiles = bossProjectiles;
   }
+  if (bolts !== undefined) result.bolts = bolts;
   return result;
 }

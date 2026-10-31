@@ -25,7 +25,7 @@ function denseLevel(): LevelData {
 }
 
 function frame(tick: number): InputFrame {
-  return { player: 0, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("destroyed-brick history cap (ticket 102)", () => {

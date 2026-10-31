@@ -31,7 +31,7 @@ const BASE_SCRIPT = [
 ];
 
 function input(tick: number, axisX = 0, launch = false): InputFrame {
-  return { player: 0, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 /** Break exactly n bricks deterministically via debug ball placement. */

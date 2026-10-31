@@ -335,6 +335,7 @@ function idleFrame(player: number, tick: number): InputFrame {
     axisX: 0,
     axisY: 0,
     launch: false,
+    primaryHeld: false,
     actions: EMPTY_ACTIONS,
   };
 }

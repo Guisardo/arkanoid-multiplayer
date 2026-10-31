@@ -193,12 +193,13 @@ describe("frame-shape parity across devices (spec §11 seam)", () => {
     const mf = m.sampleFrame(7);
     const gf = g.sampleFrame(7);
     for (const f of [kf, mf, gf]) {
-      expect(Object.keys(f).sort()).toEqual(["actions", "axisX", "axisY", "launch", "player", "tick"]);
+      expect(Object.keys(f).sort()).toEqual(["actions", "axisX", "axisY", "launch", "player", "primaryHeld", "tick"]);
       expect(f.player).toBe(0);
       expect(f.tick).toBe(7);
       expect(f.axisX).toBe(1);
       expect(f.axisY).toBe(0);
       expect(f.launch).toBe(false);
+      expect(f.primaryHeld).toBe(false);
     }
   });
 });

@@ -134,7 +134,7 @@ describe("session creators lazy-load their mode sim (ADR 0007)", () => {
     const [level, opts] = vi.mocked(createRoundDuel).mock.calls[0] ?? [];
     expect(level?.round).toBe(1);
     expect(opts?.playerNames).toEqual(["Host", "Guest"]);
-    session.tick([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]);
+    session.tick([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]);
     expect(session.snapshots()[0]?.round).toBe(1);
   });
 
@@ -151,7 +151,7 @@ describe("session creators lazy-load their mode sim (ADR 0007)", () => {
       noopSend,
     );
     expect(vi.mocked(createMultiFieldSession)).toHaveBeenCalledTimes(1);
-    session.tick([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]);
+    session.tick([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]);
     expect(session.snapshots()).toHaveLength(1);
   });
 
@@ -163,7 +163,7 @@ describe("session creators lazy-load their mode sim (ADR 0007)", () => {
     const [level] = vi.mocked(createRoundSim).mock.calls[0] ?? [];
     expect(level?.round).toBe(1);
     expect(episode.round()).toBe(1);
-    episode.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]);
+    episode.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]);
     expect(episode.snapshot().phase).toBe("serve");
   });
 

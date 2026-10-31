@@ -16,11 +16,11 @@ import type { AttackSession } from "sim/attackSession";
 import type { AssistSession } from "sim/assistSession";
 import type { SharedFieldSim } from "sim/sharedField";
 import type { InputFrame, Snapshot } from "shared/protocol";
-import { EMPTY_ACTIONS } from "shared/protocol";
 import { createDelayQueue } from "net/delayQueue";
 import { decodeInputBatch } from "net/inputCodec";
 import { createHostInputGuard, guardGuestFrames } from "net/hostGuard";
 import { serializeSnapshot } from "net/serializer";
+import { createStallDecay } from "net/stallDecay";
 import { collectProgressRows, packProgress } from "app/hostProgress";
 
 /** Snapshot broadcast cadence (spec §9). */
@@ -300,19 +300,9 @@ export async function createHostGameSession(
   const playerOf = new Map<number, number>();
   for (const p of opts.players) playerOf.set(p.player, p.guestIndex);
 
-  // Input stall decay (spec §9, ticket 46): a guest that stops sending has
-  // its players' axes HELD at the last value for ≤10 missing ticks, then
-  // DECAYED to 0 (~0.7× per tick — a stalled paddle stops, it never ghosts
-  // on at full axis). Held/decayed axes are injected DIRECTLY into the sim
-  // step (not the delay queue): synthetic queue frames would collide with
-  // the guest's own frame-tick timeline and the guard would drop real
-  // input as duplicates. A due frame resets the miss counter.
-  const STALL_HOLD = 10;
-  const STALL_DECAY = 0.7;
-  const STALL_FLOOR = 0.05;
+  // Input stall decay (spec §9, ticket 46): silent guests' axes held then
+  // decayed, injected beside the due frames — see net/stallDecay.
   const guestPlayerIds = opts.players.filter((p) => p.guestIndex >= 0).map((p) => p.player);
-  const missCount = new Map<number, number>();
-  const lastAxis = new Map<number, number>();
   let simTick = 0;
   let ended = false;
   // Removed players (ticket 47): input cutoff + snapshot state overlay.
@@ -320,40 +310,7 @@ export async function createHostGameSession(
   // overlay marks the slot "removed" on the wire so guests render the
   // removal, and stall frames stop for them.
   const removedPlayers = new Set<number>();
-
-  /** Held/decayed axes for guest players with no due frame this tick. */
-  function stallFrames(due: readonly InputFrame[]): InputFrame[] {
-    const out: InputFrame[] = [];
-    if (guestPlayerIds.length === 0) return out;
-    const seen = new Set(due.map((f) => f.player));
-    for (const p of guestPlayerIds) {
-      if (removedPlayers.has(p)) continue; // removed: no synthetic input
-      if (seen.has(p)) {
-        const f = due.find((x) => x.player === p);
-        if (f !== undefined) lastAxis.set(p, f.axisX);
-        missCount.set(p, 0);
-        continue;
-      }
-      const misses = (missCount.get(p) ?? 0) + 1;
-      missCount.set(p, misses);
-      const held = lastAxis.get(p) ?? 0;
-      if (held === 0) continue; // nothing to hold — idle stays idle
-      if (misses <= STALL_HOLD) {
-        out.push({ player: p, tick: simTick, axisX: held, axisY: 0, launch: false, actions: EMPTY_ACTIONS });
-      } else {
-        const decayed = held * STALL_DECAY ** (misses - STALL_HOLD);
-        out.push({
-          player: p,
-          tick: simTick,
-          axisX: Math.abs(decayed) < STALL_FLOOR ? 0 : decayed,
-          axisY: 0,
-          launch: false,
-          actions: EMPTY_ACTIONS,
-        });
-      }
-    }
-    return out;
-  }
+  const stall = createStallDecay(guestPlayerIds, (p) => removedPlayers.has(p));
 
   function playerForGuestChannel(guestIndex: number, player: number): number {
     // The codec does not carry player; the channel maps to device players.
@@ -450,8 +407,8 @@ export async function createHostGameSession(
       for (const f of localFrames) queue.push(f);
       const due = queue.due(simTick);
       // Guest stall decay: held/decayed axes for silent players, injected
-      // beside the due frames (never through the queue — see stallFrames).
-      const withStall = [...due, ...stallFrames(due)];
+      // beside the due frames (never through the queue — see net/stallDecay).
+      const withStall = [...due, ...stall.frames(due, simTick)];
       sim.step(withStall);
       simTick++;
       // Input acks: snapshot inputAcks already carry per-player acked ticks
@@ -529,8 +486,7 @@ export async function createHostGameSession(
     removePlayers(players) {
       for (const p of players) {
         removedPlayers.add(p);
-        missCount.delete(p);
-        lastAxis.delete(p);
+        stall.forget(p);
       }
       // Input cutoff + wire overlay only — routing stays so the removed
       // player's device (if still connected) keeps receiving snapshots

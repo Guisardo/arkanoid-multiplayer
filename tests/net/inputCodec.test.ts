@@ -8,7 +8,7 @@ import {
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 function frame(player: number, tick: number, axisX: number, launch = false): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("input codec (spec §9)", () => {
@@ -49,6 +49,7 @@ describe("input codec (spec §9)", () => {
       axisX: 0,
       axisY: 0,
       launch: true,
+      primaryHeld: false,
       actions: {
         cycleForward: true,
         cycleBack: true,
@@ -58,6 +59,37 @@ describe("input codec (spec §9)", () => {
     const back = decodeInputBatch(encodeInputBatch([f]));
     expect(back[0]!.actions).toEqual(f.actions);
     expect(back[0]!.launch).toBe(true);
+  });
+
+  it("primaryHeld round-trips via flags bit 7 (0x80)", () => {
+    const held: InputFrame = { ...frame(0, 9, 0), primaryHeld: true };
+    const buf = encodeInputBatch([held]);
+    expect(new DataView(buf).getUint8(2 + 7)).toBe(0x80);
+    const back = decodeInputBatch(buf);
+    expect(back[0]!.primaryHeld).toBe(true);
+    expect(back[0]!.launch).toBe(false);
+    expect(back[0]!.actions).toEqual(EMPTY_ACTIONS);
+    expect(decodeInputBatch(encodeInputBatch([frame(0, 10, 0)]))[0]!.primaryHeld).toBe(false);
+  });
+
+  it("primaryHeld leaves the packet size unchanged (8 bytes per frame)", () => {
+    const idle = encodeInputBatch([frame(0, 1, 0), frame(0, 2, 0)]);
+    const held = encodeInputBatch([
+      { ...frame(0, 1, 0), primaryHeld: true },
+      { ...frame(0, 2, 0), primaryHeld: true },
+    ]);
+    expect(held.byteLength).toBe(idle.byteLength);
+    expect(held.byteLength).toBe(2 + 2 * 8);
+  });
+
+  it("primaryHeld and launch coexist in one flags byte", () => {
+    const f: InputFrame = {
+      ...frame(0, 3, 0, true),
+      primaryHeld: true,
+      actions: { cycleForward: false, cycleBack: false, fire: [false, false, false, true] },
+    };
+    const back = decodeInputBatch(encodeInputBatch([f]));
+    expect(back).toEqual([f]);
   });
 
   it("per-frame player byte carries device-local index", () => {

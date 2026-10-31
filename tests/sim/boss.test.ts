@@ -30,6 +30,7 @@ function idleFrame(tick: number): InputFrame {
     axisX: 0,
     axisY: 0,
     launch: false,
+    primaryHeld: false,
     actions: { cycleForward: false, cycleBack: false, fire: [false, false, false, false] },
   };
 }
