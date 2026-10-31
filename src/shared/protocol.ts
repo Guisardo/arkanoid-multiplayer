@@ -215,6 +215,12 @@ export interface SimEvent {
 }
 
 /**
+ * Input ack for a player the host hasn't fed a real input frame yet (ticket
+ * #155). Acks ship as u32, so "none" is the top value, not -1.
+ */
+export const NO_INPUT_ACK = 0xffffffff;
+
+/**
  * Sim epochs (ticket #151) live on a u16 wire field, so they wrap. Ordering
  * uses serial-number arithmetic (RFC 1982): an epoch is newer when it sits in
  * the half-range ahead of the other.
@@ -256,7 +262,13 @@ export interface Snapshot {
   /** Flat brick grid, row-major, BRICK_COLS * BRICK_ROWS cells. */
   bricks: number[];
   events: SimEvent[];
-  /** Per-player last acked input tick (net seam; host fills with current tick). */
+  /**
+   * Input acks (ticket #155): parallel to `players` — `inputAcks[k]` is the
+   * newest Match tick (CONTEXT.md) whose real input frame the host has fed
+   * to `players[k]`'s sim, or NO_INPUT_ACK. Match ticks, never `tick`: they
+   * keep counting across Sim epochs. Sims fill a placeholder; the host
+   * stamps the real acks before a snapshot goes on the wire.
+   */
   inputAcks: number[];
   /** Doh boss (round 33 only; absent otherwise). */
   boss?: BossSnapshot;

@@ -5,20 +5,23 @@
 // fold the difference into a display offset that decays over ~0.5 s. The
 // player sees a tiny correction, never a teleport.
 //
-// Timeline: the host consumes input frame tick t at sim tick t+D (delay
-// queue), so a snapshot at sim tick S reflects input through S−D. The
-// shadow keeps a per-tick TRAIL of predicted positions keyed by frame
-// tick; reconcile compares the authoritative paddle against the trail
-// entry at S−D — the same instant — and shifts the whole predicted
-// trajectory (current position included) by the error. Comparing against
-// the CURRENT shadow instead would fold the movement of the D+latency
-// window into the offset on every snapshot, smothering the prediction.
+// Timeline: input frames are stamped with Match ticks (CONTEXT.md), and
+// every snapshot acks the newest Match tick the host fed this player
+// (`inputAcks`, ticket #155). The shadow keeps a per-tick TRAIL of
+// predicted positions keyed by frame tick; reconcile compares the
+// authoritative paddle against the trail entry at the ack — the same
+// instant — and shifts the whole predicted trajectory (current position
+// included) by the error. Comparing against the CURRENT shadow instead
+// would fold the movement of the D+latency window into the offset on every
+// snapshot, smothering the prediction. The snapshot's own tick can't stand
+// in for the ack: it restarts with every Sim epoch, while Match ticks don't.
+// A newer epoch is a fresh sim, so the predictor re-seeds from it.
 //
 // Prediction clamps to every sim constraint (walls, shared-field slice,
 // Duel other-paddle-as-wall) or the display settles short. Remote
 // paddles and the ball are NEVER predicted — interpolation-only (45);
 // the host renders authoritative state.
-import type { InputFrame, Snapshot } from "shared/protocol";
+import { NO_INPUT_ACK, compareEpoch, type InputFrame, type Snapshot } from "shared/protocol";
 import { FIELD_W, PADDLE_W, PADDLE_VMAX } from "shared/gridConstants";
 import { TICK_MS } from "shared/simRates";
 
@@ -48,12 +51,10 @@ export interface PredictOptions {
   bounds: PredictBoundsKind;
   /** Host player count (sharedField slice width). */
   playerCount: number;
-  /** Input delay ticks D — input through snap.tick − D is consumed. */
-  delayTicks: number;
 }
 
 interface TrailEntry {
-  /** Input frame tick this position corresponds to (host consumes t at t+D). */
+  /** Match tick of the input frame this position follows. */
   tick: number;
   /** Predicted center x after applying that frame. */
   x: number;
@@ -64,7 +65,10 @@ export interface Predictor {
   push(frame: InputFrame): void;
   /** Advance the shadow one sim tick applying the newest unconsumed frame. */
   tick(): void;
-  /** Reconcile against an authoritative snapshot (per-tick compare + snap). */
+  /**
+   * Reconcile against an authoritative snapshot (per-tick compare + snap).
+   * Older-epoch snapshots are ignored; a newer epoch re-seeds via reset.
+   */
   reconcile(snap: Snapshot): void;
   /** Render-time paddle x: prediction + decaying display offset. */
   displayX(): number;
@@ -133,6 +137,8 @@ export function createPredictor(opts: PredictOptions): Predictor {
   const trail: TrailEntry[] = [];
   let bounds: { lo: number; hi: number } = { lo: PADDLE_W / 2, hi: FIELD_W - PADDLE_W / 2 };
   let latestSnap: Snapshot | null = null;
+  /** Sim epoch of the snapshots the shadow follows; null until seeded. */
+  let epoch: number | null = null;
 
   function clamp(px: number): number {
     return Math.max(bounds.lo, Math.min(bounds.hi, px));
@@ -173,29 +179,42 @@ export function createPredictor(opts: PredictOptions): Predictor {
       if (Math.abs(offsetX) < 0.01) offsetX = 0;
     },
     reconcile(snap) {
+      if (epoch !== null) {
+        const order = compareEpoch(snap.epoch, epoch);
+        if (order < 0) return;
+        if (order > 0) {
+          predictor.reset(snap);
+          return;
+        }
+      }
+      epoch = snap.epoch;
       latestSnap = snap;
       // Bounds refresh FIRST — reconcile may shift the position into a
       // region the previous snapshot's constraint set forbids (the other
       // paddle moved; stale bounds would clamp the authoritative truth).
       bounds = predictBounds(opts.bounds, opts.snapPlayer, opts.playerCount, snap);
-      const me = snap.players.find((p) => p.player === opts.snapPlayer);
+      const slot = snap.players.findIndex((p) => p.player === opts.snapPlayer);
+      const me = snap.players[slot];
       if (me === undefined) return;
       const authX = me.paddle.x;
+      const ack = snap.inputAcks[slot] ?? NO_INPUT_ACK;
       if (!seeded) {
         seeded = true;
         x = authX;
         offsetX = 0;
-        // The snapshot's state reflects input through snap.tick − D; seed
-        // the applied tick there so pending input replays immediately.
-        appliedTick = snap.tick - opts.delayTicks;
+        // The snapshot's state reflects input through the ack; seed the
+        // applied tick there so pending input replays immediately.
+        appliedTick = ack === NO_INPUT_ACK ? -1 : ack;
         trail.length = 0;
         trail.push({ tick: appliedTick, x: authX });
         return;
       }
-      // Direct per-tick compare at the acked tick: the host has consumed
-      // input through snap.tick − D, so the trail entry at (or nearest
-      // below) that tick is the prediction of exactly this instant.
-      const consumed = snap.tick - opts.delayTicks;
+      // Nothing consumed yet: the authoritative paddle hasn't seen any of
+      // this player's input, so there is no instant to compare.
+      if (ack === NO_INPUT_ACK) return;
+      // Direct per-tick compare at the acked tick: the trail entry at (or
+      // nearest below) it is the prediction of exactly this instant.
+      const consumed = ack;
       let entry: TrailEntry | undefined;
       for (let i = trail.length - 1; i >= 0; i--) {
         const e = trail[i];
@@ -226,6 +245,7 @@ export function createPredictor(opts: PredictOptions): Predictor {
       seeded = false;
       appliedTick = -1;
       latestSnap = null;
+      epoch = null;
       predictor.reconcile(snap);
     },
   };
