@@ -93,3 +93,16 @@ The `boot`/`gameplay` split above is real, but the contents differ from the sket
 - **Rebuilding assets.** `npm run assetpack` regenerates `public/assets`; delete stale
   `atlas-*` outputs first, since AssetPack does not remove files for removed sources.
 
+## As built (ticket #151)
+
+- **The gameplay atlas ships @4x.** Its sources are authored at 4 texels per field unit
+  and `.assetpack.js` gives that folder `resolutions: { default: 4 }` via `assetSettings`.
+  AssetPack treats sources as the largest resolution and writes it as the frame table's
+  `meta.scale`, so every frame keeps its size in field units at runtime. The CC0 ball and
+  paddle pixel art was upscaled 4× nearest-neighbour (identical art, no filtering blur);
+  particle frames are generated at 64×64 by `scripts/gen-particle-frames.mjs`.
+- **The boot atlas stays 1:1.** Its background is already 1344 px; 4× would exceed the
+  2048 px atlas limit.
+- **The hand-cut frame-table fallback honours `meta.scale`** the way Pixi's `Spritesheet`
+  does, dividing every rect by the image resolution.
+

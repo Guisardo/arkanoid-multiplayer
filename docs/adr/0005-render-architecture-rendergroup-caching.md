@@ -82,6 +82,16 @@ Per `pixijs-v8-best-practices.md` §3: "RenderGroup + cacheAsTexture for static 
   solo only), ignoring DPR. The 64 MB ceiling is flagged in the overlay, not enforced.
 - **Degraded rung** halves the cached wall texture resolution (`textureResolution: 0.5`).
 
+## As built (ticket #151)
+
+- **The cache is recorded at screen density.** Pixi sizes a cached render group's texture
+  from its *local* bounds × `resolution`, and the wall's local space is field units, so
+  `resolution: 1` was one texel per field unit, stretched by the layout scale and DPR (a
+  visibly blurry wall). The cached wall resolution is now layout scale × renderer
+  resolution × the perf-ladder factor (`wallCacheResolution`), capped at a 4096 px edge,
+  and re-recorded when the DPR rung changes. Memory telemetry uses the real per-field
+  cache sizes, so the estimate no longer ignores DPR.
+
 ## As built (ticket 93)
 
 - **Culling is Pixi's, not a `sync()` skip.** Ticket 93 found that no field is ever off

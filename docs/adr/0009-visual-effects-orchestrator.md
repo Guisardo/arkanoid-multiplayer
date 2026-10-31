@@ -139,3 +139,20 @@ class VisualEffects {
 ## Validation
 
 Game feel audit (#67): "New VisualEffects orchestrator recommended with trauma-based shake, hit-stop, particles, squash/stretch, flashes, score pops. Infrastructure + 4-week implementation plan." This ADR defines the infrastructure.
+
+## As built (ticket #151)
+
+- **Particle size tiers.** Recipe scales were never bounded against the field: brick-break
+  debris came out half a brick wide and a full brick tall. A particle's largest edge
+  (`maxParticleSize`: frame edge × scale × the largest per-particle variance) is now
+  capped by its event's tier: impact particles at a quarter brick wide
+  (`IMPACT_PARTICLE_MAX`, 4 units), celebrations (`roundClear`, `bossDead`, `ballLoss`)
+  at a brick's height (`CELEBRATION_PARTICLE_MAX`, 8 units). `particleSizeTiers.test.ts`
+  holds every recipe to it.
+- **Frames are 16×16 field units at 4 texels per unit** (64×64 px), so they stay sharp at
+  the field's on-screen scale. The gameplay atlas records that resolution, so sizes in
+  field units are unchanged (see ADR 0004, as built #151).
+- **The event ring is deduped per Sim epoch** (`shared/eventWatermark.ts`). A rebuilt sim
+  restarts its ticks at 0, so a bare "newest tick" watermark silenced every effect on the
+  next round. The step that triggers a rebuild carries its events (the CLEAR) into the new
+  epoch's ring, or no consumer would ever see them.
