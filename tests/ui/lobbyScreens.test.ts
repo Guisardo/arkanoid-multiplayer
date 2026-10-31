@@ -10,6 +10,7 @@ import {
   LobbyScreen,
   qrPayloadFor,
   qrMatrix,
+  renderQrCanvas,
   codeFromUrl,
   generateRoomCode,
   errorKey,
@@ -661,8 +662,8 @@ describe("LobbyScreen QR share (ticket 101)", () => {
     screen.sync(hostState("ABC23"));
     expect(screen.root.querySelectorAll("canvas")).toHaveLength(1);
     expect(screen.root.textContent).toContain("ABC23");
-    // Top-left finder pattern: module (0,0) is drawn dark.
-    expect(canvasStub.rects).toContainEqual({ x: 0, y: 0 });
+    // Top-left finder pattern: module (0,0) is drawn dark, inside the 4-module quiet zone (8 px modules).
+    expect(canvasStub.rects).toContainEqual({ x: 32, y: 32 });
     screen.close();
     canvasStub.restore();
   });
@@ -1084,5 +1085,35 @@ describe("MultiplayerChoiceScreen (#159)", () => {
     expect(buttonNamed(screen.root, "Crear sala")).toBeDefined();
     expect(buttonNamed(screen.root, "Unirse a sala")).toBeDefined();
     screen.close();
+  });
+});
+
+describe("renderQrCanvas quiet zone (#159)", () => {
+  it("draws a 4-module light margin around the symbol so cameras can find it on a dark page", () => {
+    const rects: Array<[number, number, number, number, string]> = [];
+    const ctx = {
+      fillStyle: "",
+      fillRect(x: number, y: number, w: number, h: number) { rects.push([x, y, w, h, this.fillStyle]); },
+    };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation((() => ctx) as unknown as HTMLCanvasElement["getContext"]);
+    const payload = qrPayloadFor("ABC23", "example.com");
+    const n = qrMatrix(payload)!.length;
+
+    const canvas = renderQrCanvas(payload)!;
+
+    const moduleCount = n + 2 * 4;
+    expect(canvas.width).toBe(canvas.height);
+    expect(canvas.width % moduleCount).toBe(0);
+    const px = canvas.width / moduleCount;
+    // Light background covers the whole canvas, margin included.
+    expect(rects[0]).toEqual([0, 0, canvas.width, canvas.height, "#ffffff"]);
+    // Top-left finder pattern starts 4 modules in, not at the edge.
+    const dark = rects.slice(1);
+    expect(Math.min(...dark.map((r) => r[0]))).toBe(4 * px);
+    expect(Math.min(...dark.map((r) => r[1]))).toBe(4 * px);
+    expect(Math.max(...dark.map((r) => r[0] + r[2]))).toBe(canvas.width - 4 * px);
+    getContext.mockRestore();
   });
 });

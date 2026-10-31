@@ -77,17 +77,24 @@ export function qrMatrix(payload: string, factory: QrFactory = qrcode): boolean[
 
 /** Pixels per QR module on the share canvas. */
 const QR_MODULE_PX = 8;
+/**
+ * Light margin around the symbol, in modules (the QR spec's quiet zone). The
+ * page behind is dark, so without it cameras cannot find the finder patterns.
+ */
+const QR_QUIET_MODULES = 4;
 
 /**
- * Draw the QR for a payload onto a canvas (white quiet background, black
- * modules). Null when the payload cannot be encoded or no 2D context exists.
+ * Draw the QR for a payload onto a canvas (white quiet zone, black modules).
+ * Null when the payload cannot be encoded or no 2D context exists.
  */
 export function renderQrCanvas(payload: string): HTMLCanvasElement | null {
   const matrix = qrMatrix(payload);
   if (matrix === null) return null;
   const canvas = document.createElement("canvas");
-  canvas.width = matrix.length * QR_MODULE_PX;
-  canvas.height = matrix.length * QR_MODULE_PX;
+  const sidePx = (matrix.length + 2 * QR_QUIET_MODULES) * QR_MODULE_PX;
+  const marginPx = QR_QUIET_MODULES * QR_MODULE_PX;
+  canvas.width = sidePx;
+  canvas.height = sidePx;
   const ctx = canvas.getContext("2d");
   if (ctx === null) return null;
   ctx.fillStyle = "#ffffff";
@@ -97,7 +104,9 @@ export function renderQrCanvas(payload: string): HTMLCanvasElement | null {
     const row = matrix[y];
     if (!row) continue;
     for (let x = 0; x < row.length; x++) {
-      if (row[x] === true) ctx.fillRect(x * QR_MODULE_PX, y * QR_MODULE_PX, QR_MODULE_PX, QR_MODULE_PX);
+      if (row[x] === true) {
+        ctx.fillRect(marginPx + x * QR_MODULE_PX, marginPx + y * QR_MODULE_PX, QR_MODULE_PX, QR_MODULE_PX);
+      }
     }
   }
   canvas.style.alignSelf = "center";
