@@ -11,7 +11,12 @@
 import { Particle, ParticleContainer } from "pixi.js";
 import type { Texture } from "pixi.js";
 import { SPRITE_PATHS, spriteTexture } from "./spriteSheet";
-import type { BurstRecipe, FieldPoint } from "./effectPresets";
+import {
+  PARTICLE_SCALE_VARIANCE_MIN,
+  PARTICLE_SCALE_VARIANCE_SPREAD,
+  type BurstRecipe,
+  type FieldPoint,
+} from "./effectPresets";
 
 /** Per field. Split-screen N fields → N × this many, all pooled up front. */
 export const PARTICLE_POOL = 200;
@@ -235,7 +240,7 @@ function speedVariance(i: number): number {
   return 0.75 + ((i * 37) % 51) / 100;
 }
 
-/** ±30% size spread. */
+/** ±15% size spread around the recipe scale. */
 function scaleVariance(i: number): number {
-  return 0.85 + ((i * 23) % 31) / 100;
+  return PARTICLE_SCALE_VARIANCE_MIN + (((i * 23) % 31) / 30) * PARTICLE_SCALE_VARIANCE_SPREAD;
 }
