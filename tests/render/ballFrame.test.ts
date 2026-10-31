@@ -8,9 +8,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import { ballSkinTintable } from "content/readabilityGate";
+import { DEFAULT_SKIN } from "content/skins";
 
-/** Smallest 8-bit gray with WCAG luminance ≥ 0.7 (the `ballSkinTintable` floor). */
-const TINTABLE_GRAY_FLOOR = 218;
+/** Does a gray level pass the readability gate's tintable-ball check? */
+function tintable(gray: number): boolean {
+  return ballSkinTintable({ ...DEFAULT_SKIN.ball, baseColor: gray * 0x010101 });
+}
 
 interface Rgba {
   data: Buffer;
@@ -62,7 +66,12 @@ describe("white-base ball frame (issue #152)", () => {
     const { out } = await generate();
     const grays = [...opaqueGrays(out).values()];
     expect(grays.length).toBeGreaterThan(0);
-    expect(Math.min(...grays)).toBeGreaterThanOrEqual(TINTABLE_GRAY_FLOOR);
+    // Checked against the gate itself, so the script's copy of the floor
+    // cannot drift from it unnoticed.
+    const darkest = Math.min(...grays);
+    expect(tintable(darkest), `darkest body gray ${String(darkest)}`).toBe(true);
+    // ...and lifted no further than needed, so the shading keeps its range.
+    expect(tintable(darkest - 1)).toBe(false);
     expect(Math.max(...grays)).toBe(255);
   });
 

@@ -20,7 +20,11 @@ const SOURCE = join(ROOT, "scripts", "sources", "ball-yellow.png");
 const OUT_DIR = join(ROOT, "raw-assets", "gameplay{m}", "gameplay-atlas{tps}");
 const OUT_NAME = "ball-base.png";
 
-/** `ballSkinTintable` in src/content/readabilityGate.ts: body luminance floor. */
+/**
+ * `ballSkinTintable` in src/content/readabilityGate.ts: body luminance floor.
+ * A plain script cannot import the TS gate; tests/render/ballFrame.test.ts
+ * checks the output against the gate itself, so this copy cannot drift.
+ */
 const MIN_LUMINANCE = 0.7;
 
 /** WCAG relative luminance of an 8-bit gray level (matches readabilityGate). */

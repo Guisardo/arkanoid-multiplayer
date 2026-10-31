@@ -10,7 +10,7 @@ import { ownerColor } from "shared/playerColors";
 import { capDpr, fieldCullRect, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { skinSpriteTexture } from "./spriteSheet";
-import { BallSpritePool, PaddleSprite, type BallDraw, type SquashTarget } from "./skinSprites";
+import { BallSpritePool, PaddleSprite, type BallDraw } from "./skinSprites";
 import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
 import { LASER_COLOR, laserShapes, type LaserShapes } from "./laserView";
 import { format, t, type Locale } from "ui/strings";
@@ -57,6 +57,12 @@ export interface FieldViewOptions {
    */
   rendererResolution?: number;
 }
+
+/** Squash pair at rest. */
+const NO_SQUASH: Readonly<{ x: number; y: number }> = { x: 1, y: 1 };
+
+/** Sprite tint that leaves the white-base art as drawn (solo balls). */
+const UNTINTED = 0xffffff;
 
 /** How one Paddle or ball was drawn on the last sync (test/e2e probe, issue #152). */
 export type DrawnFrom = "sprite" | "procedural";
@@ -117,8 +123,8 @@ export class FieldView {
   private readonly paddleSprites = new Map<number, PaddleSprite>();
   private ballPool: BallSpritePool | null = null;
   /** Squash pairs last written by the orchestrator (ADR 0009). */
-  private paddleSquash = { x: 1, y: 1 };
-  private ballSquash = { x: 1, y: 1 };
+  private paddleSquash = NO_SQUASH;
+  private ballSquash = NO_SQUASH;
   /** Player whose Paddle the paddle squash deforms: this field's own. */
   private squashedPlayer = -1;
   private lastPaddleDraws: PaddleDraw[] = [];
@@ -287,20 +293,20 @@ export class FieldView {
       particleLayer: this.particleLayer,
       popLayer: this.popLayer,
       flashLayer: this.flashGfx,
-      ballSquash: this.squashTarget((x, y) => {
-        this.ballSquash = { x, y };
-        this.ballPool?.setSquash(x, y);
-      }),
-      paddleSquash: this.squashTarget((x, y) => {
-        this.paddleSquash = { x, y };
-        this.paddleSprites.get(this.squashedPlayer)?.setSquash(x, y);
-      }),
+      ballSquash: {
+        setSquash: (x, y) => {
+          this.ballSquash = { x, y };
+          this.ballPool?.setSquash(x, y);
+        },
+      },
+      paddleSquash: {
+        setSquash: (x, y) => {
+          this.paddleSquash = { x, y };
+          this.paddleSprites.get(this.squashedPlayer)?.setSquash(x, y);
+        },
+      },
       brickFlashLayer: this.brickFlashGfx,
     };
-  }
-
-  private squashTarget(apply: (x: number, y: number) => void): SquashTarget {
-    return { setSquash: apply };
   }
 
   /**
@@ -365,7 +371,7 @@ export class FieldView {
         paintOwnerGlow(this.ballGfx, b.x, b.y, this.skin.ball.radius, owner);
       }
       if (pool !== null) {
-        draws.push({ x: b.x, y: b.y, tint: owner ?? 0xffffff });
+        draws.push({ x: b.x, y: b.y, tint: owner ?? UNTINTED });
       } else {
         paintBall(this.ballGfx, this.skin.ball, b.x, b.y, owner ?? undefined);
         const d = this.skin.ball.radius * 2;
@@ -427,7 +433,7 @@ export class FieldView {
     sprite.fit(p.x, p.y, p.w, p.h, p.edge);
     // Only this field's own Paddle squashes: the channel is per field, and
     // another player's bounce must not deform it.
-    const squash = pl.player === this.squashedPlayer ? this.paddleSquash : { x: 1, y: 1 };
+    const squash = pl.player === this.squashedPlayer ? this.paddleSquash : NO_SQUASH;
     sprite.setSquash(squash.x, squash.y);
     return { player: pl.player, sprite, frame: key, w: p.w, h: p.h };
   }

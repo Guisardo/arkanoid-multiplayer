@@ -9,6 +9,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type * as PixiModule from "pixi.js";
 
+import { SPRITE_PATHS } from "content/spriteFrames";
+
 type Texture = PixiModule.Texture;
 
 // The frame table AssetPack emits. Pixi's atlas parser turns this into a
@@ -72,7 +74,7 @@ vi.mock("pixi.js", async () => {
   };
 });
 
-const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, skinSpriteTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
+const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, skinSpriteTexture, spriteDebugState, spriteTexture } =
   await import("render/spriteSheet");
 
 beforeEach(() => {

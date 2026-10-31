@@ -10,7 +10,8 @@
 // one set of frames serves every preset.
 import { Particle, ParticleContainer } from "pixi.js";
 import type { Texture } from "pixi.js";
-import { SPRITE_PATHS, spriteTexture } from "./spriteSheet";
+import { SPRITE_PATHS } from "content/spriteFrames";
+import { spriteTexture } from "./spriteSheet";
 import {
   PARTICLE_SCALE_VARIANCE_MIN,
   PARTICLE_SCALE_VARIANCE_SPREAD,

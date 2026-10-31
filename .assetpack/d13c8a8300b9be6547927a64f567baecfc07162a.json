@@ -6,8 +6,8 @@
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793435086818,
-                "duration": 3.621959000000004,
+                "date": 1793435865861,
+                "duration": 3.980625000000032,
                 "success": true
             }
         },
@@ -20,8 +20,8 @@
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793435086818,
-                "duration": 3.477874999999983,
+                "date": 1793435865861,
+                "duration": 3.839540999999997,
                 "success": true
             }
         },
@@ -36,8 +36,8 @@
             },
             "transformData": {},
             "stats": {
-                "date": 1793435086818,
-                "duration": 162.35729199999997,
+                "date": 1793435865861,
+                "duration": 146.28420799999998,
                 "success": true
             }
         },
@@ -254,8 +254,8 @@
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793435086821,
-                "duration": 0.6257500000000391,
+                "date": 1793435865864,
+                "duration": 0.6607079999999996,
                 "success": true
             }
         },
@@ -270,8 +270,8 @@
             },
             "transformData": {},
             "stats": {
-                "date": 1793435086821,
-                "duration": 99.070042,
+                "date": 1793435865864,
+                "duration": 50.42987499999998,
                 "success": true
             }
         },
@@ -432,7 +432,7 @@
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Oq8kWA@4x.png": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-uzAGRQ@4x.png": {
             "isFolder": false,
             "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas@4x.png",
             "metaData": {},
@@ -444,9 +444,9 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-Oq8kWA@4x.png": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-uzAGRQ@4x.png": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Oq8kWA@4x.png",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-uzAGRQ@4x.png",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -468,7 +468,7 @@
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-xmoxLA@4x.webp": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-x-gKpg@4x.webp": {
             "isFolder": false,
             "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas@4x.webp",
             "metaData": {},
@@ -480,9 +480,9 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-xmoxLA@4x.webp": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-x-gKpg@4x.webp": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-xmoxLA@4x.webp",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-x-gKpg@4x.webp",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -528,7 +528,7 @@
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-WLEXSA@4x.png.json": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-PuSkmg@4x.png.json": {
             "isFolder": false,
             "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas@4x.png.json",
             "metaData": {},
@@ -540,9 +540,9 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-v9v67g@4x.png.json": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-w_SdNQ@4x.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-WLEXSA@4x.png.json",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-PuSkmg@4x.png.json",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -576,7 +576,7 @@
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-_IxwBg@4x.webp.json": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Y6InzQ@4x.webp.json": {
             "isFolder": false,
             "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas@4x.webp.json",
             "metaData": {},
@@ -588,9 +588,9 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-iliTow@4x.webp.json": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-1BU5zg@4x.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-_IxwBg@4x.webp.json",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Y6InzQ@4x.webp.json",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,

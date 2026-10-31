@@ -18,7 +18,7 @@ Required effects (from audit §4):
 | Screen shake | Trauma-based | `CameraShake` offsets `fieldContainer` |
 | Hit-stop | Frame freeze | Single-frame `timeScale = 0` |
 | Particles | `ParticleContainer` | 7 event presets, ~200 particles/field |
-| Squash & stretch | Sprite scale | `Sprite.scale` on ball/paddle |
+| Squash & stretch | Sprite scale | `SquashTarget.setSquash` on ball/paddle: fitted size × squash (issue #152) |
 | Flash | Additive overlay | Full-field quad (Graphics or texture) |
 | Score pops | `BitmapText` | Rising text with fade |
 
@@ -160,3 +160,11 @@ Game feel audit (#67): "New VisualEffects orchestrator recommended with trauma-b
   restarts its ticks at 0, so a bare "newest tick" watermark silenced every effect on the
   next round. The step that triggers a rebuild carries its events (the CLEAR) into the new
   epoch's ring, or no consumer would ever see them.
+
+## As built (issue #152)
+
+- **Squash multiplies the fitted size.** The sketch above writes squash onto `sprite.scale`, which
+  overwrote the size `FieldView.sync` had fitted from the snapshot. The orchestrator now calls
+  `SquashTarget.setSquash` (`src/render/skinSprites.ts`), and each sprite view draws fitted size × squash.
+- **Targets.** Ball squash applies to every pooled ball sprite on the field; Paddle squash applies to the
+  field's own Paddle only, so another player's bounce does not deform it.

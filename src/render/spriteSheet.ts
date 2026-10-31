@@ -14,8 +14,6 @@ import type { TextureOptions } from "pixi.js";
 import { SPRITE_PATHS } from "content/spriteFrames";
 import { assetUrl } from "./assetUrl";
 
-export { SPRITE_PATHS };
-
 /** Frames the landing/menu draws: packed into the `boot` atlas. */
 const BOOT_FRAMES: readonly string[] = Object.values(SPRITE_PATHS.backgrounds);
 

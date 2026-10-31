@@ -9,7 +9,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { Texture } from "pixi.js";
 import { ParticleSystem, PARTICLE_POOL } from "render/particles";
-import { rememberTexture, SPRITE_PATHS } from "render/spriteSheet";
+import { rememberTexture } from "render/spriteSheet";
+import { SPRITE_PATHS } from "content/spriteFrames";
 import type { BurstRecipe } from "render/effectPresets";
 import type { Particle as PixiParticle } from "pixi.js";
 

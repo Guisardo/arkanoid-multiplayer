@@ -7,15 +7,10 @@ import { describe, expect, it } from "vitest";
 import { Container, Rectangle, Texture, TextureSource } from "pixi.js";
 import { BallSpritePool, PaddleSprite } from "render/skinSprites";
 
-/** A 64×28-unit paddle frame at 4 texels per unit, trimmed like the atlas. */
+/** A 64×28-unit paddle frame at 4 texels per unit, untrimmed like the atlas. */
 function paddleTexture(): Texture {
   const source = new TextureSource({ width: 256, height: 112, resolution: 4 });
-  return new Texture({
-    source,
-    frame: new Rectangle(0, 0, 62, 26),
-    orig: new Rectangle(0, 0, 64, 28),
-    trim: new Rectangle(1, 1, 62, 26),
-  });
+  return new Texture({ source, frame: new Rectangle(0, 0, 64, 28) });
 }
 
 /** A 16×16-unit ball frame. */

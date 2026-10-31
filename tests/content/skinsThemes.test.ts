@@ -122,6 +122,23 @@ describe("skin/theme registries (spec §13)", () => {
     }
   });
 
+  it("Paddle frames are packed untrimmed and unrotated, as the three-slice needs", () => {
+    // Pixi's NineSliceSprite maps a trimmed frame's UVs about a unit off the
+    // art's cap seam, and the hand-cut fallback skips rotated frames.
+    const dir = path.join(process.cwd(), "public", "assets", "gameplay");
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+      const atlas = JSON.parse(readFileSync(path.join(dir, file), "utf-8")) as {
+        frames: Record<string, { rotated: boolean; trimmed: boolean }>;
+      };
+      for (const key of Object.values(SPRITE_PATHS.paddles)) {
+        const frame = atlas.frames[key];
+        expect(frame, `${file}: ${key}`).toBeDefined();
+        expect(frame!.rotated, `${file}: ${key} rotated`).toBe(false);
+        expect(frame!.trimmed, `${file}: ${key} trimmed`).toBe(false);
+      }
+    }
+  });
+
   it("every Skin shares the one white-base ball frame", () => {
     for (const s of SKINS) expect(s.ball.sprite, s.name).toBe("ball-base.png");
   });
