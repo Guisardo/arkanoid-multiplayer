@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   LandingScreen,
+  MultiplayerChoiceScreen,
   RoomCodeScreen,
   LobbyScreen,
   qrPayloadFor,
@@ -17,6 +18,7 @@ import { reduceLobby, createLobbyState, MOBILE_DEVICE, type LobbyEvent, type Lob
 import { SKINS } from "content/skins";
 import { THEMES } from "content/themes";
 import { t } from "ui/strings";
+import { CameraError, type QrScanner } from "ui/qrScan";
 
 describe("QR + code helpers", () => {
   it("qrPayload encodes https://<host>/?code=XXXXX", () => {
@@ -164,6 +166,24 @@ describe("RoomCodeScreen", () => {
     set(boxes[4]!, "3");
     [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Join")?.click();
     expect(joined).toBe("ABC23");
+    screen.close();
+  });
+
+  it("join boxes are one character wide, so all five fit a phone screen (#159)", () => {
+    document.body.innerHTML = "";
+    const screen = new RoomCodeScreen({
+      host: document.body,
+      locale: "en-US",
+      mode: "join",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => {},
+    });
+    for (const box of screen.root.querySelectorAll<HTMLInputElement>("input")) {
+      expect(box.style.width).toBe("2ch");
+      expect(box.style.letterSpacing).toBe("0");
+    }
     screen.close();
   });
 
@@ -786,6 +806,262 @@ describe("LobbyScreen skins + theme + names (ticket 44)", () => {
     const selects = screen.root.querySelectorAll("select");
     expect(selects.length).toBe(2);
     expect(screen.root.textContent).toContain("Guest");
+    screen.close();
+  });
+});
+
+// ---- #159: join by scanning a QR ----
+
+interface FakeScanner extends QrScanner {
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  /** Deliver a decoded payload, as the camera would. */
+  emit(text: string): void;
+  video: HTMLVideoElement | null;
+}
+
+function fakeScanner(startResult: () => Promise<void> = () => Promise.resolve()): FakeScanner {
+  let onText: ((text: string) => void) | null = null;
+  const scanner: FakeScanner = {
+    video: null,
+    start: vi.fn((video: HTMLVideoElement, cb: (text: string) => void) => {
+      scanner.video = video;
+      onText = cb;
+      return startResult();
+    }),
+    stop: vi.fn(),
+    emit: (text) => { onText?.(text); },
+  };
+  return scanner;
+}
+
+/** Rendered unless the element or an ancestor is display:none. */
+function isShown(el: Element | null | undefined): boolean {
+  for (let node = el ?? null; node !== null; node = node.parentElement) {
+    if (node instanceof HTMLElement && node.style.display === "none") return false;
+  }
+  return el !== null && el !== undefined;
+}
+
+function buttonNamed(root: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return [...root.querySelectorAll("button")].find((b) => b.textContent === label);
+}
+
+/** Visible button with the label (the join and scan views each have a Back). */
+function shownButton(root: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return [...root.querySelectorAll("button")].find((b) => b.textContent === label && isShown(b));
+}
+
+async function flush(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+function joinScreen(opts: {
+  scanner?: FakeScanner;
+  hasCamera?: boolean;
+  onJoin?: (code: string) => void;
+  onBack?: () => void;
+} = {}): RoomCodeScreen {
+  document.body.innerHTML = "";
+  const scanner = opts.scanner;
+  return new RoomCodeScreen({
+    host: document.body,
+    locale: "en-US",
+    mode: "join",
+    pageHost: "example.com",
+    onCreate: () => {},
+    onJoin: opts.onJoin ?? (() => {}),
+    onBack: opts.onBack ?? (() => {}),
+    ...(scanner !== undefined
+      ? { qrScan: { scanner, hasCamera: () => Promise.resolve(opts.hasCamera ?? true) } }
+      : {}),
+  });
+}
+
+/** Join screen with a camera, already in the scan view. */
+async function scanning(opts: Parameters<typeof joinScreen>[0] = {}): Promise<RoomCodeScreen> {
+  const screen = joinScreen(opts);
+  await flush();
+  shownButton(screen.root, "Scan QR")?.click();
+  await flush();
+  return screen;
+}
+
+describe("RoomCodeScreen join by QR (#159)", () => {
+  it("no scanner wired: no Scan QR button", () => {
+    const screen = joinScreen();
+    expect(buttonNamed(screen.root, "Scan QR")).toBeUndefined();
+    screen.close();
+  });
+
+  it("Scan QR shows only once a camera is detected", async () => {
+    const without = joinScreen({ scanner: fakeScanner(), hasCamera: false });
+    await flush();
+    expect(isShown(buttonNamed(without.root, "Scan QR"))).toBe(false);
+    without.close();
+
+    const withCam = joinScreen({ scanner: fakeScanner(), hasCamera: true });
+    await flush();
+    expect(isShown(buttonNamed(withCam.root, "Scan QR"))).toBe(true);
+    withCam.close();
+  });
+
+  it("create mode never offers Scan QR", async () => {
+    document.body.innerHTML = "";
+    const screen = new RoomCodeScreen({
+      host: document.body,
+      locale: "en-US",
+      mode: "create",
+      code: "ABC23",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => {},
+      qrScan: { scanner: fakeScanner(), hasCamera: () => Promise.resolve(true) },
+    });
+    await flush();
+    expect(isShown(buttonNamed(screen.root, "Scan QR"))).toBe(false);
+    screen.close();
+  });
+
+  it("Scan QR swaps the code boxes for the camera view and starts the scanner on its video", async () => {
+    const scanner = fakeScanner();
+    const screen = await scanning({ scanner });
+    expect(scanner.start).toHaveBeenCalledTimes(1);
+    const video = screen.root.querySelector("video");
+    expect(scanner.video).toBe(video);
+    expect(isShown(video)).toBe(true);
+    expect(isShown(screen.root.querySelector("input"))).toBe(false);
+    screen.close();
+  });
+
+  it("a scanned Room link fills the boxes, stops the camera and joins", async () => {
+    const scanner = fakeScanner();
+    const joined: string[] = [];
+    const screen = await scanning({ scanner, onJoin: (c) => joined.push(c) });
+
+    scanner.emit("https://guisardo.github.io/arkanoid-multiplayer/?code=XYZ45");
+
+    expect(joined).toEqual(["XYZ45"]);
+    expect(scanner.stop).toHaveBeenCalled();
+    const boxes = [...screen.root.querySelectorAll("input")];
+    expect(boxes.map((b) => b.value).join("")).toBe("XYZ45");
+    screen.close();
+  });
+
+  it("a scanned bare code joins too", async () => {
+    const scanner = fakeScanner();
+    const joined: string[] = [];
+    const screen = await scanning({ scanner, onJoin: (c) => joined.push(c) });
+    scanner.emit("HJK78");
+    expect(joined).toEqual(["HJK78"]);
+    screen.close();
+  });
+
+  it("junk shows the invalid-code error and keeps scanning", async () => {
+    const scanner = fakeScanner();
+    const joined: string[] = [];
+    const screen = await scanning({ scanner, onJoin: (c) => joined.push(c) });
+
+    scanner.emit("https://example.com/menu");
+
+    expect(joined).toEqual([]);
+    expect(scanner.stop).not.toHaveBeenCalled();
+    expect(isShown(screen.root.querySelector("video"))).toBe(true);
+    expect(screen.root.textContent).toContain(t("en-US", "lobby.errInvalidCode"));
+
+    scanner.emit("ABC23");
+    expect(joined).toEqual(["ABC23"]);
+    screen.close();
+  });
+
+  it.each([
+    ["denied", "lobby.errCameraDenied"],
+    ["noCamera", "lobby.errNoCamera"],
+    ["busy", "lobby.errCameraBusy"],
+  ] as const)("camera %s: stops, returns to the boxes and shows its own error", async (kind, key) => {
+    const scanner = fakeScanner(() => Promise.reject(new CameraError(kind, `test ${kind}`)));
+    const screen = await scanning({ scanner });
+
+    expect(scanner.stop).toHaveBeenCalled();
+    expect(isShown(screen.root.querySelector("video"))).toBe(false);
+    const boxes = [...screen.root.querySelectorAll("input")];
+    expect(isShown(boxes[0])).toBe(true);
+    expect(document.activeElement).toBe(boxes[0]);
+    expect(screen.root.textContent).toContain(t("en-US", key));
+    screen.close();
+  });
+
+  it("an unclassified camera failure is logged and shown as camera unavailable", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const boom = new Error("driver exploded");
+    const scanner = fakeScanner(() => Promise.reject(boom));
+    const screen = await scanning({ scanner });
+
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("RoomCodeScreen"), boom);
+    expect(scanner.stop).toHaveBeenCalled();
+    expect(screen.root.textContent).toContain(t("en-US", "lobby.errCameraBusy"));
+    error.mockRestore();
+    screen.close();
+  });
+
+  it("Back while scanning stops the camera and returns to the boxes, not out of the screen", async () => {
+    const scanner = fakeScanner();
+    let backs = 0;
+    const screen = await scanning({ scanner, onBack: () => { backs++; } });
+
+    shownButton(screen.root, "Back")?.click();
+
+    expect(scanner.stop).toHaveBeenCalled();
+    expect(backs).toBe(0);
+    expect(isShown(screen.root.querySelector("video"))).toBe(false);
+    expect(isShown(screen.root.querySelector("input"))).toBe(true);
+    // A late decode after leaving the scan view does nothing.
+    scanner.emit("ABC23");
+    expect(isShown(screen.root.querySelector("video"))).toBe(false);
+
+    shownButton(screen.root, "Back")?.click();
+    expect(backs).toBe(1);
+    screen.close();
+  });
+
+  it("closing the screen mid-scan stops the camera", async () => {
+    const scanner = fakeScanner();
+    const screen = await scanning({ scanner });
+    screen.close();
+    expect(scanner.stop).toHaveBeenCalled();
+  });
+});
+
+describe("MultiplayerChoiceScreen (#159)", () => {
+  it("offers Create room, Join room and Back", () => {
+    document.body.innerHTML = "";
+    const picks: string[] = [];
+    const screen = new MultiplayerChoiceScreen({
+      host: document.body,
+      locale: "en-US",
+      onChoice: (c) => picks.push(c),
+      onBack: () => picks.push("back"),
+    });
+    expect(screen.root.dataset.screen).toBe("mpchoice");
+    buttonNamed(screen.root, "Create room")?.click();
+    buttonNamed(screen.root, "Join room")?.click();
+    buttonNamed(screen.root, "Back")?.click();
+    expect(picks).toEqual(["create", "join", "back"]);
+    screen.close();
+    expect(document.body.contains(screen.root)).toBe(false);
+  });
+
+  it("speaks Spanish", () => {
+    document.body.innerHTML = "";
+    const screen = new MultiplayerChoiceScreen({
+      host: document.body,
+      locale: "es-419",
+      onChoice: () => {},
+      onBack: () => {},
+    });
+    expect(buttonNamed(screen.root, "Crear sala")).toBeDefined();
+    expect(buttonNamed(screen.root, "Unirse a sala")).toBeDefined();
     screen.close();
   });
 });

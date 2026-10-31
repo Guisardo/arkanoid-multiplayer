@@ -1,6 +1,7 @@
 // Landing + lobby screens (ticket 43, spec §8): landing with three
-// entries (Solo / Versus bots / Multiplayer), room-code create (code
-// large + QR share) and join (5 auto-advancing boxes, ?code= prefill),
+// entries (Solo / Versus bots / Multiplayer), the multiplayer choice
+// (Create room / Join room, #159), room-code create (code large + QR
+// share) and join (5 auto-advancing boxes, ?code= prefill, Scan QR),
 // local-player add, host config panel + guest read-only panel, ready
 // checks + all-ready gate, mode picker greying, kick, countdown.
 // DOM pattern follows settingsScreen; tap targets >=48 px.
@@ -21,6 +22,13 @@ import {
 import { SKINS } from "content/skins";
 import { THEMES } from "content/themes";
 import { ROOM_CODE_REGEX } from "signaling/code";
+import {
+  CameraError,
+  codeFromUrl,
+  roomCodeFromScan,
+  type CameraErrorKind,
+  type QrScanner,
+} from "ui/qrScan";
 import qrcode from "qrcode-generator";
 
 // ---- QR (client-side, zero network) ----
@@ -96,14 +104,6 @@ export function renderQrCanvas(payload: string): HTMLCanvasElement | null {
   return canvas;
 }
 
-/** Read ?code= from a URL; null when absent/invalid. */
-export function codeFromUrl(url: string): string | null {
-  const m = /[?&]code=([A-Za-z0-9]{5})/.exec(url);
-  const code = m?.[1];
-  if (code === undefined || !ROOM_CODE_REGEX.test(code)) return null;
-  return code;
-}
-
 /** Random 5-char room code from the lookalike-free charset. */
 export function generateRoomCode(rng: () => number = Math.random): string {
   const CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -145,7 +145,11 @@ function ensureStyles(): void {
     ".ld-input{padding:12px;font-family:monospace;min-height:48px;background:#181828;color:#eee;" +
     "border:2px solid #444;text-transform:uppercase;letter-spacing:8px;text-align:center;width:12ch;}" +
     ".ld-code{color:#fd4;font-size:40px;font-weight:bold;text-align:center;letter-spacing:12px;}" +
-    ".ld-hint{color:#999;font-size:12px;text-align:center;}";
+    ".ld-hint{color:#999;font-size:12px;text-align:center;}" +
+    ".ld-view{display:flex;flex-direction:column;gap:12px;}" +
+    ".ld-error{color:#f77;font-size:14px;text-align:center;}" +
+    ".ld-error:empty{display:none;}" +
+    ".ld-video{width:min(80vw,360px);aspect-ratio:1;object-fit:cover;background:#000;align-self:center;}";
   document.head.appendChild(style);
 }
 
@@ -209,6 +213,54 @@ export class LandingScreen {
   }
 }
 
+// ---- Multiplayer choice (#159): create a room or join one ----
+
+export type MultiplayerChoice = "create" | "join";
+
+export interface MultiplayerChoiceScreenOptions {
+  host: HTMLElement;
+  locale: Locale;
+  onChoice: (choice: MultiplayerChoice) => void;
+  onBack: () => void;
+}
+
+export class MultiplayerChoiceScreen {
+  readonly root: HTMLDivElement;
+  private readonly nav: GamepadMenuNav;
+
+  constructor(opts: MultiplayerChoiceScreenOptions) {
+    ensureStyles();
+    this.root = document.createElement("div");
+    this.root.className = "ld-root";
+    this.root.dataset.screen = "mpchoice";
+    const panel = document.createElement("div");
+    panel.className = "ld-panel";
+
+    const title = document.createElement("h2");
+    title.className = "ld-title";
+    title.textContent = t(opts.locale, "menu.multiplayer");
+    panel.appendChild(title);
+
+    const create = menuBtn(opts.locale, "menu.createRoom");
+    create.addEventListener("click", () => { opts.onChoice("create"); });
+    const join = menuBtn(opts.locale, "menu.joinRoom");
+    join.addEventListener("click", () => { opts.onChoice("join"); });
+    const back = menuBtn(opts.locale, "menu.back");
+    back.addEventListener("click", () => { opts.onBack(); });
+    panel.append(create, join, back);
+
+    this.root.appendChild(panel);
+    opts.host.appendChild(this.root);
+    this.nav = new GamepadMenuNav({ root: this.root, onCancel: opts.onBack });
+    this.nav.start();
+  }
+
+  close(): void {
+    this.nav.stop();
+    this.root.remove();
+  }
+}
+
 function menuBtn(locale: Locale, key: StringKey): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.className = "ld-btn";
@@ -231,6 +283,15 @@ export interface RoomCodeScreenOptions {
   onCreate: (code: string) => void;
   onJoin: (code: string) => void;
   onBack: () => void;
+  /** Join: camera QR scanning (#159). Without it the join screen is manual-only. */
+  qrScan?: QrScanSupport;
+}
+
+/** What the join screen needs to offer Scan QR. */
+export interface QrScanSupport {
+  scanner: QrScanner;
+  /** Resolves true when a camera is usable; Scan QR stays hidden otherwise. */
+  hasCamera: () => Promise<boolean>;
 }
 
 export class RoomCodeScreen {
@@ -238,6 +299,16 @@ export class RoomCodeScreen {
   private readonly nav: GamepadMenuNav;
   private readonly boxes: HTMLInputElement[] = [];
   private readonly opts: RoomCodeScreenOptions;
+  /** Join mode: manual entry view and camera view (only one shows at a time). */
+  private joinView: HTMLElement | null = null;
+  private scanView: HTMLElement | null = null;
+  /** Join view message line: why the camera could not start. */
+  private joinError: HTMLElement | null = null;
+  /** Camera view message line: a scanned QR that is not a room. */
+  private scanStatus: HTMLElement | null = null;
+  private video: HTMLVideoElement | null = null;
+  /** True from Scan QR until the camera view is left; the scanner runs meanwhile. */
+  private scanning = false;
 
   constructor(opts: RoomCodeScreenOptions) {
     ensureStyles();
@@ -265,62 +336,214 @@ export class RoomCodeScreen {
       back.addEventListener("click", () => { opts.onBack(); });
       panel.append(cont, back);
     } else {
-      const hint = document.createElement("div");
-      hint.className = "ld-hint";
-      hint.textContent = t(opts.locale, "lobby.enterCode");
-      panel.appendChild(hint);
-
-      const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.gap = "8px";
-      row.style.justifyContent = "center";
-      for (let i = 0; i < 5; i++) {
-        const box = document.createElement("input");
-        box.className = "ld-input";
-        box.maxLength = 1;
-        box.autocomplete = "off";
-        box.addEventListener("input", () => {
-          box.value = box.value.toUpperCase();
-          if (box.value !== "" && i < 4) this.boxes[i + 1]?.focus();
-        });
-        box.addEventListener("keydown", (e) => {
-          if (e.key === "Backspace" && box.value === "" && i > 0) {
-            this.boxes[i - 1]?.focus();
-          }
-        });
-        row.appendChild(box);
-        this.boxes.push(box);
-      }
-      panel.appendChild(row);
-
-      const join = menuBtn(opts.locale, "lobby.join");
-      join.addEventListener("click", () => {
-        const code = this.boxes.map((b) => b.value).join("");
-        if (ROOM_CODE_REGEX.test(code)) opts.onJoin(code);
-      });
-      const back = menuBtn(opts.locale, "menu.back");
-      back.addEventListener("click", () => { opts.onBack(); });
-      panel.append(join, back);
-
-      // Prefill (?code=) fills the boxes.
-      if (opts.code !== undefined && ROOM_CODE_REGEX.test(opts.code)) {
-        const code = opts.code;
-        for (let i = 0; i < 5; i++) {
-          const box = this.boxes[i];
-          if (box !== undefined) box.value = code[i] ?? "";
-        }
-      }
+      this.buildJoin(panel, opts);
     }
 
     this.root.appendChild(panel);
     opts.host.appendChild(this.root);
-    this.nav = new GamepadMenuNav({ root: this.root, onCancel: opts.onBack });
+    // B leaves the camera view first, then the screen.
+    this.nav = new GamepadMenuNav({ root: this.root, onCancel: () => { this.cancel(); } });
     this.nav.start();
   }
 
   close(): void {
+    this.stopScan();
     this.nav.stop();
     this.root.remove();
+  }
+
+  /** Join: manual 5-box entry, plus Scan QR when a scanner and a camera exist. */
+  private buildJoin(panel: HTMLElement, opts: RoomCodeScreenOptions): void {
+    const joinView = document.createElement("div");
+    joinView.className = "ld-view";
+    this.joinView = joinView;
+
+    const hint = document.createElement("div");
+    hint.className = "ld-hint";
+    hint.textContent = t(opts.locale, "lobby.enterCode");
+    joinView.appendChild(hint);
+
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "8px";
+    row.style.justifyContent = "center";
+    for (let i = 0; i < 5; i++) {
+      const box = document.createElement("input");
+      box.className = "ld-input";
+      // One glyph per box: the shared 12ch width pushes five boxes off a phone.
+      box.style.width = "2ch";
+      box.style.letterSpacing = "0";
+      box.maxLength = 1;
+      box.autocomplete = "off";
+      box.addEventListener("input", () => {
+        box.value = box.value.toUpperCase();
+        if (box.value !== "" && i < 4) this.boxes[i + 1]?.focus();
+      });
+      box.addEventListener("keydown", (e) => {
+        if (e.key === "Backspace" && box.value === "" && i > 0) {
+          this.boxes[i - 1]?.focus();
+        }
+      });
+      row.appendChild(box);
+      this.boxes.push(box);
+    }
+    joinView.appendChild(row);
+
+    const joinError = document.createElement("div");
+    joinError.className = "ld-error";
+    joinError.setAttribute("role", "alert");
+    this.joinError = joinError;
+    joinView.appendChild(joinError);
+
+    const join = menuBtn(opts.locale, "lobby.join");
+    join.addEventListener("click", () => {
+      const code = this.boxes.map((b) => b.value).join("");
+      if (ROOM_CODE_REGEX.test(code)) opts.onJoin(code);
+    });
+    joinView.appendChild(join);
+
+    if (opts.qrScan !== undefined) {
+      const scan = menuBtn(opts.locale, "lobby.scanQr");
+      // Hidden until the camera probe answers: a button that can only fail is
+      // worse than none.
+      setShown(scan, false);
+      scan.addEventListener("click", () => { this.startScan(); });
+      joinView.appendChild(scan);
+      opts.qrScan.hasCamera().then(
+        (hasCamera) => { setShown(scan, hasCamera); },
+        (err: unknown) => {
+          console.error("[lobby] RoomCodeScreen: camera detection failed; Scan QR stays hidden", err);
+        },
+      );
+      panel.appendChild(this.buildScanView(opts));
+    }
+
+    const back = menuBtn(opts.locale, "menu.back");
+    back.addEventListener("click", () => { opts.onBack(); });
+    joinView.appendChild(back);
+    panel.insertBefore(joinView, panel.firstChild);
+
+    // Prefill (?code=) fills the boxes.
+    if (opts.code !== undefined && ROOM_CODE_REGEX.test(opts.code)) this.fillBoxes(opts.code);
+  }
+
+  /** Camera view: live video, scan feedback, Back to the code boxes. Starts hidden. */
+  private buildScanView(opts: RoomCodeScreenOptions): HTMLElement {
+    const scanView = document.createElement("div");
+    scanView.className = "ld-view";
+    setShown(scanView, false);
+    this.scanView = scanView;
+
+    const video = document.createElement("video");
+    video.className = "ld-video";
+    // iOS only plays inline, muted video without a user-gesture-bound play().
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    this.video = video;
+
+    const status = document.createElement("div");
+    status.className = "ld-error";
+    status.setAttribute("role", "alert");
+    this.scanStatus = status;
+
+    const back = menuBtn(opts.locale, "menu.back");
+    back.addEventListener("click", () => { this.leaveScan(); });
+    scanView.append(video, status, back);
+    return scanView;
+  }
+
+  private fillBoxes(code: string): void {
+    for (let i = 0; i < 5; i++) {
+      const box = this.boxes[i];
+      if (box !== undefined) box.value = code[i] ?? "";
+    }
+  }
+
+  /** Back / gamepad B: out of the camera view when scanning, else out of the screen. */
+  private cancel(): void {
+    if (this.scanning) this.leaveScan();
+    else this.opts.onBack();
+  }
+
+  private startScan(): void {
+    const qrScan = this.opts.qrScan;
+    const video = this.video;
+    if (qrScan === undefined || video === null || this.scanning) return;
+    this.scanning = true;
+    this.setText(this.joinError, "");
+    this.setText(this.scanStatus, "");
+    this.showScanView(true);
+    qrScan.scanner.start(video, (text) => { this.onScanned(text); }).then(
+      () => undefined,
+      (err: unknown) => { this.scanFailed(err); },
+    );
+  }
+
+  private onScanned(text: string): void {
+    if (!this.scanning) return;
+    const code = roomCodeFromScan(text);
+    if (code === null) {
+      // Keep scanning: the next frame may hold the right QR.
+      this.setText(this.scanStatus, t(this.opts.locale, "lobby.errInvalidCode"));
+      return;
+    }
+    this.fillBoxes(code);
+    this.stopScan();
+    this.opts.onJoin(code);
+  }
+
+  private scanFailed(err: unknown): void {
+    // Already left the camera view (Back / close / join): the camera is
+    // stopped and the player has moved on, so there is nothing to report.
+    if (!this.scanning) return;
+    let kind: CameraErrorKind;
+    if (err instanceof CameraError) {
+      kind = err.kind;
+    } else {
+      console.error("[lobby] RoomCodeScreen: camera scanner failed to start", err);
+      kind = "busy";
+    }
+    this.leaveScan();
+    this.setText(this.joinError, t(this.opts.locale, cameraErrorKey(kind)));
+  }
+
+  /** Stop the camera and return to the code boxes. */
+  private leaveScan(): void {
+    this.stopScan();
+    this.showScanView(false);
+    this.boxes[0]?.focus();
+  }
+
+  private stopScan(): void {
+    if (!this.scanning) return;
+    this.scanning = false;
+    this.opts.qrScan?.scanner.stop();
+  }
+
+  private showScanView(scanning: boolean): void {
+    if (this.joinView !== null) setShown(this.joinView, !scanning);
+    if (this.scanView !== null) setShown(this.scanView, scanning);
+  }
+
+  private setText(el: HTMLElement | null, text: string): void {
+    if (el !== null) el.textContent = text;
+  }
+}
+
+/** Show/hide by inline display, so the element's class layout comes back on show. */
+function setShown(el: HTMLElement, shown: boolean): void {
+  el.style.display = shown ? "" : "none";
+}
+
+function cameraErrorKey(kind: CameraErrorKind): StringKey {
+  switch (kind) {
+    case "denied":
+      return "lobby.errCameraDenied";
+    case "noCamera":
+      return "lobby.errNoCamera";
+    case "busy":
+      return "lobby.errCameraBusy";
   }
 }
 
@@ -669,4 +892,4 @@ export function errorKey(e: LobbyError): StringKey {
   }
 }
 
-export { NAME_MAX_CHARS, MOBILE_DEVICE };
+export { NAME_MAX_CHARS, MOBILE_DEVICE, codeFromUrl };

@@ -268,10 +268,11 @@ function clickButton(label: string): void {
   btn?.click();
 }
 
-/** Multiplayer → create → Continue: boots the host flow against the fake room. */
+/** Multiplayer → Create room → Continue: boots the host flow against the fake room. */
 async function bootHostFlow(): Promise<void> {
   await importMain();
   clickButton("Multiplayer");
+  clickButton("Create room");
   clickButton("Continue");
   // Let the fake room deliver the guest connection (microtask).
   await new Promise((r) => globalThis.setTimeout(r, 0));
@@ -408,11 +409,52 @@ describe("main boot (ticket 45)", () => {
     expect(botsScreenOpts).toHaveLength(1);
   });
 
-  it("Multiplayer opens the create room-code screen (no join hint)", async () => {
+  it("Multiplayer opens the create / join choice (#159)", async () => {
     await importMain();
     clickButton("Multiplayer");
+    expect(document.querySelector('[data-screen="mpchoice"]')).not.toBeNull();
     const text = document.body.textContent ?? "";
-    expect(text).not.toContain("Enter the room code");
+    expect(text).toContain("Create room");
+    expect(text).toContain("Join room");
+  });
+
+  it("Create room opens the create screen: room code, no join hint", async () => {
+    await importMain();
+    clickButton("Multiplayer");
+    clickButton("Create room");
+    expect(document.querySelector('[data-screen="mpchoice"]')).toBeNull();
+    expect(document.querySelector(".ld-code")?.textContent).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/);
+    expect(document.body.textContent ?? "").not.toContain("Enter the room code");
+  });
+
+  it("Join room opens the empty join screen; Back returns to the choice, then the landing", async () => {
+    await importMain();
+    clickButton("Multiplayer");
+    clickButton("Join room");
+    expect(document.body.textContent ?? "").toContain("Enter the room code");
+    const boxes = [...document.querySelectorAll<HTMLInputElement>(".ld-input")];
+    expect(boxes).toHaveLength(5);
+    expect(boxes.every((b) => b.value === "")).toBe(true);
+    // No camera in jsdom: manual entry only.
+    const scan = [...document.querySelectorAll("button")].find((b) => b.textContent === "Scan QR");
+    expect(scan === undefined || scan.style.display === "none").toBe(true);
+
+    clickButton("Back");
+    expect(document.querySelector('[data-screen="roomcode"]')).toBeNull();
+    expect(document.querySelector('[data-screen="mpchoice"]')).not.toBeNull();
+    clickButton("Back");
+    expect(document.querySelector('[data-screen="mpchoice"]')).toBeNull();
+    expect(document.querySelector('[data-screen="landing"]')).not.toBeNull();
+  });
+
+  it("a Room link skips the choice and lands on the join screen, boxes filled", async () => {
+    joinCodePrefill.value = "ABC23";
+    await importMain();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector('[data-screen="mpchoice"]')).toBeNull();
+    const boxes = [...document.querySelectorAll<HTMLInputElement>(".ld-input")];
+    expect(boxes.map((b) => b.value).join("")).toBe("ABC23");
   });
 });
 
@@ -972,6 +1014,7 @@ describe("copy-paste fallback (ticket 53, spec §9)", () => {
   it("host fallback: signaling down → copy-paste screen, answer paste connects", async () => {
     await importMainFallback();
     clickButton("Multiplayer");
+    clickButton("Create room");
     clickButton("Continue");
     // Copy-paste host screen appears with the offer code.
     const cpRoot = await waitFor(() => document.querySelector(".cp-root"), 50);

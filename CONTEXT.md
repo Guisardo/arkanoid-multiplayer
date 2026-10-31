@@ -221,6 +221,10 @@ _Avoid_: Waiting room, matchmaking screen
 A short code players enter to join a remote session's lobby.
 _Avoid_: Invite code, password
 
+**Room link**:
+URL that opens the app on the join screen with the room code filled in; the guest QR encodes it.
+_Avoid_: Invite link, QR link, share URL
+
 **Host**:
 The device that created the room; holds authoritative game state and lobby configuration rights for the session.
 _Avoid_: Server (implies dedicated infrastructure), owner
