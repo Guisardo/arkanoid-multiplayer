@@ -1,11 +1,22 @@
 // App entry (tickets 23/34/43/45/51): boot → landing. Solo goes straight
 // to the session; versus bots opens the trimmed config screen; multiplayer
-// opens the room-code flow (create: host room + lobby; join: signaling
-// guest + lobby) and drives MpFlow over real WebRTC channels.
+// opens the Create room / Join room choice (#159; a Room link skips it to
+// join), then the room-code flow (create: host room + lobby; join: typed or
+// scanned code, signaling guest + lobby) and drives MpFlow over real WebRTC
+// channels.
 import { startSoloSession } from "app/soloSession";
 import { initAssets } from "render/spriteSheet";
 import { startWithGameplayAssets } from "app/gameplayLoad";
-import { LandingScreen, RoomCodeScreen, LobbyScreen, codeFromUrl } from "ui/lobbyScreens";
+import {
+  LandingScreen,
+  MultiplayerChoiceScreen,
+  RoomCodeScreen,
+  LobbyScreen,
+  codeFromUrl,
+  type MultiplayerChoice,
+} from "ui/lobbyScreens";
+import { CameraQrScanner } from "ui/cameraQrScanner";
+import { detectCamera } from "ui/qrScan";
 import { VersusBotsConfigScreen, type VersusBotsConfig } from "ui/versusBotsScreen";
 import { startVersusBotsSession } from "app/versusBotsSession";
 import { resolveLocale, t, DEFAULT_LOCALE, type Locale } from "ui/strings";
@@ -531,29 +542,59 @@ function makeLocalInput(flow: MpFlow) {
   };
 }
 
+/** Multiplayer entry: a Room link (?code=) goes straight to join, else Create / Join. */
 function openMultiplayer(joinCode?: string): void {
   void initAssets();
-  const onBack = (): void => {
-    screen.root.remove();
-    restart();
-  };
+  if (joinCode !== undefined) openRoomCode("join", joinCode);
+  else showMultiplayerChoice();
+}
+
+function showMultiplayerChoice(): void {
+  const choice = new MultiplayerChoiceScreen({
+    host: appHost,
+    locale,
+    onChoice: (mode) => {
+      choice.close();
+      openRoomCode(mode);
+    },
+    onBack: () => {
+      choice.close();
+      restart();
+    },
+  });
+}
+
+function openRoomCode(mode: MultiplayerChoice, joinCode?: string): void {
+  const media = globalThis.navigator.mediaDevices;
   const screen = new RoomCodeScreen({
     host: appHost,
     locale,
-    mode: joinCode === undefined ? "create" : "join",
+    mode,
     ...(joinCode !== undefined ? { code: joinCode } : {}),
     pageHost: globalThis.location.host,
     // QR links must survive the GH Pages project-site subpath (ticket 55).
     pagePath: globalThis.location.pathname,
+    // #159: the camera is probed by capability; the decoder loads on first scan.
+    ...(mode === "join"
+      ? {
+          qrScan: {
+            scanner: new CameraQrScanner(media),
+            hasCamera: () => detectCamera(media),
+          },
+        }
+      : {}),
     onCreate: (code) => {
-      screen.root.remove();
+      screen.close();
       startHostFlow(code);
     },
     onJoin: (code) => {
-      screen.root.remove();
+      screen.close();
       startGuestFlow(code);
     },
-    onBack,
+    onBack: () => {
+      screen.close();
+      showMultiplayerChoice();
+    },
   });
 }
 

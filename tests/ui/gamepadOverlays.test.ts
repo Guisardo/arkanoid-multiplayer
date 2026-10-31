@@ -10,6 +10,7 @@ import { createLobbyState } from "app/lobbyState";
 import type { MatchState } from "sim/multiField";
 
 const A = 0;
+const B = 1;
 const DPAD_DOWN = 13;
 const POLL_MS = 50;
 
@@ -152,6 +153,37 @@ describe("Lobby overlays gamepad navigation", () => {
     tap(DPAD_DOWN);
     expect(screen.root.contains(document.activeElement)).toBe(true);
     expect(document.activeElement?.classList.contains(FOCUS_CLASS)).toBe(true);
+    screen.close();
+  });
+
+  it("join screen (#159): B while scanning stops the camera and returns to the boxes; B again goes back", async () => {
+    const stop = vi.fn();
+    let backs = 0;
+    const screen = new RoomCodeScreen({
+      host: document.body,
+      locale: "en-US",
+      mode: "join",
+      pageHost: "example.com",
+      onCreate: () => {},
+      onJoin: () => {},
+      onBack: () => { backs++; },
+      qrScan: {
+        scanner: { start: () => Promise.resolve(), stop },
+        hasCamera: () => Promise.resolve(true),
+      },
+    });
+    await Promise.resolve();
+    [...screen.root.querySelectorAll("button")].find((b) => b.textContent === "Scan QR")?.click();
+    const video = screen.root.querySelector("video");
+    expect(video?.parentElement?.style.display).toBe("");
+
+    tap(B);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(backs).toBe(0);
+    expect(video?.parentElement?.style.display).toBe("none");
+
+    tap(B);
+    expect(backs).toBe(1);
     screen.close();
   });
 
