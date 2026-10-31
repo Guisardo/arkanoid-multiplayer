@@ -70,6 +70,16 @@ export function isEmptyCell(cell: number): boolean {
 export function isDestructibleCell(cell: number): boolean {
   return cell !== BRICK_EMPTY && cell !== BRICK_GOLD;
 }
+/**
+ * Points a Brick pays when it breaks (spec §4 placeholder table): colored
+ * tier t pays 50 + (t - 1) × 10, silver pays 50 on its final break, gold and
+ * empty pay nothing. One table for the sims and the score pops.
+ */
+export function brickBreakScore(cell: number): number {
+  if (cell === BRICK_EMPTY || cell === BRICK_GOLD) return 0;
+  if (cell > BRICK_SILVER_BASE) return 50;
+  return 50 + (cell - 1) * 10;
+}
 export function cellColoredTier(cell: number): number | null {
   return cell >= 1 && cell <= 6 ? cell : null;
 }
@@ -232,7 +242,10 @@ export interface Snapshot {
 export interface BoltSnapshot {
   x: number;
   y: number;
-  /** Shooting player index (the Paddle that fired it). */
+  /**
+   * Player index of the Paddle that fired it (always a snapshot player). Not
+   * the credited shooter: in Shared Field mode C any player fires players[0].
+   */
   owner: number;
 }
 

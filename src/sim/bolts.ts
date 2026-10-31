@@ -233,7 +233,9 @@ export class Bolts {
     if (this.count === 0) return NO_BOLTS;
     const out: BoltSnapshot[] = [];
     for (const flight of this.flights) {
-      for (const b of flight) out.push({ x: b.x, y: b.y, owner: b.owner });
+      // The snapshot names the Paddle (a snapshot player), not the credited
+      // shooter: in Shared Field mode C several players share players[0].
+      for (const b of flight) out.push({ x: b.x, y: b.y, owner: b.paddle });
     }
     return out;
   }

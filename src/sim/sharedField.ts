@@ -24,6 +24,7 @@ import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, ty
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  brickBreakScore,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
@@ -394,11 +395,11 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
       }
       bricks[index] = BRICK_EMPTY;
       pushEvent("brickBreak", player, index);
-      score += 50;
+      score += brickBreakScore(cellV);
     } else {
       bricks[index] = BRICK_EMPTY;
       pushEvent("brickBreak", player, index);
-      score += 50 + (cellV - 1) * 10;
+      score += brickBreakScore(cellV);
     }
     brickBreaks++;
     const drop = scriptRunner.onBrickBreak(brickBreaks);

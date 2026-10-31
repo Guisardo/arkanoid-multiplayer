@@ -86,6 +86,16 @@ export function overlayLayout(
   };
 }
 
+/** Probe (ticket #148): the launch button and LASER badge as drawn, screen px. */
+export interface TouchLaserBadgeProbe {
+  glyph: LaunchGlyph;
+  badge: LaserBadgeStyle | null;
+  /** Launch button diameter. */
+  buttonPx: number;
+  /** Rendered badge text bounds (null unless the text badge is up). */
+  text: { x: number; y: number; width: number; height: number } | null;
+}
+
 export class TouchOverlay {
   readonly container = new Container();
   private readonly gfx = new Graphics();
@@ -156,6 +166,17 @@ export class TouchOverlay {
   /** Probe: the LASER badge drawn on the last redraw (null = none). */
   get laserBadge(): LaserBadgeStyle | null {
     return this.badge;
+  }
+
+  /** Probe: what the launch button shows, with the badge's rendered bounds. */
+  laserBadgeProbe(): TouchLaserBadgeProbe {
+    const layout = overlayLayout(this.region, this.mode);
+    let text: TouchLaserBadgeProbe["text"] = null;
+    if (this.badge === "text") {
+      const b = this.badgeText.getBounds();
+      text = { x: b.x, y: b.y, width: b.width, height: b.height };
+    }
+    return { glyph: this.glyph, badge: this.badge, buttonPx: layout.buttonRadius * 2, text };
   }
 
   /** True when `region` differs from the one the overlay is anchored to. */

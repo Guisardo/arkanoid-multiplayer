@@ -12,7 +12,7 @@
 // anchors resolve against the snapshot the event arrived with. Reading the
 // snapshot keeps this seam intact: render/ never imports sim/.
 
-import { forEachFreshEvent, isBoltBrickEvent, type SimEvent, type Snapshot } from "shared/protocol";
+import { brickBreakScore, forEachFreshEvent, isBoltBrickEvent, type SimEvent, type Snapshot } from "shared/protocol";
 import { BRICK_COLS, BRICK_H, BRICK_ROWS, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
 import { BRICK_FLASH_COLOR, BrickFlashes } from "./brickFlash";
 import { FlashLayer } from "./flash";
@@ -103,6 +103,8 @@ export class VisualEffects {
    * watermark trick `sessionAudio` uses is mandatory here too.
    */
   private lastEventTick = -1;
+  /** Grid of the previous consumed snapshot: a break's Brick (for its pop value). */
+  private prevBricks: readonly number[] | null = null;
   private chain = 0;
   private scale: ReducedEffectsScale = FULL_EFFECTS;
   private reduced = false;
@@ -161,6 +163,7 @@ export class VisualEffects {
     this.lastEventTick = forEachFreshEvent(snap.events, this.lastEventTick, (event, prev) => {
       this.onSimEvent(event, snap, prev);
     });
+    this.prevBricks = snap.bricks;
   }
 
 
@@ -187,7 +190,9 @@ export class VisualEffects {
     if (event.type === "boltHit") this.brickFlashes.flash(event.target);
     const boltDriven = isBoltBrickEvent(event, prev);
     const recipe = boltDriven ? BOLT_RECIPES[event.type] : EFFECT_RECIPES[event.type];
-    if (recipe !== undefined) this.applyRecipe(recipe, this.anchorPoint(recipe.anchor, event, snap));
+    if (recipe !== undefined) {
+      this.applyRecipe(recipe, this.anchorPoint(recipe.anchor, event, snap), this.popTextFor(event));
+    }
 
     // Chain escalation is derived, not emitted — same thresholds as the SFX.
     // Bolt breaks extend the Chain without its juice (spec #140: no shake).
@@ -199,8 +204,21 @@ export class VisualEffects {
     }
   }
 
+  /**
+   * A break pops the points its Brick paid, read from the grid drawn before
+   * the break (this snapshot already shows the cell empty). Without that grid
+   * (first frame, rejoin, a direct `onSimEvent`) the recipe's text stands.
+   */
+  private popTextFor(event: SimEvent): string | undefined {
+    if (event.type !== "brickBreak" || this.prevBricks === null) return undefined;
+    const cell = this.prevBricks[event.target];
+    if (cell === undefined) return undefined;
+    const points = brickBreakScore(cell);
+    return points > 0 ? `+${String(points)}` : undefined;
+  }
+
   /** Run a recipe: one burst of trauma, hit-stop, particles, flash, squash, pop. */
-  private applyRecipe(recipe: EffectRecipe, at: FieldPoint): void {
+  private applyRecipe(recipe: EffectRecipe, at: FieldPoint, popText?: string): void {
     if (this.scale.allowShake && recipe.trauma > 0) this.shake.addTrauma(recipe.trauma);
 
     const frames = Math.round(recipe.hitStopFrames * this.scale.hitStopFactor);
@@ -224,7 +242,9 @@ export class VisualEffects {
         recipe.paddleSquash.duration,
       );
     }
-    if (recipe.pop !== undefined) this.pops.spawn(at, recipe.pop);
+    if (recipe.pop !== undefined) {
+      this.pops.spawn(at, popText === undefined ? recipe.pop : { ...recipe.pop, text: popText });
+    }
   }
 
   /**
@@ -313,6 +333,7 @@ export class VisualEffects {
     this.squash.reset();
     this.pops.reset();
     this.brickFlashes.reset();
+    this.prevBricks = null;
     this.chain = 0;
   }
 

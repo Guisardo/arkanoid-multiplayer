@@ -181,14 +181,15 @@ describe("Bolts: Brick kinds", () => {
     ]);
   });
 
-  it("credits the shooter, not the Paddle (shared Paddle)", () => {
+  it("credits the shooter, while the snapshot names the Paddle (shared Paddle)", () => {
     const { hooks, rec } = makeHooks();
     const bolts = new Bolts(1, hooks);
     rec.bricks[cell(5, 10)] = 1;
     bolts.tryFire(0, 2, { x: 100, y: PADDLE_Y, w: PADDLE_W, h: PADDLE_H });
     for (let i = 0; i < 70; i++) bolts.step();
     expect(rec.brickHits).toEqual([{ index: cell(5, 10), shooter: 2 }]);
-    expect(bolts.toSnapshot().every((b) => b.owner === 2)).toBe(true);
+    // Snapshot owner = the firing Paddle, always a snapshot player.
+    expect(bolts.toSnapshot().every((b) => b.owner === 0)).toBe(true);
   });
 });
 

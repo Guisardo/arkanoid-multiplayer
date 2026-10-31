@@ -1,5 +1,5 @@
 import type { Application } from "pixi.js";
-import type { SimEventType, Snapshot } from "shared/protocol";
+import type { CapsuleTypeId, SimEventType, Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import { createSoloEpisode, CONTINUE_SCORE_FACTOR, type SoloEpisode, type SoloPhase } from "app/soloEpisode";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
@@ -8,7 +8,7 @@ import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { TouchAdapter } from "input/touch";
 import { bindInputSafety, bindMouseHeld } from "input/inputSafety";
 import { mergeDeviceFrames } from "input/mergeFrames";
-import { TouchOverlay } from "render/touchOverlay";
+import { TouchOverlay, type TouchLaserBadgeProbe } from "render/touchOverlay";
 import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
@@ -75,6 +75,13 @@ export interface SoloSession {
   readonly effectsState: EffectsState;
   /** Test/e2e probe (ADR 0009): fire one event's recipe into the effects. */
   debugFireEvent(type: SimEventType, source?: number, target?: number): void;
+  /** Test/e2e probe (ticket #148): drop a Capsule (arm the Laser). */
+  debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void;
+  /**
+   * Test/e2e probe (ticket #148): the touch launch button's glyph and LASER
+   * badge as drawn (screen px), or null without a touch overlay.
+   */
+  readonly touchLaserBadge: TouchLaserBadgeProbe | null;
 }
 
 /** Reported by `effectsState` when no field view exists (mid-teardown). */
@@ -701,6 +708,12 @@ export async function startSoloSession(
       // No view yet means the field is torn down; report an idle state rather
       // than throwing, so a probe can never break a test run.
       return view?.effectsState ?? IDLE_EFFECTS;
+    },
+    debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void {
+      episode.debugDropCapsule(x, y, type);
+    },
+    get touchLaserBadge(): TouchLaserBadgeProbe | null {
+      return touchOverlay?.laserBadgeProbe() ?? null;
     },
     debugFireEvent(type: SimEventType, source = 0, target = -1): void {
       const view = views[0];

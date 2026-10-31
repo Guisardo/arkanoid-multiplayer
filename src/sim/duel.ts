@@ -25,6 +25,7 @@ import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, ty
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  brickBreakScore,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
@@ -342,10 +343,10 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         return;
       }
       bricks[index] = BRICK_EMPTY;
-      points = 50;
+      points = brickBreakScore(cellV);
     } else {
       bricks[index] = BRICK_EMPTY;
-      points = 50 + (cellV - 1) * 10;
+      points = brickBreakScore(cellV);
     }
     // Brick points to ball owner (spec §6.3).
     scores[owner] += points;
