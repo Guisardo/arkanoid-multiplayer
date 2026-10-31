@@ -55,12 +55,7 @@ export class SplitScreenView {
   }
 
   private rebuild(): void {
-    for (const v of this.fields) {
-      // Destroy the effects orchestrator first: it owns pooled particles and
-      // BitmapText nodes that the container teardown would otherwise leak.
-      v.visualEffects.destroy();
-      v.container.destroy({ children: true });
-    }
+    for (const v of this.fields) v.destroy();
     this.container.removeChildren();
     this.fields = [];
     const regions: Region[] = splitRegions(this.opts.viewport, this.opts.players.length, this.opts.topInset);
@@ -178,6 +173,14 @@ export class SplitScreenView {
   /** Ticket #151: each field's cached-wall resolution (memory telemetry). */
   get wallCacheResolutions(): number[] {
     return this.fields.map((v) => v.wallCacheResolution);
+  }
+
+  /** Ticket #151: tear down every field (effects included) and the container. */
+  destroy(): void {
+    for (const v of this.fields) v.destroy();
+    this.fields = [];
+    this.lastSnapshots = [];
+    this.container.destroy({ children: true });
   }
 
   /** The live fields — read by tests and session diagnostics. */

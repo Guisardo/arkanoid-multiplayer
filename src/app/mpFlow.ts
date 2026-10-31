@@ -1571,7 +1571,7 @@ export class MpFlow {
   private teardownRender(): void {
     this.detachResize?.();
     this.detachResize = null;
-    this.split?.container.destroy({ children: true });
+    this.split?.destroy();
     this.split = null;
     this.strip?.close();
     this.strip = null;

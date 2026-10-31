@@ -614,6 +614,8 @@ export async function startVersusBotsSession(
     perfOverlay?.close();
     degradedBanner?.remove();
     contextBanner?.remove();
+    // Effects pools live outside the stage tree: release them explicitly.
+    split.destroy();
     shell.dispose();
   }
 

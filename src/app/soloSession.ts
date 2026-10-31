@@ -584,7 +584,7 @@ export async function startSoloSession(
   let lastSyncMs = 0;
 
   const onResize = (): void => {
-    for (const v of views) v.container.destroy({ children: true });
+    for (const v of views) v.destroy();
     app.stage.removeChildren();
     const fresh = makeView();
     views.length = 0;
@@ -683,6 +683,9 @@ export async function startSoloSession(
     perfOverlay?.close();
     degradedBanner?.remove();
     contextBanner?.remove();
+    // Effects pools live outside the stage tree: release them explicitly.
+    for (const v of views) v.destroy();
+    views.length = 0;
     shell.dispose();
   }
 

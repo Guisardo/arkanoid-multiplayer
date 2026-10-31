@@ -453,6 +453,19 @@ export class FieldView {
     this.brickLayer.setTextureResolution(resolution);
   }
 
+  /**
+   * Ticket #151: tear the field down. The effects orchestrator goes first — it
+   * owns pooled particles and pop BitmapTexts that a bare container teardown
+   * leaks — then the brick layer (pooled spares share contexts across fields),
+   * then the display tree. Idempotent.
+   */
+  destroy(): void {
+    if (this.container.destroyed) return;
+    this.effects.destroy();
+    this.brickLayer.destroy();
+    this.container.destroy({ children: true });
+  }
+
   /** Ticket #151: renderer resolution changed — re-record the wall to match. */
   setRendererResolution(resolution: number): void {
     this.brickLayer.setRendererResolution(resolution);

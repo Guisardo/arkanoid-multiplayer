@@ -81,6 +81,11 @@ vi.mock("render/appShell", () => ({
 
 vi.mock("render/fieldView", () => ({
   FieldView: class {
+    /** Every view the session built, oldest first (resize teardown probe). */
+    static instances: Array<{ destroy: () => void }> = [];
+    constructor() {
+      (this.constructor as unknown as { instances: unknown[] }).instances.push(this);
+    }
     readonly container = { destroy: () => {} };
     sync = vi.fn();
     invalidate = vi.fn();
@@ -88,6 +93,7 @@ vi.mock("render/fieldView", () => ({
     setTextureResolution = vi.fn();
     setRendererResolution = vi.fn();
     readonly wallCacheResolution = 1;
+    destroy = vi.fn();
     // ADR 0009: the session render callback advances the effects each frame.
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();
@@ -234,6 +240,22 @@ describe("solo session wiring", () => {
     // No throw; loop still advances after rebuild.
     for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
     expect(s.latestSnapshot().tick).toBeGreaterThanOrEqual(5);
+  });
+
+  it("resize and dispose release each view through FieldView.destroy (ticket #151)", async () => {
+    // Regression: the resize path destroyed only the container, leaking the
+    // old view's effects pools on every rotation.
+    const { FieldView } = await import("render/fieldView");
+    const instances = (FieldView as unknown as { instances: Array<{ destroy: ReturnType<typeof vi.fn> }> }).instances;
+    instances.length = 0;
+    const s = await makeSession();
+    s.loop.advance(0);
+    resizeRenderer(400, 300);
+    expect(instances).toHaveLength(2);
+    expect(instances[0]!.destroy).toHaveBeenCalledTimes(1);
+    expect(instances[1]!.destroy).not.toHaveBeenCalled();
+    s.dispose();
+    expect(instances[1]!.destroy).toHaveBeenCalledTimes(1);
   });
 
   it("dispose removes listeners (keydown no longer reaches the sim)", async () => {

@@ -73,6 +73,7 @@ vi.mock("render/splitScreen", () => ({
     });
     setRendererResolution = vi.fn();
     readonly wallCacheResolutions: number[] = [];
+    destroy = vi.fn();
   },
 }));
 
