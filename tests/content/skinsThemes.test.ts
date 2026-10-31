@@ -7,6 +7,7 @@ import { CAPSULE_PILLS, pillFor } from "content/capsulePills";
 import { BOSSES, DOH_BOSS, getBoss } from "content/bosses";
 import { skinPassesGate, contrastRatio, GLOW_MIN_CONTRAST } from "content/readabilityGate";
 import { PLAYER_COLORS } from "shared/playerColors";
+import { SPRITE_PATHS } from "content/spriteFrames";
 import type { CapsuleTypeId } from "shared/protocol";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -88,19 +89,41 @@ describe("skin/theme registries (spec §13)", () => {
       }
     }
     
-    // Verify all skin/theme sprites are in the atlas
-    const expectedFrames = new Set<string>();
+    // Issue #152: the key is looked up verbatim in the frame cache, so it must
+    // equal the frame name exactly. Comparing `path.basename` once let stale
+    // "/assets/paddles/..." paths pass while every lookup missed.
+    const keys: Array<{ owner: string; key: string }> = [];
     for (const s of SKINS) {
-      if (s.paddle.sprite !== null) expectedFrames.add(path.basename(s.paddle.sprite));
-      if (s.ball.sprite !== null) expectedFrames.add(path.basename(s.ball.sprite));
+      if (s.paddle.sprite !== null) keys.push({ owner: `${s.name} paddle`, key: s.paddle.sprite });
+      if (s.ball.sprite !== null) keys.push({ owner: `${s.name} ball`, key: s.ball.sprite });
     }
     for (const t of THEMES) {
-      if (t.background.sprite !== null) expectedFrames.add(path.basename(t.background.sprite));
+      if (t.background.sprite !== null) keys.push({ owner: `${t.name} background`, key: t.background.sprite });
     }
-    
-    for (const frame of expectedFrames) {
-      expect(atlasFrames.has(frame), `${frame} must be in AssetPack atlas`).toBe(true);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const { owner, key } of keys) {
+      expect(atlasFrames.has(key), `${owner}: "${key}" must be an atlas frame name`).toBe(true);
     }
+  });
+
+  it("every Skin/Field theme sprite key is one the loader registers", () => {
+    const registered = new Set<string>([
+      ...Object.values(SPRITE_PATHS.paddles),
+      ...Object.values(SPRITE_PATHS.balls),
+      ...Object.values(SPRITE_PATHS.backgrounds),
+    ]);
+    for (const s of SKINS) {
+      expect(registered.has(s.paddle.sprite ?? ""), `${s.name} paddle`).toBe(true);
+      expect(registered.has(s.ball.sprite ?? ""), `${s.name} ball`).toBe(true);
+    }
+    expect(THEMES.some((t) => t.background.sprite === "pixel-space.png")).toBe(true);
+    for (const t of THEMES) {
+      if (t.background.sprite !== null) expect(registered.has(t.background.sprite), t.name).toBe(true);
+    }
+  });
+
+  it("every Skin shares the one white-base ball frame", () => {
+    for (const s of SKINS) expect(s.ball.sprite, s.name).toBe("ball-base.png");
   });
 
   it("sourced sprites carry sourced provenance; procedural ones declare it", () => {

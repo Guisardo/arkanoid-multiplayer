@@ -12,7 +12,8 @@ import { TouchOverlay, type TouchLaserBadgeProbe } from "render/touchOverlay";
 import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
-import { FieldView } from "render/fieldView";
+import { FieldView, type FieldSpriteProbe } from "render/fieldView";
+import { spriteDebugState } from "render/spriteSheet";
 import type { EffectsState } from "render/visualEffects";
 import { layoutField } from "render/layout";
 import { resolveLocale, t, type Locale } from "ui/strings";
@@ -82,6 +83,18 @@ export interface SoloSession {
    * badge as drawn (screen px), or null without a touch overlay.
    */
   readonly touchLaserBadge: TouchLaserBadgeProbe | null;
+  /**
+   * Test/e2e probe (issue #152): how the field drew each Paddle and ball on
+   * its last sync (null mid-teardown), and any Skin/Field theme sprite keys
+   * reported missing from a loaded atlas.
+   */
+  readonly spriteProbe: SoloSpriteProbe;
+}
+
+/** Shape of `SoloSession.spriteProbe`. */
+export interface SoloSpriteProbe {
+  field: FieldSpriteProbe | null;
+  missingFrames: readonly string[];
 }
 
 /** Reported by `effectsState` when no field view exists (mid-teardown). */
@@ -721,6 +734,9 @@ export async function startSoloSession(
     },
     debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void {
       episode.debugDropCapsule(x, y, type);
+    },
+    get spriteProbe(): SoloSpriteProbe {
+      return { field: views[0]?.spriteProbe ?? null, missingFrames: spriteDebugState().missingFrames };
     },
     get touchLaserBadge(): TouchLaserBadgeProbe | null {
       return touchOverlay?.laserBadgeProbe() ?? null;

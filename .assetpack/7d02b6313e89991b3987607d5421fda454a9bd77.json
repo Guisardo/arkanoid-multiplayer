@@ -1,33 +1,33 @@
 {
     "assets": {
-        "/private/tmp/ark151/work/raw-assets": {
+        "/private/tmp/ark-152/raw-assets": {
             "isFolder": true,
             "metaData": {},
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793430362538,
-                "duration": 4.064040999999975,
+                "date": 1793435086818,
+                "duration": 3.621959000000004,
                 "success": true
             }
         },
-        "/private/tmp/ark151/work/raw-assets/boot{m}": {
+        "/private/tmp/ark-152/raw-assets/boot{m}": {
             "isFolder": true,
-            "parent": "/private/tmp/ark151/work/raw-assets",
+            "parent": "/private/tmp/ark-152/raw-assets",
             "metaData": {
                 "m": true
             },
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793430362538,
-                "duration": 3.9205839999999625,
+                "date": 1793435086818,
+                "duration": 3.477874999999983,
                 "success": true
             }
         },
-        "/private/tmp/ark151/work/raw-assets/boot{m}/boot-atlas{tps}": {
+        "/private/tmp/ark-152/raw-assets/boot{m}/boot-atlas{tps}": {
             "isFolder": true,
-            "parent": "/private/tmp/ark151/work/raw-assets/boot{m}",
+            "parent": "/private/tmp/ark-152/raw-assets/boot{m}",
             "metaData": {
                 "tps": true
             },
@@ -36,14 +36,14 @@
             },
             "transformData": {},
             "stats": {
-                "date": 1793430362538,
-                "duration": 187.783709,
+                "date": 1793435086818,
+                "duration": 162.35729199999997,
                 "success": true
             }
         },
-        "/private/tmp/ark151/work/raw-assets/boot{m}/boot-atlas{tps}/pixel-space.png": {
+        "/private/tmp/ark-152/raw-assets/boot{m}/boot-atlas{tps}/pixel-space.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/boot{m}/boot-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -54,7 +54,7 @@
         },
         ".assetpack/texture-packer/boot{m}/boot-atlas.png": {
             "isFolder": false,
-            "transformParent": "/private/tmp/ark151/work/raw-assets/boot{m}/boot-atlas{tps}",
+            "transformParent": "/private/tmp/ark-152/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {
                 "mIgnore": true,
                 "nomip": true
@@ -89,7 +89,7 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark151/work/public/assets/boot/boot-atlas-m8pXug.png": {
+        "/private/tmp/ark-152/public/assets/boot/boot-atlas-m8pXug.png": {
             "isFolder": false,
             "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-m8pXug.png",
             "metaData": {},
@@ -125,7 +125,7 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark151/work/public/assets/boot/boot-atlas-XmXRuA.webp": {
+        "/private/tmp/ark-152/public/assets/boot/boot-atlas-XmXRuA.webp": {
             "isFolder": false,
             "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-XmXRuA.webp",
             "metaData": {},
@@ -139,7 +139,7 @@
         },
         ".assetpack/texture-packer/boot{m}/boot-atlas.json": {
             "isFolder": false,
-            "transformParent": "/private/tmp/ark151/work/raw-assets/boot{m}/boot-atlas{tps}",
+            "transformParent": "/private/tmp/ark-152/raw-assets/boot{m}/boot-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -185,7 +185,7 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark151/work/public/assets/boot/boot-atlas-q2nDlg.png.json": {
+        "/private/tmp/ark-152/public/assets/boot/boot-atlas-q2nDlg.png.json": {
             "isFolder": false,
             "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-Wp72dg.png.json",
             "metaData": {},
@@ -233,7 +233,7 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark151/work/public/assets/boot/boot-atlas-MF4_Tg.webp.json": {
+        "/private/tmp/ark-152/public/assets/boot/boot-atlas-MF4_Tg.webp.json": {
             "isFolder": false,
             "transformParent": ".assetpack/cache-buster/boot{m}/boot-atlas-T6LjUg.webp.json",
             "metaData": {},
@@ -245,23 +245,23 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}": {
             "isFolder": true,
-            "parent": "/private/tmp/ark151/work/raw-assets",
+            "parent": "/private/tmp/ark-152/raw-assets",
             "metaData": {
                 "m": true
             },
             "inheritedMetaData": {},
             "transformData": {},
             "stats": {
-                "date": 1793430362541,
-                "duration": 0.6842919999999708,
+                "date": 1793435086821,
+                "duration": 0.6257500000000391,
                 "success": true
             }
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}": {
             "isFolder": true,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}",
             "metaData": {
                 "tps": true
             },
@@ -270,47 +270,25 @@
             },
             "transformData": {},
             "stats": {
-                "date": 1793430362541,
-                "duration": 119.54149999999998,
+                "date": 1793435086821,
+                "duration": 99.070042,
                 "success": true
             }
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-green.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-base.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
                 "tps": true
             },
             "transformData": {},
-            "hash": "bfWyPA"
+            "hash": "XI8QSw"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-red.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-a-red.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "m": true,
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "ZcWz3Q"
-        },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/ball-yellow.png": {
-            "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
-            "metaData": {},
-            "inheritedMetaData": {
-                "m": true,
-                "tps": true
-            },
-            "transformData": {},
-            "hash": "dhLM"
-        },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-a-red.png": {
-            "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -319,9 +297,9 @@
             "transformData": {},
             "hash": "Eg2n"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-b-purple.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-b-purple.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -330,9 +308,9 @@
             "transformData": {},
             "hash": "Iph4-w"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-c-blue.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/paddle-c-blue.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -341,9 +319,9 @@
             "transformData": {},
             "hash": "6nDJ"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-circle.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-circle.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -352,9 +330,9 @@
             "transformData": {},
             "hash": "dRsYKw"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-debris.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-debris.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -363,9 +341,9 @@
             "transformData": {},
             "hash": "iPKL"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-ring.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-ring.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -374,9 +352,9 @@
             "transformData": {},
             "hash": "t2IOxA"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-splat.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-splat.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -385,9 +363,9 @@
             "transformData": {},
             "hash": "-JKsfw"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-square.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-square.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -396,9 +374,9 @@
             "transformData": {},
             "hash": "8ryf0A"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-star.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-star.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -407,9 +385,9 @@
             "transformData": {},
             "hash": "N_kVMQ"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-streak.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-streak.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -418,9 +396,9 @@
             "transformData": {},
             "hash": "RQQrwQ"
         },
-        "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-triangle.png": {
+        "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}/particle-triangle.png": {
             "isFolder": false,
-            "parent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "parent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -431,7 +409,7 @@
         },
         ".assetpack/texture-packer/gameplay{m}/gameplay-atlas@4x.png": {
             "isFolder": false,
-            "transformParent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "transformParent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {
                 "mIgnore": true,
                 "nomip": true
@@ -454,7 +432,7 @@
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-j24BdA@4x.png": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Oq8kWA@4x.png": {
             "isFolder": false,
             "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas@4x.png",
             "metaData": {},
@@ -466,9 +444,9 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark151/work/public/assets/gameplay/gameplay-atlas-j24BdA@4x.png": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-Oq8kWA@4x.png": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-j24BdA@4x.png",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-Oq8kWA@4x.png",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -490,7 +468,7 @@
             },
             "transformData": {}
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-6lxUOA@4x.webp": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-xmoxLA@4x.webp": {
             "isFolder": false,
             "transformParent": ".assetpack/compress/gameplay{m}/gameplay-atlas@4x.webp",
             "metaData": {},
@@ -502,9 +480,9 @@
             },
             "transformData": {}
         },
-        "/private/tmp/ark151/work/public/assets/gameplay/gameplay-atlas-6lxUOA@4x.webp": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-xmoxLA@4x.webp": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-6lxUOA@4x.webp",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-xmoxLA@4x.webp",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -516,7 +494,7 @@
         },
         ".assetpack/texture-packer/gameplay{m}/gameplay-atlas@4x.json": {
             "isFolder": false,
-            "transformParent": "/private/tmp/ark151/work/raw-assets/gameplay{m}/gameplay-atlas{tps}",
+            "transformParent": "/private/tmp/ark-152/raw-assets/gameplay{m}/gameplay-atlas{tps}",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -550,7 +528,7 @@
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-t27i9A@4x.png.json": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-WLEXSA@4x.png.json": {
             "isFolder": false,
             "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas@4x.png.json",
             "metaData": {},
@@ -562,9 +540,9 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark151/work/public/assets/gameplay/gameplay-atlas-aqOgag@4x.png.json": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-v9v67g@4x.png.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-t27i9A@4x.png.json",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-WLEXSA@4x.png.json",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,
@@ -598,7 +576,7 @@
                 "page": 0
             }
         },
-        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-fSfO-A@4x.webp.json": {
+        ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-_IxwBg@4x.webp.json": {
             "isFolder": false,
             "transformParent": ".assetpack/json/gameplay{m}/gameplay-atlas@4x.webp.json",
             "metaData": {},
@@ -610,9 +588,9 @@
                 "page": 0
             }
         },
-        "/private/tmp/ark151/work/public/assets/gameplay/gameplay-atlas-_HmZwA@4x.webp.json": {
+        "/private/tmp/ark-152/public/assets/gameplay/gameplay-atlas-iliTow@4x.webp.json": {
             "isFolder": false,
-            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-fSfO-A@4x.webp.json",
+            "transformParent": ".assetpack/cache-buster/gameplay{m}/gameplay-atlas-_IxwBg@4x.webp.json",
             "metaData": {},
             "inheritedMetaData": {
                 "m": true,

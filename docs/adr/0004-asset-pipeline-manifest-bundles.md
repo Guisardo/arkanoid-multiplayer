@@ -106,3 +106,14 @@ The `boot`/`gameplay` split above is real, but the contents differ from the sket
 - **The hand-cut frame-table fallback honours `meta.scale`** the way Pixi's `Spritesheet`
   does, dividing every rect by the image resolution.
 
+## As built (issue #152)
+
+- **Packer options are nested.** `pixiPipes({ texturePacker })` takes packer settings under
+  `texturePacker.texturePacker` and `maximumTextureSize` under `resolutionOptions`. At the
+  top level they were silently ignored, so frames were packed rotated (`paddle-b-purple`
+  was), which the hand-cut fallback skips and the three-slice Paddle cannot draw.
+- **Registries name frames, not paths.** `SPRITE_PATHS` moved to `src/content/spriteFrames.ts`
+  so Skins and Field themes can reference frame names without content importing render.
+- **One ball frame.** `ball-red`/`ball-yellow`/`ball-green` were one silhouette at three
+  brightnesses, all too dark to carry an owner tint. They are replaced by `ball-base.png`
+  (`npm run assets:ball`).

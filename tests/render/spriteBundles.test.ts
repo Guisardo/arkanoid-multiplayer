@@ -42,9 +42,7 @@ const sheets: Record<string, ReturnType<typeof sheetOf>> = {
       "paddle-a-red.png",
       "paddle-b-purple.png",
       "paddle-c-blue.png",
-      "ball-red.png",
-      "ball-yellow.png",
-      "ball-green.png",
+      "ball-base.png",
       "particle-circle.png",
       "particle-square.png",
       "particle-triangle.png",
@@ -117,7 +115,7 @@ describe("progressive bundles (ticket 87)", () => {
     await initAssets();
     expect(bundleCalls).toEqual(["boot"]);
     expect(spriteTexture("pixel-space.png")).not.toBeNull();
-    expect(spriteTexture("ball-red.png")).toBeNull();
+    expect(spriteTexture("ball-base.png")).toBeNull();
   });
 
   it("defers the gameplay bundle until a match actually starts", async () => {
@@ -125,7 +123,7 @@ describe("progressive bundles (ticket 87)", () => {
     expect(bundleCalls).not.toContain("gameplay");
     await ensureGameplayAssets();
     expect(bundleCalls).toContain("gameplay");
-    expect(spriteTexture("ball-red.png")).not.toBeNull();
+    expect(spriteTexture("ball-base.png")).not.toBeNull();
   });
 
   it("does not re-request the gameplay bundle once loaded", async () => {
@@ -139,7 +137,7 @@ describe("progressive bundles (ticket 87)", () => {
     failBundles = new Set(["gameplay"]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await expect(ensureGameplayAssets()).resolves.toBeUndefined();
-    expect(spriteTexture("ball-red.png")).toBeNull();
+    expect(spriteTexture("ball-base.png")).toBeNull();
     expect(spriteDebugState().atlasResolved).toBe(false);
     expect(spriteDebugState().error).toBeInstanceOf(Error);
     warn.mockRestore();
@@ -157,7 +155,7 @@ describe("progressive bundles (ticket 87)", () => {
     failBundles = new Set();
     await ensureGameplayAssets();
     expect(bundleCalls.filter((b) => b === "gameplay")).toHaveLength(2);
-    expect(spriteTexture("ball-red.png")).not.toBeNull();
+    expect(spriteTexture("ball-base.png")).not.toBeNull();
     expect(spriteDebugState().error).toBeNull();
   });
 
@@ -187,8 +185,8 @@ describe("progressive bundles (ticket 87)", () => {
   it("does not count a partial atlas as loaded, so the missing frames are retried", async () => {
     const gameplay = sheets["gameplay-atlas"];
     if (gameplay === undefined) throw new Error("fixture missing gameplay sheet");
-    const missing = gameplay.textures["ball-red.png"];
-    delete gameplay.textures["ball-red.png"];
+    const missing = gameplay.textures["ball-base.png"];
+    delete gameplay.textures["ball-base.png"];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       await ensureGameplayAssets();
@@ -196,7 +194,7 @@ describe("progressive bundles (ticket 87)", () => {
       await ensureGameplayAssets();
       expect(bundleCalls.filter((b) => b === "gameplay")).toHaveLength(2);
     } finally {
-      if (missing !== undefined) gameplay.textures["ball-red.png"] = missing;
+      if (missing !== undefined) gameplay.textures["ball-base.png"] = missing;
       warn.mockRestore();
     }
   });
@@ -208,7 +206,7 @@ describe("progressive bundles (ticket 87)", () => {
     await Promise.all([initAssets(), ensureGameplayAssets()]);
     await initAssets();
     expect(initCalls).toBe(1);
-    expect(spriteTexture("ball-red.png")).not.toBeNull();
+    expect(spriteTexture("ball-base.png")).not.toBeNull();
     expect(spriteTexture("pixel-space.png")).not.toBeNull();
   });
 });

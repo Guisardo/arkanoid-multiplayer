@@ -27,9 +27,7 @@ const spritesheet = {
     "paddle-a-red.png": frameTexture("paddle-a-red.png"),
     "paddle-b-purple.png": frameTexture("paddle-b-purple.png"),
     "paddle-c-blue.png": frameTexture("paddle-c-blue.png"),
-    "ball-red.png": frameTexture("ball-red.png"),
-    "ball-yellow.png": frameTexture("ball-yellow.png"),
-    "ball-green.png": frameTexture("ball-green.png"),
+    "ball-base.png": frameTexture("ball-base.png"),
     "particle-circle.png": frameTexture("particle-circle.png"),
     "particle-square.png": frameTexture("particle-square.png"),
     "particle-triangle.png": frameTexture("particle-triangle.png"),
@@ -74,7 +72,7 @@ vi.mock("pixi.js", async () => {
   };
 });
 
-const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
+const { ensureGameplayAssets, gameplayAssetsLoaded, initAssets, loadSkinSprites, rememberTexture, skinSpriteTexture, SPRITE_PATHS, spriteDebugState, spriteTexture } =
   await import("render/spriteSheet");
 
 beforeEach(() => {
@@ -92,11 +90,11 @@ beforeEach(() => {
 describe("spriteSheet — SPRITE_PATHS", () => {
   it("covers paddles, balls, backgrounds and the 8 particle frames", () => {
     expect(Object.keys(SPRITE_PATHS.paddles).length).toBe(3);
-    expect(Object.keys(SPRITE_PATHS.balls).length).toBe(3);
+    expect(Object.keys(SPRITE_PATHS.balls).length).toBe(1);
     expect(Object.keys(SPRITE_PATHS.backgrounds).length).toBe(1);
     expect(Object.keys(SPRITE_PATHS.particles).length).toBe(8);
     expect(SPRITE_PATHS.paddles.red).toBe("paddle-a-red.png");
-    expect(SPRITE_PATHS.balls.red).toBe("ball-red.png");
+    expect(SPRITE_PATHS.balls.base).toBe("ball-base.png");
     expect(SPRITE_PATHS.backgrounds.pixelSpace).toBe("pixel-space.png");
     const names = Object.values(SPRITE_PATHS.particles);
     expect(new Set(names).size).toBe(8);
@@ -153,7 +151,7 @@ describe("spriteSheet — atlas registration", () => {
     await ensureGameplayAssets();
     const star = spriteTexture(SPRITE_PATHS.particles.star)!;
     const circle = spriteTexture(SPRITE_PATHS.particles.circle)!;
-    const ball = spriteTexture(SPRITE_PATHS.balls.red)!;
+    const ball = spriteTexture(SPRITE_PATHS.balls.base)!;
     expect(star.source).toBe(circle.source);
     expect(star.source).toBe(ball.source);
   });
@@ -195,13 +193,13 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
   async function recut(): Promise<Recut> {
     atlasAliasValue = rawTable;
     const beforePaddle = spriteTexture("paddle-a-red.png");
-    const beforeBall = spriteTexture("ball-red.png");
+    const beforeBall = spriteTexture("ball-base.png");
     await ensureGameplayAssets();
     return {
       beforePaddle,
       beforeBall,
       paddle: spriteTexture("paddle-a-red.png"),
-      ball: spriteTexture("ball-red.png"),
+      ball: spriteTexture("ball-base.png"),
     };
   }
   // A manifest can resolve to a bare frame table instead of a Spritesheet (no
@@ -216,7 +214,7 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
         spriteSourceSize: { x: 1, y: 1, w: 62, h: 26 },
         sourceSize: { w: 64, h: 28 },
       },
-      "ball-red.png": {
+      "ball-base.png": {
         frame: { x: 1348, y: 145, w: 14, h: 14 },
         rotated: false,
         trimmed: true,
@@ -224,12 +222,12 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
         sourceSize: { w: 16, h: 16 },
       },
       // Rotated frames are skipped rather than rendered with wrong UVs.
-      "ball-green.png": {
-        frame: { x: 0, y: 0, w: 16, h: 16 },
+      "paddle-b-purple.png": {
+        frame: { x: 0, y: 0, w: 28, h: 64 },
         rotated: true,
         trimmed: false,
-        spriteSourceSize: { x: 0, y: 0, w: 16, h: 16 },
-        sourceSize: { w: 16, h: 16 },
+        spriteSourceSize: { x: 0, y: 0, w: 64, h: 28 },
+        sourceSize: { w: 64, h: 28 },
       },
     },
     meta: { image: "atlas-raw.png" },
@@ -258,7 +256,7 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
     expect(paddle.orig?.width).toBe(64);
     expect(paddle.trim?.x).toBe(1);
     // All cut frames share the loaded image's source — the batching contract.
-    expect(paddle.source).toBe(spriteTexture("ball-red.png")!.source);
+    expect(paddle.source).toBe(spriteTexture("ball-base.png")!.source);
   });
 
   it("honours the table's meta.scale like Pixi's Spritesheet (ticket #151 @4x atlas)", async () => {
@@ -279,10 +277,10 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
 
   it("skips a rotated frame rather than rendering it with wrong UVs", async () => {
     atlasAliasValue = rawTable;
-    const before = spriteTexture("ball-green.png");
+    const before = spriteTexture("paddle-b-purple.png");
     await ensureGameplayAssets();
     // Untouched: the previous registration (or absence) still stands.
-    expect(spriteTexture("ball-green.png")).toBe(before);
+    expect(spriteTexture("paddle-b-purple.png")).toBe(before);
   });
 
   it("a table with no image yields nothing instead of throwing", async () => {
@@ -306,5 +304,80 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
     warn.mockRestore();
     expect(spriteTexture("paddle-a-red.png")).toBe(before);
     expect(spriteDebugState().error).toBeInstanceOf(Error);
+  });
+});
+
+describe("spriteSheet — Skin/Field theme frame lookup (issue #152)", () => {
+  const skin = { kind: "skin", id: "a3d54b7e-1c2f-4e88-9a60-3b7f5d2c8e41" } as const;
+  const theme = { kind: "theme", id: "7b2c8d4e-1a63-4f9b-8e2d-6c4a9f3b7e15" } as const;
+
+  /** Run `body` with one frame pulled out of the mocked gameplay atlas. */
+  async function withoutFrame(name: string, body: () => Promise<void>): Promise<void> {
+    const textures: Record<string, Texture> = spritesheet.textures;
+    const removed = textures[name]!;
+    Reflect.deleteProperty(textures, name);
+    try {
+      await body();
+    } finally {
+      textures[name] = removed;
+    }
+  }
+
+  it("resolves a registered frame without logging", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await initAssets();
+    await ensureGameplayAssets();
+    expect(skinSpriteTexture(SPRITE_PATHS.paddles.purple, skin)).toBe(spriteTexture(SPRITE_PATHS.paddles.purple));
+    expect(skinSpriteTexture(SPRITE_PATHS.backgrounds.pixelSpace, theme)).not.toBeNull();
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("stays quiet while the frame's atlas has not loaded yet (procedural until it lands)", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await initAssets(); // boot only: gameplay frames are legitimately absent
+    expect(skinSpriteTexture(SPRITE_PATHS.paddles.red, skin)).toBeNull();
+    expect(error).not.toHaveBeenCalled();
+    expect(spriteDebugState().missingFrames).toEqual([]);
+    error.mockRestore();
+  });
+
+  it("logs a frame missing from a loaded atlas once per key, naming the owner and key", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await withoutFrame(SPRITE_PATHS.paddles.purple, async () => {
+      await initAssets();
+      await ensureGameplayAssets();
+    });
+    expect(skinSpriteTexture(SPRITE_PATHS.paddles.purple, skin)).toBeNull();
+    expect(skinSpriteTexture(SPRITE_PATHS.paddles.purple, skin)).toBeNull();
+    expect(error).toHaveBeenCalledTimes(1);
+    const message = String(error.mock.calls[0]![0]);
+    expect(message).toMatch(/skin/);
+    expect(message).toContain(skin.id);
+    expect(message).toContain(SPRITE_PATHS.paddles.purple);
+    expect(spriteDebugState().missingFrames).toEqual([SPRITE_PATHS.paddles.purple]);
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it("logs a key no atlas declares once any atlas has loaded", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await initAssets();
+    expect(skinSpriteTexture("/assets/backgrounds/pixel-space.png", theme)).toBeNull();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0]![0])).toContain(theme.id);
+    error.mockRestore();
+  });
+
+  it("reset forgets reported keys so each test page starts clean", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await initAssets();
+    skinSpriteTexture("ghost.png", skin);
+    gameplayAssetsLoaded.reset();
+    await initAssets();
+    skinSpriteTexture("ghost.png", skin);
+    expect(error).toHaveBeenCalledTimes(2);
+    error.mockRestore();
   });
 });

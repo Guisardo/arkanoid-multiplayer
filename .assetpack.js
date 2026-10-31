@@ -27,12 +27,17 @@ export default {
       cacheBust: true,
       resolutions: { default: 1 },
       compression: { jpg: true, png: true, webp: true },
+      // Issue #152: packer options live one level down, under `texturePacker`.
+      // At the top level they were silently ignored, so frames came out
+      // rotated, which the three-slice Paddle and the hand-cut fallback reject.
       texturePacker: {
-        nameStyle: "short",
-        padding: 2,
-        allowRotation: false,
-        allowTrim: true,
-        maximumTextureSize: 2048,
+        texturePacker: {
+          nameStyle: "short",
+          padding: 2,
+          allowRotation: false,
+          allowTrim: true,
+        },
+        resolutionOptions: { maximumTextureSize: 2048 },
       },
       manifest: {
         createShortcuts: true,
