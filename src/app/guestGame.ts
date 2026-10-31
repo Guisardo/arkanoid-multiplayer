@@ -81,9 +81,8 @@ export interface GuestGameOptions {
   /** Player names by sim index. */
   names: string[];
   maxRound?: number;
-  /** Mode + input delay D — drive local-paddle prediction bounds (46). */
+  /** Mode — drives local-paddle prediction bounds (46). */
   mode?: "race" | "attack" | "duel" | "sharedField" | "parallelAssist";
-  delayTicks?: number;
   /** Total session players (sharedField slice width). */
   playerCount?: number;
 }
@@ -114,7 +113,6 @@ export function createGuestGameSession(
       : opts.mode === "duel"
         ? "duelWall"
         : "walls";
-  const delayTicks = opts.delayTicks ?? 4;
   const playerCount = opts.playerCount ?? Math.max(1, opts.names.length);
   // Parallel modes renumber each field's player to 0 (multiField remap);
   // single-field modes carry global sim ids. Frames carry the device-local
@@ -127,7 +125,6 @@ export function createGuestGameSession(
       snapPlayer: parallelFields ? 0 : player,
       bounds: boundsKind,
       playerCount,
-      delayTicks,
     }),
   );
 
