@@ -152,7 +152,7 @@ Game feel audit (#67): "New VisualEffects orchestrator recommended with trauma-b
 - **Frames are 16×16 field units at 4 texels per unit** (64×64 px), so they stay sharp at
   the field's on-screen scale. The gameplay atlas records that resolution, so sizes in
   field units are unchanged (see ADR 0004, as built #151).
-- **The event ring is deduped per Sim epoch** (`shared/eventWatermark.ts`). A rebuilt sim
+- **The event ring is deduped per Sim epoch** (`shared/eventWatermark.ts`, ADR 0010). A rebuilt sim
   restarts its ticks at 0, so a bare "newest tick" watermark silenced every effect on the
   next round. The step that triggers a rebuild carries its events (the CLEAR) into the new
   epoch's ring, or no consumer would ever see them.
