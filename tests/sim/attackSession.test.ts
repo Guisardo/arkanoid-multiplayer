@@ -9,7 +9,7 @@ function frame(
   player: number,
   tick: number,
   axisX = 0,
-  over: Partial<Pick<InputFrame, "launch" | "actions">> = {},
+  over: Partial<Pick<InputFrame, "launch" | "primaryHeld" | "actions">> = {},
 ): InputFrame {
   return {
     player,
@@ -17,7 +17,7 @@ function frame(
     axisX,
     axisY: 0,
     launch: over.launch ?? false,
-    primaryHeld: false,
+    primaryHeld: over.primaryHeld ?? false,
     actions: over.actions ?? EMPTY_ACTIONS,
   };
 }
@@ -480,5 +480,44 @@ describe("attack session: determinism", () => {
       return session.snapshots();
     };
     expect(run()).toEqual(run());
+  });
+});
+
+describe("attack session: Laser (ticket #144)", () => {
+  /** Launch, park the ball out of play's way, arm player 0 with a Laser. */
+  function armedSession() {
+    const session = mkSession(2);
+    const ref = { t: 0 };
+    session.step([frame(0, ref.t++, 0, { launch: true })]);
+    session.debugSetBall(0, 8, 200, 0, 0);
+    const paddle = session.snapshots()[0]!.players[0]!.paddle;
+    session.race().simAt(0)!.debugDropCapsule(paddle.x, paddle.y, "L");
+    session.step([frame(0, ref.t++)]);
+    return { session, ref };
+  }
+
+  it("laser breaks fill the meter (+2 per brick)", () => {
+    const { session, ref } = armedSession();
+    const before = session.snapshots()[0]!;
+    const meter0 = before.players[0]!.meter;
+    const bricks0 = destructibleCount(before.bricks);
+    session.step([frame(0, ref.t++, 0, { primaryHeld: true })]);
+    for (let i = 0; i < 60; i++) session.step([frame(0, ref.t++)]);
+    const after = session.snapshots()[0]!;
+    const broken = bricks0 - destructibleCount(after.bricks);
+    expect(broken).toBe(2);
+    expect(after.players[0]!.meter).toBe(meter0 + 2 * broken);
+  });
+
+  it("laser breaks extend the Chain and firing never resets it", () => {
+    const { session, ref } = armedSession();
+    const chain0 = session.snapshots()[0]!.players[0]!.chain;
+    for (let v = 0; v < 2; v++) {
+      session.step([frame(0, ref.t++, 0, { primaryHeld: true })]);
+      for (let i = 0; i < 60; i++) session.step([frame(0, ref.t++)]);
+    }
+    const snap = session.snapshots()[0]!;
+    expect(snap.events.some((e) => e.type === "paddleBounce")).toBe(false);
+    expect(snap.players[0]!.chain).toBe(chain0 + 4);
   });
 });
