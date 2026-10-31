@@ -31,10 +31,12 @@ import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { MouseAdapter } from "input/mouse";
 import { TouchAdapter } from "input/touch";
+import { bindInputSafety, bindMouseHeld, type MouseHeldTarget } from "input/inputSafety";
+import { mergeDeviceFrames } from "input/mergeFrames";
 import { TouchOverlay } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { layoutField } from "render/layout";
-import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 const appHostElement = document.getElementById("app");
 if (appHostElement === null) throw new Error("missing #app host");
@@ -299,6 +301,25 @@ function makeLocalInput(flow: MpFlow) {
   };
   globalThis.addEventListener("keydown", kd);
   globalThis.addEventListener("keyup", ku);
+  // Ticket #143: held input must never stick. Adapters are created lazily
+  // per player, so the device list is read at release time.
+  const inputSafety = bindInputSafety(() => [
+    ...keyboards,
+    ...gamepads.values(),
+    ...mice.values(),
+    ...touches.values(),
+  ]);
+  /** Mouse held button fans out like clicks: every local mouse adapter. */
+  const allMice: MouseHeldTarget = {
+    feedButtons: (buttons) => {
+      for (const m of mice.values()) m.feedButtons(buttons);
+    },
+    releaseHeld: () => {
+      for (const m of mice.values()) m.releaseHeld();
+    },
+  };
+  let unbindMouseHeld: (() => void) | null = null;
+  let wasBlocked = true;
 
   const coarse =
     typeof globalThis.matchMedia === "function" &&
@@ -320,7 +341,7 @@ function makeLocalInput(flow: MpFlow) {
       const app = flow.renderApp;
       const region = flow.localRegion(player);
       if (app !== null && region !== null) {
-        const overlay = new TouchOverlay(adapter, region, touchClusterFor(flow.currentMode ?? "race"));
+        const overlay = new TouchOverlay(adapter, region, touchClusterFor(flow.currentMode ?? "race"), locale);
         app.stage.addChild(overlay.container);
         touchOverlays.set(player, overlay);
       }
@@ -384,8 +405,13 @@ function makeLocalInput(flow: MpFlow) {
     app.canvas.addEventListener("pointerdown", onPointerDown);
     app.canvas.addEventListener("pointerup", onPointerUp);
     app.canvas.addEventListener("pointercancel", onPointerUp);
+    // Every matchStart rebinds; drop the previous match's binding first.
+    unbindMouseHeld?.();
+    unbindMouseHeld = bindMouseHeld(app.canvas, allMice);
   };
   const unbindPointerEvents = (): void => {
+    unbindMouseHeld?.();
+    unbindMouseHeld = null;
     const app = flow.renderApp;
     if (app === null) return;
     app.canvas.removeEventListener("pointermove", onPointerMove);
@@ -434,6 +460,16 @@ function makeLocalInput(flow: MpFlow) {
       for (const overlay of touchOverlays.values()) overlay.setMode(cluster);
       bindPointerEvents();
     },
+    /**
+     * Release held input when the match stops taking it (pause, quit-confirm,
+     * end screen, leaving `inGame`). Polled at the menu cadence; releases on
+     * the transition only, so a key pressed while blocked is not re-cleared.
+     */
+    watchBlocked(): void {
+      const blocked = flow.localInputBlocked;
+      if (blocked && !wasBlocked) inputSafety.release();
+      wasBlocked = blocked;
+    },
     /** Per-render overlay refresh (stick knob + held buttons). */
     renderTick(): void {
       for (const [player, overlay] of touchOverlays) {
@@ -441,16 +477,16 @@ function makeLocalInput(flow: MpFlow) {
         // adapter's hit areas) anchored to it.
         const region = flow.localRegion(player);
         if (region !== null && overlay.regionDiffers(region)) overlay.setRegion(region);
+        // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+        const snap = flow.localSnapshots().find((s) => s.players.some((p) => p.player === player));
+        if (snap !== undefined) overlay.setLaunchGlyph(launchGlyphFor(snap, player));
         overlay.redraw();
       }
     },
-    /** Per-tick sample: last active device wins (touch > mouse > gamepad > keyboard). */
+    /** Per-tick sample: moving device steers (touch > mouse > gamepad > keyboard); edges and held fire OR. */
     sample(player: number, tick: number) {
       const kb = keyboards[player] ?? keyboards[0];
       const kf = kb === undefined ? null : kb.sampleFrame(tick);
-      const frame: InputFrame = kf === null || kf.player === player
-        ? (kf ?? { player, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS })
-        : { ...kf, player };
       const pad = poll(player);
       const gf = pad.sampleFrame(tick);
       const touch = touches.get(player);
@@ -459,7 +495,7 @@ function makeLocalInput(flow: MpFlow) {
       if (mouse !== undefined) {
         // Another device taking over cancels the pointer chase, so a stale
         // mouse target cannot override keyboard/gamepad/touch input.
-        if (frame.axisX !== 0 || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
+        if ((kf !== null && kf.axisX !== 0) || gf.axisX !== 0 || (tf !== null && tf.axisX !== 0)) {
           mouse.releaseTarget();
         }
         const snap = flow.localSnapshots()[mice.size > 1 ? flow.localPlayers.indexOf(player) : 0];
@@ -467,31 +503,7 @@ function makeLocalInput(flow: MpFlow) {
         if (paddleX !== undefined) mouse.feedPaddle(paddleX);
       }
       const mf = mouse !== undefined ? mouse.sampleFrame(tick) : null;
-      const pick: InputFrame =
-        tf !== null && tf.axisX !== 0 ? tf :
-        mf !== null && mf.axisX !== 0 ? mf :
-        gf.axisX !== 0 ? gf : frame;
-      const edges =
-        (tf !== null && (tf.launch || tf.actions.cycleForward)) ||
-        (mf !== null && (mf.launch || mf.actions.cycleForward)) ||
-        gf.launch || gf.actions.cycleForward ||
-        kf?.launch === true || frame.launch;
-      if (!edges) return pick.player === player ? pick : { ...pick, player };
-      return {
-        ...pick,
-        player,
-        launch: (tf !== null && tf.launch) || (mf !== null && mf.launch) || gf.launch || frame.launch,
-        actions: {
-          cycleForward: (tf !== null && tf.actions.cycleForward) || (mf !== null && mf.actions.cycleForward) || gf.actions.cycleForward || frame.actions.cycleForward,
-          cycleBack: (tf !== null && tf.actions.cycleBack) || (mf !== null && mf.actions.cycleBack) || gf.actions.cycleBack || frame.actions.cycleBack,
-          fire: [
-            (tf !== null && tf.actions.fire[0]) || (mf !== null && mf.actions.fire[0]) || gf.actions.fire[0] || frame.actions.fire[0],
-            (tf !== null && tf.actions.fire[1]) || (mf !== null && mf.actions.fire[1]) || gf.actions.fire[1] || frame.actions.fire[1],
-            (tf !== null && tf.actions.fire[2]) || (mf !== null && mf.actions.fire[2]) || gf.actions.fire[2] || frame.actions.fire[2],
-            (tf !== null && tf.actions.fire[3]) || (mf !== null && mf.actions.fire[3]) || gf.actions.fire[3] || frame.actions.fire[3],
-          ] as [boolean, boolean, boolean, boolean],
-        },
-      };
+      return mergeDeviceFrames(player, tick, { touch: tf, mouse: mf, gamepad: gf, keyboard: kf });
     },
     /**
      * Ticket 48: menu/pause edge (Esc / rebindable menu key / gamepad
@@ -511,6 +523,7 @@ function makeLocalInput(flow: MpFlow) {
     dispose(): void {
       globalThis.removeEventListener("keydown", kd);
       globalThis.removeEventListener("keyup", ku);
+      inputSafety.unbind();
       unbindPointerEvents();
       for (const overlay of touchOverlays.values()) overlay.container.destroy({ children: true });
       touchOverlays.clear();
@@ -657,6 +670,7 @@ function startHostFlow(code: string): void {
       hostInput.matchStart();
     }
     if (hostInputStarted) hostInput.renderTick();
+    hostInput.watchBlocked();
     if (hostInput.consumeMenuEdge()) flow.localPausePressed();
   }, 100);
 
@@ -792,6 +806,7 @@ function startGuestFlow(code: string): void {
       guestInput.matchStart();
     }
     if (guestInputStarted) guestInput.renderTick();
+    guestInput.watchBlocked();
     if (guestInput.consumeMenuEdge()) flow.localPausePressed();
   }, 100);
 

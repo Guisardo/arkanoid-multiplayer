@@ -79,6 +79,16 @@ export class KeyboardAdapter {
     this.bindings = bindings;
   }
 
+  /**
+   * Forget every held key (ticket #143): window blur, tab hidden, context
+   * menu, pause. The browser never sends the matching keyup in those cases,
+   * so without this a held arrow drifts the Paddle and held Space keeps
+   * firing. Buffered edges are kept; a fresh press is a new edge.
+   */
+  releaseHeld(): void {
+    this.pressed.clear();
+  }
+
   /** Drop all buffered edges + pressed keys (settings overlay close). */
   flush(): void {
     this.pressed.clear();
@@ -131,7 +141,9 @@ export class KeyboardAdapter {
   /** Sample the Input frame for this tick; clears edge events (buffered max 1). */
   sampleFrame(tick: number): InputFrame {
     let axisX = 0;
+    let primaryHeld = false;
     for (const b of this.bindings) {
+      for (const k of b.launch) if (this.pressed.has(k)) primaryHeld = true;
       let left = false;
       let right = false;
       for (const k of b.left) if (this.pressed.has(k)) left = true;
@@ -154,7 +166,7 @@ export class KeyboardAdapter {
       axisX,
       axisY: 0,
       launch: this.launchEdge,
-      primaryHeld: false,
+      primaryHeld,
       actions,
     };
     this.launchEdge = false;

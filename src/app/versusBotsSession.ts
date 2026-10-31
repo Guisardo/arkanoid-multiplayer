@@ -4,13 +4,16 @@
 // field for duel/sharedField), pause freely (coop semantics), end screens
 // per ticket 50 shapes, rematch / back-to-config / quit flow.
 import type { Application } from "pixi.js";
-import type { InputFrame, Snapshot } from "shared/protocol";
+import type { Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { TouchAdapter } from "input/touch";
+import { bindInputSafety, bindMouseHeld } from "input/inputSafety";
+import { mergeDeviceFrames } from "input/mergeFrames";
 import { TouchOverlay } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { SplitScreenView } from "render/splitScreen";
 import {
@@ -127,6 +130,11 @@ export async function startVersusBotsSession(
     mode: "solo",
     layout: { stick: { x: 80, y: 0 }, buttons: {}, buttonRadius: 24 },
   }) : null;
+  // Ticket #143: held input must never stick (blur, hidden tab, context menu,
+  // pause / settings / end screen, teardown).
+  const inputSafety = bindInputSafety(() =>
+    touch !== null ? [keyboard, mouse, gamepad, touch] : [keyboard, mouse, gamepad],
+  );
 
   const applyStoredBindings = (): void => {
     const controls = loadSettings(storage).controls;
@@ -180,7 +188,7 @@ export async function startVersusBotsSession(
   // Touch overlay floats over the whole canvas (single-field anchor).
   let touchOverlay: TouchOverlay | null = null;
   if (touch !== null) {
-    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant));
+    touchOverlay = new TouchOverlay(touch, { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height }, touchClusterFor(opts.variant), locale);
     app.stage.addChild(touchOverlay.container);
   }
 
@@ -239,6 +247,7 @@ export async function startVersusBotsSession(
     paused = true;
     sim.pause();
     loop.stop();
+    inputSafety.release();
     pauseMenu = buildPauseMenu();
     canvasHost.appendChild(pauseMenu);
   }
@@ -259,6 +268,7 @@ export async function startVersusBotsSession(
     if (data === null) return;
     over = true;
     loop.stop();
+    inputSafety.release();
     audio.dispose();
     endScreen = new EndScreen({
       host: canvasHost,
@@ -322,6 +332,7 @@ export async function startVersusBotsSession(
   };
   app.canvas.addEventListener("pointermove", onPointerMove);
   app.canvas.addEventListener("pointerdown", onPointerDown);
+  const unbindMouseHeld = bindMouseHeld(app.canvas, mouse);
 
   if (touch !== null) {
     const route = (e: PointerEvent, down: boolean): void => {
@@ -399,7 +410,8 @@ export async function startVersusBotsSession(
   const loop = createAccumulatorLoop({
     tick: (tick) => {
       if (paused || over) return;
-      // Merge devices (soloSession pattern): last active wins, edges OR.
+      // Merge devices (input/mergeFrames): moving device steers, edges and
+      // held fire OR.
       const kf = keyboard.sampleFrame(tick);
       const gf = gamepad.sampleFrame(tick);
       const tf = touch !== null ? touch.sampleFrame(tick) : null;
@@ -411,36 +423,7 @@ export async function startVersusBotsSession(
       const paddleX = sim.snapshots()[0]?.players.find((p) => p.player === 0)?.paddle.x;
       if (paddleX !== undefined) mouse.feedPaddle(paddleX);
       const mf = mouse.sampleFrame(tick);
-      const active =
-        (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
-        (mf.axisX !== 0 ? "mouse" : "") ||
-        (gf.axisX !== 0 ? "gamepad" : "") ||
-        (kf.axisX !== 0 ? "keyboard" : "");
-      const pick: InputFrame =
-        active === "touch" && tf !== null ? tf :
-        active === "mouse" ? mf :
-        active === "gamepad" ? gf : kf;
-      const edges =
-        (tf !== null && (tf.launch || tf.actions.cycleForward)) ||
-        mf.launch || gf.launch || kf.launch ||
-        mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward;
-      const frame: InputFrame = edges
-        ? {
-            ...pick,
-            launch: (tf !== null && tf.launch) || mf.launch || gf.launch || kf.launch,
-            actions: {
-              cycleForward: (tf !== null && tf.actions.cycleForward) || mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward,
-              cycleBack: (tf !== null && tf.actions.cycleBack) || mf.actions.cycleBack || gf.actions.cycleBack || kf.actions.cycleBack,
-              fire: [
-                (tf !== null && tf.actions.fire[0]) || mf.actions.fire[0] || gf.actions.fire[0] || kf.actions.fire[0],
-                (tf !== null && tf.actions.fire[1]) || mf.actions.fire[1] || gf.actions.fire[1] || kf.actions.fire[1],
-                (tf !== null && tf.actions.fire[2]) || mf.actions.fire[2] || gf.actions.fire[2] || kf.actions.fire[2],
-                (tf !== null && tf.actions.fire[3]) || mf.actions.fire[3] || gf.actions.fire[3] || kf.actions.fire[3],
-              ] as [boolean, boolean, boolean, boolean],
-            },
-          }
-        : pick;
-      sim.step(frame);
+      sim.step(mergeDeviceFrames(0, tick, { touch: tf, mouse: mf, gamepad: gf, keyboard: kf }));
       if (sim.over()) showEnd();
     },
     render: () => {
@@ -452,6 +435,9 @@ export async function startVersusBotsSession(
       } else if ((menuRequested() || touchPause) && !settingsScreen && !over) {
         openPauseMenu();
       }
+      // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+      const humanSnap = sim.snapshots()[0];
+      if (humanSnap !== undefined) touchOverlay?.setLaunchGlyph(launchGlyphFor(humanSnap, 0));
       touchOverlay?.redraw();
       const syncStart = performance.now();
       const snaps = sim.snapshots();
@@ -557,6 +543,7 @@ export async function startVersusBotsSession(
 
   function openSettings(fromPause = false): void {
     loop.stop();
+    inputSafety.release();
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
       ...(fromPause ? { sections: ["audio", "display"] as const } : {}),
       onChange: (audioChanged) => {
@@ -602,6 +589,8 @@ export async function startVersusBotsSession(
     app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
+    unbindMouseHeld();
+    inputSafety.unbind();
     settingsScreen?.close();
     pauseMenu?.remove();
     endScreen?.close();

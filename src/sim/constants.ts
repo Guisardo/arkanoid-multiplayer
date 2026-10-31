@@ -16,6 +16,13 @@ export const CAPSULE_FALL_SPEED = 45;
 export const PADDLE_VMAX = 150;
 export const SIM_HZ = 60;
 export const TICK_DT = 1 / SIM_HZ;
+/** Laser Bolt box (spec #140): 2 wide, 6 tall; (x, y) = centre column, tip. */
+export const BOLT_W = 2;
+export const BOLT_H = 6;
+/** Bolt speed (units/s): 240 = 4 units per tick, straight up. */
+export const BOLT_SPEED = 240;
+/** Bolt hits per boss HP (spec #140): a ball hit is worth 4 Bolts. */
+export const BOLT_HITS_PER_BOSS_HP = 4;
 
 /**
  * ADR 0006 pool prewarm sizes. Balls: 3 players × 3 multiball + serve buffer.
@@ -26,4 +33,10 @@ export const POOL_PREWARM = {
   balls: 12,
   capsules: 24,
   bossProjectiles: 8,
+  /**
+   * Laser Bolts (ticket #142): `LASER_BOLTS_PER_PADDLE` (8) per Paddle,
+   * capped here at 4 Paddles at the cap. `Bolts` scales its prewarm by
+   * Paddle count up to this.
+   */
+  bolts: 32,
 } as const;

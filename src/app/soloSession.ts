@@ -1,12 +1,15 @@
 import type { Application } from "pixi.js";
-import type { InputFrame, SimEventType, Snapshot } from "shared/protocol";
+import type { CapsuleTypeId, SimEventType, Snapshot } from "shared/protocol";
 import { createAccumulatorLoop, type AccumulatorLoop } from "./loop";
 import { createSoloEpisode, CONTINUE_SCORE_FACTOR, type SoloEpisode, type SoloPhase } from "app/soloEpisode";
 import { KeyboardAdapter, KEYSET_1, KEYSET_2 } from "input/keyboard";
 import { MouseAdapter } from "input/mouse";
 import { GamepadAdapter, type GamepadState } from "input/gamepad";
 import { TouchAdapter } from "input/touch";
-import { TouchOverlay } from "render/touchOverlay";
+import { bindInputSafety, bindMouseHeld } from "input/inputSafety";
+import { mergeDeviceFrames } from "input/mergeFrames";
+import { TouchOverlay, type TouchLaserBadgeProbe } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
@@ -72,6 +75,13 @@ export interface SoloSession {
   readonly effectsState: EffectsState;
   /** Test/e2e probe (ADR 0009): fire one event's recipe into the effects. */
   debugFireEvent(type: SimEventType, source?: number, target?: number): void;
+  /** Test/e2e probe (ticket #148): drop a Capsule (arm the Laser). */
+  debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void;
+  /**
+   * Test/e2e probe (ticket #148): the touch launch button's glyph and LASER
+   * badge as drawn (screen px), or null without a touch overlay.
+   */
+  readonly touchLaserBadge: TouchLaserBadgeProbe | null;
 }
 
 /** Reported by `effectsState` when no field view exists (mid-teardown). */
@@ -87,6 +97,7 @@ const IDLE_EFFECTS: EffectsState = {
   particlePool: 0,
   pops: [],
   chain: 0,
+  brickFlashes: [],
   reducedEffects: false,
 };
 
@@ -177,6 +188,11 @@ export async function startSoloSession(
     layout: { stick: { x: 80, y: 0 }, buttons: {}, buttonRadius: 24 },
   }) : null;
   let touchOverlay: TouchOverlay | null = null;
+  // Ticket #143: held input must never stick (blur, hidden tab, context menu,
+  // pause / settings / end screen, teardown).
+  const inputSafety = bindInputSafety(() =>
+    touch !== null ? [keyboard, mouse, gamepad, touch] : [keyboard, mouse, gamepad],
+  );
 
   // Stored rebinds apply from the start (ticket 41); solo merges both keysets.
   const applyStoredBindings = (): void => {
@@ -216,7 +232,7 @@ export async function startSoloSession(
   // Touch overlay floats over the whole canvas, anchored to the field region.
   if (touch !== null) {
     const region = { x: 0, y: 0, w: app.renderer.width, h: app.renderer.height };
-    touchOverlay = new TouchOverlay(touch, region, "solo");
+    touchOverlay = new TouchOverlay(touch, region, "solo", locale);
     app.stage.addChild(touchOverlay.container);
     const route = (e: PointerEvent, down: boolean): void => {
       const rect = app.canvas.getBoundingClientRect();
@@ -303,6 +319,7 @@ export async function startSoloSession(
     if (paused || endScreen !== null) return;
     paused = true;
     loop.stop();
+    inputSafety.release();
     // Ticket 89: pausing writes the record, so a tab closed from here can be
     // Continued.
     episode.pause();
@@ -323,6 +340,7 @@ export async function startSoloSession(
   function showSoloEnd(): void {
     if (endScreen !== null) return; // accumulator may fire several ticks
     loop.stop();
+    inputSafety.release();
     const complete = episode.phase() === "episodeComplete";
     const records = storage.loadAll();
     endScreen = new EndScreen({
@@ -372,6 +390,7 @@ export async function startSoloSession(
   };
   app.canvas.addEventListener("pointermove", onPointerMove);
   app.canvas.addEventListener("pointerdown", onPointerDown);
+  const unbindMouseHeld = enablePointer ? bindMouseHeld(app.canvas, mouse) : (): void => {};
 
   /** Poll gamepads once per rendered frame. */
   function pollGamepads(): void {
@@ -405,7 +424,8 @@ export async function startSoloSession(
       if (bot) {
         frame = bot.sampleFrame(tick, latest);
       } else {
-        // Merge devices: last device with non-zero axis or edge wins.
+        // Merge devices: highest-priority moving device steers, edges and
+        // held fire OR across all of them (input/mergeFrames).
         const kf = keyboard.sampleFrame(tick);
         const gf = gamepad.sampleFrame(tick);
         const tf = touch !== null ? touch.sampleFrame(tick) : null;
@@ -417,35 +437,7 @@ export async function startSoloSession(
         const paddleX = latest.players[0]?.paddle.x;
         if (paddleX !== undefined) mouse.feedPaddle(paddleX);
         const mf = mouse.sampleFrame(tick);
-        const active =
-          (tf !== null && tf.axisX !== 0 ? "touch" : "") ||
-          (mf.axisX !== 0 ? "mouse" : "") ||
-          (gf.axisX !== 0 ? "gamepad" : "") ||
-          (kf.axisX !== 0 ? "keyboard" : "");
-        const pick: InputFrame =
-          active === "touch" && tf !== null ? tf :
-          active === "mouse" ? mf :
-          active === "gamepad" ? gf : kf;
-        const edges =
-          (tf !== null && (tf.launch || tf.actions.cycleForward)) ||
-          mf.launch || gf.launch || kf.launch ||
-          mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward;
-        frame = edges
-          ? {
-              ...pick,
-              launch: (tf !== null && tf.launch) || mf.launch || gf.launch || kf.launch,
-              actions: {
-                cycleForward: (tf !== null && tf.actions.cycleForward) || mf.actions.cycleForward || gf.actions.cycleForward || kf.actions.cycleForward,
-                cycleBack: (tf !== null && tf.actions.cycleBack) || mf.actions.cycleBack || gf.actions.cycleBack || kf.actions.cycleBack,
-                fire: [
-                  (tf !== null && tf.actions.fire[0]) || mf.actions.fire[0] || gf.actions.fire[0] || kf.actions.fire[0],
-                  (tf !== null && tf.actions.fire[1]) || mf.actions.fire[1] || gf.actions.fire[1] || kf.actions.fire[1],
-                  (tf !== null && tf.actions.fire[2]) || mf.actions.fire[2] || gf.actions.fire[2] || kf.actions.fire[2],
-                  (tf !== null && tf.actions.fire[3]) || mf.actions.fire[3] || gf.actions.fire[3] || kf.actions.fire[3],
-                ] as [boolean, boolean, boolean, boolean],
-              },
-            }
-          : pick;
+        frame = mergeDeviceFrames(0, tick, { touch: tf, mouse: mf, gamepad: gf, keyboard: kf });
       }
       sim.step([frame]);
       latest = sim.snapshot();
@@ -467,6 +459,8 @@ export async function startSoloSession(
       } else if ((menuRequested() || touchPause) && !settingsScreen) {
         openPauseMenu();
       }
+      // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+      touchOverlay?.setLaunchGlyph(launchGlyphFor(latest, 0));
       touchOverlay?.redraw();
       const syncStart = performance.now();
       for (const v of views) v.sync(latest);
@@ -618,6 +612,7 @@ export async function startSoloSession(
    */
   function openSettings(fromPause = false): void {
     loop.stop();
+    inputSafety.release();
     settingsScreen = showSettings(app.canvas.parentElement ?? canvasHost, locale, storage, {
       ...(fromPause ? { sections: ["audio", "display"] as const } : {}),
       // Ticket 30: sliders + mute apply live, no reload needed.
@@ -670,6 +665,8 @@ export async function startSoloSession(
     app.renderer.off("resize", onResize);
     app.canvas.removeEventListener("pointermove", onPointerMove);
     app.canvas.removeEventListener("pointerdown", onPointerDown);
+    unbindMouseHeld();
+    inputSafety.unbind();
     settingsScreen?.close();
     pauseMenu?.remove();
     endScreen?.close();
@@ -711,6 +708,12 @@ export async function startSoloSession(
       // No view yet means the field is torn down; report an idle state rather
       // than throwing, so a probe can never break a test run.
       return view?.effectsState ?? IDLE_EFFECTS;
+    },
+    debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void {
+      episode.debugDropCapsule(x, y, type);
+    },
+    get touchLaserBadge(): TouchLaserBadgeProbe | null {
+      return touchOverlay?.laserBadgeProbe() ?? null;
     },
     debugFireEvent(type: SimEventType, source = 0, target = -1): void {
       const view = views[0];

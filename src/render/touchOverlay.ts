@@ -2,8 +2,14 @@
 // context cluster floating over the player's own field region, bottom
 // corners. Semi-transparent, faint-visible always, brighten on active
 // touch. Buttons ≥48 px. Pause icon top corner, out of the drag zone.
-// Consumes adapter state only — never sim internals.
-import { Container, Graphics } from "pixi.js";
+// Consumes adapter state only — never sim internals. The launch button's
+// glyph follows the snapshot (ticket #148): the launch triangle while a ball
+// is stuck, a twin-bar glyph plus a constant yellow LASER badge while Armed.
+import { BitmapText, Container, Graphics } from "pixi.js";
+import { GAME_FONT_NAME, installGameFont } from "./gameFont";
+import type { LaunchGlyph } from "./launchGlyph";
+import { DEFAULT_LOCALE, t, type Locale } from "ui/strings";
+import { LASER_COLOR } from "./laserView";
 import {
   BUTTON_MIN_PX,
   STICK_BASE_RADIUS,
@@ -27,6 +33,21 @@ const KNOB_COLOR = 0xffffff;
 const BUTTON_COLOR = 0x8890a8;
 const BUTTON_ACTIVE_COLOR = 0xbad0ff;
 const PAUSE_COLOR = 0xd0d0d8;
+
+/** LASER badge: text when the button is big enough to keep it legible. */
+export type LaserBadgeStyle = "text" | "glyph";
+/** Badge font size in screen px (the overlay is not field-scaled). */
+export const LASER_BADGE_FONT_PX = 9;
+/**
+ * Smallest button diameter (px) that keeps the 5-letter badge legible above
+ * it; below this the badge falls back to a glyph-only yellow bar.
+ */
+export const LASER_BADGE_TEXT_MIN_PX = 40;
+
+/** Badge style for a button radius (px): text if legible, else glyph-only. */
+export function laserBadgeStyle(buttonRadius: number): LaserBadgeStyle {
+  return buttonRadius * 2 >= LASER_BADGE_TEXT_MIN_PX ? "text" : "glyph";
+}
 
 /**
  * Overlay-local layout for a region: stick bottom-left, cluster bottom-right,
@@ -65,22 +86,44 @@ export function overlayLayout(
   };
 }
 
+/** Probe (ticket #148): the launch button and LASER badge as drawn, screen px. */
+export interface TouchLaserBadgeProbe {
+  glyph: LaunchGlyph;
+  badge: LaserBadgeStyle | null;
+  /** Launch button diameter. */
+  buttonPx: number;
+  /** Rendered badge text bounds (null unless the text badge is up). */
+  text: { x: number; y: number; width: number; height: number } | null;
+}
+
 export class TouchOverlay {
   readonly container = new Container();
   private readonly gfx = new Graphics();
+  private readonly badgeText: BitmapText;
   private readonly adapter: TouchAdapter;
   private readonly region: { x: number; y: number; w: number; h: number };
   private mode: TouchClusterMode;
+  private glyph: LaunchGlyph = "launch";
+  private badge: LaserBadgeStyle | null = null;
 
   constructor(
     adapter: TouchAdapter,
     region: { x: number; y: number; w: number; h: number },
     mode: TouchClusterMode,
+    locale: Locale = DEFAULT_LOCALE,
   ) {
     this.adapter = adapter;
     this.region = region;
     this.mode = mode;
-    this.container.addChild(this.gfx);
+    installGameFont();
+    this.badgeText = new BitmapText({
+      text: t(locale, "touch.laserBadge"),
+      style: { fontFamily: GAME_FONT_NAME, fontSize: LASER_BADGE_FONT_PX },
+    });
+    this.badgeText.anchor.set(0.5, 1);
+    this.badgeText.tint = LASER_COLOR;
+    this.badgeText.visible = false;
+    this.container.addChild(this.gfx, this.badgeText);
     this.container.position.set(region.x, region.y);
     this.container.eventMode = "none"; // app routes pointer events to the adapter
     // Arm the adapter with the layout we draw: its constructor layout is a
@@ -110,6 +153,32 @@ export class TouchOverlay {
     this.redraw();
   }
 
+  /** Launch button glyph (session feeds `launchGlyphFor` each frame). */
+  setLaunchGlyph(glyph: LaunchGlyph): void {
+    this.glyph = glyph;
+  }
+
+  /** Probe: the launch glyph drawn. */
+  get launchGlyph(): LaunchGlyph {
+    return this.glyph;
+  }
+
+  /** Probe: the LASER badge drawn on the last redraw (null = none). */
+  get laserBadge(): LaserBadgeStyle | null {
+    return this.badge;
+  }
+
+  /** Probe: what the launch button shows, with the badge's rendered bounds. */
+  laserBadgeProbe(): TouchLaserBadgeProbe {
+    const layout = overlayLayout(this.region, this.mode);
+    let text: TouchLaserBadgeProbe["text"] = null;
+    if (this.badge === "text") {
+      const b = this.badgeText.getBounds();
+      text = { x: b.x, y: b.y, width: b.width, height: b.height };
+    }
+    return { glyph: this.glyph, badge: this.badge, buttonPx: layout.buttonRadius * 2, text };
+  }
+
   /** True when `region` differs from the one the overlay is anchored to. */
   regionDiffers(region: { x: number; y: number; w: number; h: number }): boolean {
     return (
@@ -137,6 +206,8 @@ export class TouchOverlay {
       .fill({ color: KNOB_COLOR, alpha: ACTIVE_ALPHA });
 
     // Context cluster buttons.
+    this.badge = null;
+    this.badgeText.visible = false;
     const held = new Set<TouchButtonId>(this.adapter.heldButtons());
     for (const id of clusterButtons(this.mode)) {
       const c = layout.buttons[id];
@@ -145,7 +216,8 @@ export class TouchOverlay {
       g.circle(c.x, c.y, layout.buttonRadius)
         .fill({ color: active ? BUTTON_ACTIVE_COLOR : BUTTON_COLOR, alpha: active ? ACTIVE_ALPHA : IDLE_ALPHA })
         .stroke({ width: 2, color: BUTTON_COLOR, alpha: IDLE_ALPHA + 0.15 });
-      this.drawGlyph(g, id, c.x, c.y, active);
+      if (id === "launch" && this.glyph === "laser") this.drawLaser(g, c.x, c.y, layout.buttonRadius, active);
+      else this.drawGlyph(g, id, c.x, c.y, active);
     }
 
     // Pause icon: two bars, top corner.
@@ -156,6 +228,24 @@ export class TouchOverlay {
         .stroke({ width: 2, color: PAUSE_COLOR, alpha: IDLE_ALPHA + 0.15 });
       g.rect(p.x - 5, p.y - 8, 4, 16).fill({ color: 0x101018, alpha: ACTIVE_ALPHA });
       g.rect(p.x + 1, p.y - 8, 4, 16).fill({ color: 0x101018, alpha: ACTIVE_ALPHA });
+    }
+  }
+
+  /**
+   * Armed launch button: twin yellow bars (the two Bolts) plus a constant
+   * LASER badge above the button. No animation, no cooldown ring.
+   */
+  private drawLaser(g: Graphics, cx: number, cy: number, radius: number, active: boolean): void {
+    const alpha = active ? ACTIVE_ALPHA + 0.2 : IDLE_ALPHA + 0.4;
+    g.rect(cx - 6, cy - 9, 2, 18).fill({ color: LASER_COLOR, alpha });
+    g.rect(cx + 4, cy - 9, 2, 18).fill({ color: LASER_COLOR, alpha });
+    this.badge = laserBadgeStyle(radius);
+    const badgeY = cy - radius - 4;
+    if (this.badge === "text") {
+      this.badgeText.position.set(cx, badgeY);
+      this.badgeText.visible = true;
+    } else {
+      g.rect(cx - 8, badgeY - 3, 16, 3).fill({ color: LASER_COLOR, alpha: 0.9 });
     }
   }
 

@@ -25,9 +25,11 @@ import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, ty
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  brickBreakScore,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
+  SIM_EVENT_RING_SIZE,
   type CapsuleTypeId,
   type InputFrame,
   type SimEvent,
@@ -51,7 +53,7 @@ import {
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
-const EVENT_RING_SIZE = 8;
+const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
 export const DUEL_MAX_ROUND = 32;
 
@@ -341,10 +343,10 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         return;
       }
       bricks[index] = BRICK_EMPTY;
-      points = 50;
+      points = brickBreakScore(cellV);
     } else {
       bricks[index] = BRICK_EMPTY;
-      points = 50 + (cellV - 1) * 10;
+      points = brickBreakScore(cellV);
     }
     // Brick points to ball owner (spec §6.3).
     scores[owner] += points;
