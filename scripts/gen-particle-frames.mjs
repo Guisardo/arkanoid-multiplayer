@@ -1,5 +1,6 @@
-// Generates the 8 grayscale 16x16 particle frames (ADR 0009) into the AssetPack
-// atlas source folder. Shapes are procedural placeholders — runtime tinting is
+// Generates the 8 grayscale particle frames (ADR 0009) into the AssetPack
+// atlas source folder: 16x16 field units, rendered at 4 texels per unit
+// (64x64 px) so they stay sharp at the field's on-screen scale (ticket #151). Shapes are procedural placeholders — runtime tinting is
 // what gives each effect preset its color, so the frames themselves stay
 // grayscale (see src/render/particles.ts).
 //
@@ -9,10 +10,24 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "raw-assets", "atlas{tps}");
-const SIZE = 16;
+const OUT_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "raw-assets",
+  "gameplay{m}",
+  "gameplay-atlas{tps}",
+);
+/** Frame edge in field units — the grid the SDFs below are written on. */
+const UNITS = 16;
+/**
+ * Texels per field unit. Must match the atlas resolution in .assetpack.js:
+ * AssetPack records it as the frame's resolution, so a frame still measures
+ * UNITS field units at runtime.
+ */
+const TEXELS_PER_UNIT = 4;
+const SIZE = UNITS * TEXELS_PER_UNIT;
 
-/** Signed-distance helpers on a 16x16 grid, origin top-left. */
+/** Signed-distance helpers on a 16x16 field-unit grid, origin top-left. */
 const shapes = {
   circle: (x, y) => Math.hypot(x - 7.5, y - 7.5) - 6.5,
   square: (x, y) => Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)) - 6,
@@ -57,9 +72,14 @@ const shapes = {
   ring: (x, y) => Math.abs(Math.hypot(x - 7.5, y - 7.5) - 5.5) - 1.6,
 };
 
-/** Grayscale coverage 0..255 from a signed distance (1.0px feather). */
+/** Grayscale coverage 0..255 from a signed distance in units (1-texel feather). */
 function coverage(dist) {
-  return Math.round(255 * Math.min(1, Math.max(0, 0.5 - dist)));
+  return Math.round(255 * Math.min(1, Math.max(0, 0.5 - dist * TEXELS_PER_UNIT)));
+}
+
+/** A texel's centre on the field-unit grid (unit centres sit on integers). */
+function unitCoord(texel) {
+  return (texel + 0.5) / TEXELS_PER_UNIT - 0.5;
 }
 
 /** Minimal RGBA8 PNG encoder (no dependency). */
@@ -116,7 +136,7 @@ for (const [name, sdf] of Object.entries(shapes)) {
   for (let y = 0; y < SIZE; y++) {
     for (let x = 0; x < SIZE; x++) {
       // White so `tint` multiplies cleanly; alpha carries the shape.
-      const v = coverage(sdf(x, y));
+      const v = coverage(sdf(unitCoord(x), unitCoord(y)));
       const i = (y * SIZE + x) * 4;
       rgba[i] = 255;
       rgba[i + 1] = 255;

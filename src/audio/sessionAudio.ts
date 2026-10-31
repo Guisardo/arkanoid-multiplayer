@@ -5,7 +5,8 @@
 import { AudioEngine, type AudioBufferLike, type MusicTrackId, type SfxEventId } from "./engine";
 import { chainEscalation, sfxForEvent } from "./eventMap";
 import { synthMusic, synthSfx, type SynthData } from "./synth";
-import { forEachFreshEvent, isBoltBrickEvent, type Snapshot } from "shared/protocol";
+import { isBoltBrickEvent, type Snapshot } from "shared/protocol";
+import { EventWatermark } from "shared/eventWatermark";
 
 export type { AudioVolumes } from "./engine";
 
@@ -30,8 +31,13 @@ export interface SessionAudio {
    * input/launch handler. consume() is a no-op until this succeeds.
    */
   unlock(): void;
-  /** Feed every snapshot; fires SFX for new ring events + music changes. */
-  consume(snap: Snapshot): void;
+  /**
+   * Feed every snapshot; fires SFX for new ring events + music changes.
+   * `field` names which field the snapshot belongs to — multi-field sessions
+   * feed several fields through one audio, and each field's ring has its own
+   * ticks and Sim epoch, so each gets its own watermark.
+   */
+  consume(snap: Snapshot, field?: number): void;
   /** Apply Settings volumes live (sliders + mute). */
   setVolumes(v: { music: number; sfx: number; mute: boolean }): void;
   /** Stop all audio (session teardown). */
@@ -41,7 +47,7 @@ export interface SessionAudio {
 export function createSessionAudio(factory: AudioContextFactory): SessionAudio {
   const engine = new AudioEngine(factory as never);
   let ctxReady = false;
-  let lastEventTick = -1;
+  const watermarks = new Map<number, EventWatermark>();
   let chain = 0;
   let currentMusic: MusicTrackId | null = null;
 
@@ -77,10 +83,16 @@ export function createSessionAudio(factory: AudioContextFactory): SessionAudio {
       }
       ctxReady = true;
     },
-    consume(snap: Snapshot): void {
+    consume(snap: Snapshot, field = 0): void {
       if (!ctxReady) return;
-      // New ring entries only: anything at or before the watermark fired.
-      lastEventTick = forEachFreshEvent(snap.events, lastEventTick, (event, prev) => {
+      // New ring entries only: anything the field's watermark already took
+      // has fired.
+      let watermark = watermarks.get(field);
+      if (watermark === undefined) {
+        watermark = new EventWatermark();
+        watermarks.set(field, watermark);
+      }
+      watermark.visit(snap, (event, prev) => {
         const sfx = sfxForEvent(event, prev);
         if (sfx !== null) fireSfx(sfx.id, sfx.pitch, sfx.gain);
         if (event.type === "brickBreak") {

@@ -48,6 +48,7 @@ describe("snapshot serializer (spec §9)", () => {
     expect(back.tick).toBe(snap.tick);
     expect(back.phase).toBe(snap.phase);
     expect(back.round).toBe(snap.round);
+    expect(back.epoch).toBe(snap.epoch);
     expect(back.players.map((p) => [p.player, p.name, p.lives, p.score, p.meter, p.target, p.state])).toEqual(
       snap.players.map((p) => [p.player, p.name, p.lives, p.score, p.meter, p.target, p.state]),
     );
@@ -56,6 +57,15 @@ describe("snapshot serializer (spec §9)", () => {
     expect(back.events).toEqual(snap.events);
     expect(back.inputAcks).toEqual(snap.inputAcks);
     expect(back.bricks).toEqual(snap.bricks);
+  });
+
+  it("round-trips the Sim epoch across the full u16 range (ticket #151)", () => {
+    for (const epoch of [0, 1, 300, 0xffff]) {
+      const back = deserializeSnapshot(serializeSnapshot({ ...fourPlayerSnapshot(), epoch }));
+      expect(back.epoch).toBe(epoch);
+      // Fields after the epoch still decode in place.
+      expect(back.players.map((p) => p.name)).toEqual(["HostLocal", "RemoteGuest1", "RemoteGuest2", "RemoteGuest3"]);
+    }
   });
 
   it("serialized 4-player snapshot ≈600 B budget", () => {

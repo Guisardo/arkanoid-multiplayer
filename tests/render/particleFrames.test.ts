@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+/** Frame edge in field units — shape probes below are written on this grid. */
 const SIZE = 16;
+/** Ticket #151: texels per field unit, so frames stay sharp at the field scale. */
+const TEXELS_PER_UNIT = 4;
+/** Frame edge in texels. */
+const TEXELS = SIZE * TEXELS_PER_UNIT;
 const SHAPES = [
   "circle",
   "square",
@@ -20,6 +25,11 @@ const SHAPES = [
   "splat",
   "ring",
 ] as const;
+
+/** Width × height from a PNG's IHDR chunk. */
+function pngSize(png: Buffer): { w: number; h: number } {
+  return { w: png.readUInt32BE(16), h: png.readUInt32BE(20) };
+}
 
 /** Decode the 8-bit RGBA PNGs the generator writes (filter: none, no interlace). */
 function decodeRgba(png: Buffer): Uint8Array {
@@ -32,9 +42,9 @@ function decodeRgba(png: Buffer): Uint8Array {
     pos += 12 + len;
   }
   const raw = inflateSync(chunks.get("IDAT") ?? Buffer.alloc(0));
-  const stride = SIZE * 4;
-  const out = new Uint8Array(stride * SIZE);
-  for (let y = 0; y < SIZE; y++) {
+  const stride = TEXELS * 4;
+  const out = new Uint8Array(stride * TEXELS);
+  for (let y = 0; y < TEXELS; y++) {
     const filter = raw[y * (stride + 1)];
     // The generator only emits filter 0; anything else means the format drifted.
     if (filter !== 0) throw new Error(`unexpected PNG filter ${String(filter)} on row ${String(y)}`);
@@ -44,6 +54,8 @@ function decodeRgba(png: Buffer): Uint8Array {
 }
 
 /** Generate into a scratch dir so the test never mutates the real raw-assets. */
+const sizes = new Map<string, { w: number; h: number }>();
+
 function generate(): Map<string, Uint8Array> {
   const dir = mkdtempSync(path.join(tmpdir(), "particle-frames-"));
   try {
@@ -59,6 +71,7 @@ function generate(): Map<string, Uint8Array> {
       if (png.length < 8 || png.toString("hex", 0, 8) !== "89504e470d0a1a0a") {
         throw new Error(`${shape}: not a PNG (${String(png.length)} bytes)`);
       }
+      sizes.set(shape, pngSize(png));
       out.set(shape, decodeRgba(png));
     }
     return out;
@@ -69,11 +82,14 @@ function generate(): Map<string, Uint8Array> {
 
 const frames = generate();
 
-/** Alpha at a grid position, 0..255. */
+/** Alpha at a field-unit grid position (its centre texel), 0..255. */
 function alpha(shape: string, x: number, y: number): number {
   const f = frames.get(shape);
   if (f === undefined) throw new Error(`missing frame ${shape}`);
-  return f[(y * SIZE + x) * 4 + 3] ?? 0;
+  const centre = TEXELS_PER_UNIT / 2;
+  const tx = x * TEXELS_PER_UNIT + centre;
+  const ty = y * TEXELS_PER_UNIT + centre;
+  return f[(ty * TEXELS + tx) * 4 + 3] ?? 0;
 }
 
 /** Mean alpha over the whole frame, 0..1. */
@@ -82,7 +98,7 @@ function coverage(shape: string): number {
   if (f === undefined) throw new Error(`missing frame ${shape}`);
   let sum = 0;
   for (let i = 3; i < f.length; i += 4) sum += f[i] ?? 0;
-  return sum / 255 / (SIZE * SIZE);
+  return sum / 255 / (TEXELS * TEXELS);
 }
 
 function opaque(shape: string, x: number, y: number): boolean {
@@ -90,8 +106,12 @@ function opaque(shape: string, x: number, y: number): boolean {
 }
 
 describe("generated particle frames", () => {
-  it("emits one 16x16 frame per documented shape", () => {
+  it("emits one frame per documented shape", () => {
     expect([...frames.keys()].sort()).toEqual([...SHAPES].sort());
+  });
+
+  it("frames are 16x16 field units at 4 texels per unit (ticket #151)", () => {
+    for (const shape of SHAPES) expect(sizes.get(shape)).toEqual({ w: TEXELS, h: TEXELS });
   });
 
   it("frames are white with the shape in the alpha channel (runtime tinting)", () => {

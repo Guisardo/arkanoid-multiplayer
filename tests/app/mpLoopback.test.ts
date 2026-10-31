@@ -462,6 +462,7 @@ function serializeOneSnapshot(): ArrayBuffer {
     tick: 1,
     phase: "serve",
     round: 1,
+    epoch: 0,
     players: [
       {
         player: 0,

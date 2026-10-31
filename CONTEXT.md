@@ -172,12 +172,16 @@ _Avoid_: Checkpoint, resume, extra life
 ### Performance & Rendering
 
 **Perf ladder**:
-A 4-rung automatic quality degradation system: DPR 2.0→1.5→1.0→30 fps (degraded), with hysteresis (0.75 s sustained load to step down, 4 s headroom to step up). Triggered by frame-time budget exceedance. The degraded rung also halves the cached brick-wall texture resolution.
+A 4-rung automatic quality degradation system: DPR 2.0→1.5→1.0→30 fps (degraded), with hysteresis (0.75 s sustained load to step down, 4 s headroom to step up). Triggered by frame-time budget exceedance. The degraded rung also halves the cached wall resolution.
 _Avoid_: Quality settings (manual), dynamic resolution (implies continuous)
 
 **Memory telemetry**:
 Dev-only readout of the JS heap (from `performance.memory`, null where absent) and the estimated texture memory, shown in the perf overlay and checked against the 64 MB texture ceiling. Debugging aid — never a user-facing metric.
 _Avoid_: Memory stats (vague), RAM monitor
+
+**Cached wall resolution**:
+How finely the cached brick wall is recorded, in texels per play-field unit. It matches the wall's on-screen density (field scale × device pixel ratio) so bricks stay sharp at any field size; the degraded perf ladder rung halves it.
+_Avoid_: Texture resolution (ambiguous with the renderer's resolution), wall quality
 
 **Reduced effects**:
 A GPU-saving render mode that skips decorative layers: background tile, owner glow rings, silver brick cracks. Toggled per-field via `DisplaySettings.reducedEffects`; also auto-enabled on perf ladder rung 3 (degraded).
@@ -244,8 +248,12 @@ _Avoid_: Input packet (means the network message carrying frames), input event (
 ### Netcode
 
 **Snapshot**:
-The host's periodic complete-state broadcast: every player's kinematics, the brick grids, scores, meters, effect timers, and recent events, stamped with the host tick it describes.
+The host's periodic complete-state broadcast: every player's kinematics, the brick grids, scores, meters, effect timers, and recent events, stamped with the sim epoch and tick it describes.
 _Avoid_: State update (vague), delta (explicitly rejected — snapshots are always full), tick packet
+
+**Sim epoch**:
+One uninterrupted run of a field's simulation. A new epoch begins whenever the field's simulation is replaced (the next round, a field reset after the last life, Continue, Restart) and the field's tick count starts over. Ticks and events are only comparable within one epoch.
+_Avoid_: Generation, round (one round can span several epochs after field resets), session (means the lobby connection)
 
 **Signaling**:
 The SDP/ICE exchange that establishes the host↔guest WebRTC connection, bootstrapped by the room code.

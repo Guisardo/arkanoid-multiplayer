@@ -12,7 +12,8 @@
 // anchors resolve against the snapshot the event arrived with. Reading the
 // snapshot keeps this seam intact: render/ never imports sim/.
 
-import { brickBreakScore, forEachFreshEvent, isBoltBrickEvent, type SimEvent, type Snapshot } from "shared/protocol";
+import { brickBreakScore, isBoltBrickEvent, type SimEvent, type Snapshot } from "shared/protocol";
+import { EventWatermark } from "shared/eventWatermark";
 import { BRICK_COLS, BRICK_H, BRICK_ROWS, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
 import { BRICK_FLASH_COLOR, BrickFlashes } from "./brickFlash";
 import { FlashLayer } from "./flash";
@@ -98,11 +99,11 @@ export class VisualEffects {
   private readonly brickFlashes = new BrickFlashes();
 
   /**
-   * Newest event tick already processed. The snapshot event ring repeats across
-   * consecutive rendered frames (guest interpolation replays it), so the same
-   * watermark trick `sessionAudio` uses is mandatory here too.
+   * Ring events already processed. The snapshot event ring repeats across
+   * consecutive rendered frames (guest interpolation replays it), and ticks
+   * restart with every Sim epoch — the shared watermark handles both.
    */
-  private lastEventTick = -1;
+  private readonly watermark = new EventWatermark();
   /** Grid of the previous consumed snapshot: a break's Brick (for its pop value). */
   private prevBricks: readonly number[] | null = null;
   private chain = 0;
@@ -160,7 +161,7 @@ export class VisualEffects {
    * snapshot that frame will draw — the anchor positions come from it.
    */
   consume(snap: Snapshot): void {
-    this.lastEventTick = forEachFreshEvent(snap.events, this.lastEventTick, (event, prev) => {
+    this.watermark.visit(snap, (event, prev) => {
       this.onSimEvent(event, snap, prev);
     });
     this.prevBricks = snap.bricks;

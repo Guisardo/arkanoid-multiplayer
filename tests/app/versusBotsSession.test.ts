@@ -74,6 +74,9 @@ vi.mock("render/fieldView", () => ({
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
     setTextureResolution = vi.fn();
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolution = 1;
+    destroy = vi.fn();
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();
   },
@@ -90,6 +93,9 @@ vi.mock("render/splitScreen", () => ({
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
     setTextureResolution = vi.fn();
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolutions: number[] = [];
+    destroy = vi.fn();
     regionOf = () => ({ x: 0, y: 0, w: 400, h: 600 });
     constructor(opts: { players: number[] }) {
       const holder = this.constructor as unknown as { lastPlayers: number[] | null };

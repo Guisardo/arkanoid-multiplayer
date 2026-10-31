@@ -17,6 +17,8 @@ import {
 } from "app/memoryStats";
 import { BUDGETS, estimateTextureBytes } from "app/frameStats";
 import { PERF_RUNGS } from "app/perfLadder";
+import { layoutField } from "render/layout";
+import { wallCacheResolution } from "render/brickLayer";
 
 /** RGBA8 bytes for N cached wall textures at a resolution (ADR 0005). */
 const cachedWallBytes = wallBytes;
@@ -71,27 +73,37 @@ describe("memory telemetry (ticket 102)", () => {
 
   // ---- Cached wall textures (the part ticket 102 actually scales) ----
   it("counts one cached wall texture per field", () => {
-    const one = cachedWallBytes(1, 1);
-    expect(cachedWallBytes(4, 1)).toBe(one * 4);
-    expect(cachedWallBytes(0, 1)).toBe(0);
+    const one = cachedWallBytes([1]);
+    expect(cachedWallBytes([1, 1, 1, 1])).toBe(one * 4);
+    expect(cachedWallBytes([])).toBe(0);
   });
 
   it("a wall at half resolution costs a quarter of the bytes", () => {
-    expect(cachedWallBytes(2, 0.5)).toBe(cachedWallBytes(2, 1) / 4);
+    expect(cachedWallBytes([0.5, 0.5])).toBe(cachedWallBytes([1, 1]) / 4);
   });
 
-  it("a whole 4-field match stays far under the 64 MB ceiling at every rung", () => {
-    // The acceptance criterion: texture memory under 64 MB. The shipped set
-    // is ~0.1 MB and the four cached walls are ~0.25 MB at full resolution —
-    // the degraded rung's downscale only widens the margin.
+  it("a whole 4-field match stays under the 64 MB ceiling at every rung", () => {
+    // The acceptance criterion: texture memory under 64 MB. Ticket #151 records
+    // each wall at its on-screen density, so size the walls like a real 4-way
+    // split of a 1920x1080 CSS viewport at the rung's DPR.
+    const fieldRegion = { x: 0, y: 0, w: 960, h: 540 };
+    const { scale } = layoutField(fieldRegion);
     for (const rung of PERF_RUNGS) {
-      const bytes = cachedWallBytes(4, rung.textureResolution);
+      const res = wallCacheResolution(scale, rung.dpr, rung.textureResolution);
+      const bytes = cachedWallBytes([res, res, res, res]);
       expect(bytes / (1024 * 1024)).toBeLessThan(BUDGETS.textureMb);
     }
-    // The saving is real, not decorative.
-    expect(cachedWallBytes(4, PERF_RUNGS[3]?.textureResolution ?? 1)).toBeLessThan(
-      cachedWallBytes(4, 1),
-    );
+  });
+
+  it("the degraded rung's downscale is a real saving", () => {
+    const full = wallCacheResolution(3, 2, 1);
+    const degraded = wallCacheResolution(3, 2, PERF_RUNGS[3]?.textureResolution ?? 1);
+    expect(cachedWallBytes([degraded])).toBeLessThan(cachedWallBytes([full]));
+  });
+
+  it("even a wall at the texture-edge cap fits the budget on its own", () => {
+    const capped = wallCacheResolution(100, 2, 1);
+    expect(cachedWallBytes([capped]) / (1024 * 1024)).toBeLessThan(BUDGETS.textureMb);
   });
 
   it("flags a heap above the warning threshold", () => {

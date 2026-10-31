@@ -88,6 +88,7 @@ describe("touch launch button: Laser glyph swap", () => {
       tick: 0,
       phase: stuck ? "serve" : "play",
       round: 1,
+      epoch: 0,
       players: [
         {
           player: 0,

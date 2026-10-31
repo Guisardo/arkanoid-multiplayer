@@ -17,6 +17,7 @@ function snapAt(tick: number, events: SimEvent[]): Snapshot {
     tick,
     phase: "play",
     round: 1,
+    epoch: 0,
     players: [
       {
         player: 0,
@@ -75,8 +76,8 @@ describe("snapshot event slice", () => {
   it("the decoder rejects an event count above the ring size", () => {
     const buf = serializeSnapshot(snapAt(500, Array.from({ length: 8 }, (_, i) => brick(500, i))));
     const bytes = new Uint8Array(buf);
-    // Header: u32 tick, u8 phase, u16 round, u8 players, u8 balls, u8 capsules, u8 eventCount.
-    bytes[10] = SIM_EVENT_RING_SIZE + 1;
+    // Header: u32 tick, u8 phase, u16 round, u16 epoch, u8 players, u8 balls, u8 capsules, u8 eventCount.
+    bytes[12] = SIM_EVENT_RING_SIZE + 1;
     expect(() => deserializeSnapshot(bytes.buffer)).toThrow(/counts out of bounds/);
   });
 });

@@ -56,6 +56,7 @@ function snap(round = 1): Snapshot {
     tick: 0,
     phase: "serve",
     round,
+    epoch: 0,
     players: [
       {
         player: 0,

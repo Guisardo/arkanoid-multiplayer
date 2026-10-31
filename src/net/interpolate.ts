@@ -3,7 +3,7 @@
 // ball is NEVER extrapolated — when the buffer runs dry the newest sample
 // holds. Buffer delay adapts: grows toward ~2.5 snapshot intervals when gaps
 // appear (late arrivals), shrinks slowly when consistently full.
-import type { Snapshot } from "shared/protocol";
+import { compareEpoch, type Snapshot } from "shared/protocol";
 
 export interface InterpolationOptions {
   /** Nominal broadcast rate (Hz) — Duel 60, everything else 30. */
@@ -48,7 +48,17 @@ export function createInterpolator(opts: InterpolationOptions): Interpolator {
     },
     push(snap, nowMs) {
       const last = buffer[buffer.length - 1];
-      if (last !== undefined && snap.tick <= last.snap.tick) {
+      if (last !== undefined) {
+        // Ticket #151: ticks restart with every Sim epoch, so order by epoch
+        // first. A late packet from a replaced sim is dropped; the first
+        // packet of a new epoch flushes the old one, so the guest neither
+        // freezes on the last old frame nor renders back into it.
+        const epochOrder = compareEpoch(snap.epoch, last.snap.epoch);
+        if (epochOrder < 0) return;
+        if (epochOrder > 0) buffer = [];
+      }
+      const newest = buffer[buffer.length - 1];
+      if (newest !== undefined && snap.tick <= newest.snap.tick) {
         // Stale duplicate or reorder on the unreliable channel: refresh the
         // matching tick in place, otherwise drop.
         const existing = buffer.find((e) => e.snap.tick === snap.tick);

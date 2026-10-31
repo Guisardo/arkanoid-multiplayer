@@ -30,6 +30,7 @@ function snapWith(
     tick,
     phase: "play",
     round: 1,
+    epoch: 0,
     players: [
       {
         player,

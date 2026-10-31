@@ -302,9 +302,11 @@ export function createAttackSession(opts: AttackSessionOptions): AttackSession {
       race.step(corruptMangledInputs(inputs));
       const state = race.state();
       onRoundAdvance(state);
-      const snaps = race.snapshots();
       for (let p = 0; p < playerCount; p++) {
-        const snap = snaps[p];
+        // The raw sim ring, not race.snapshots(): those carry the replaced
+        // sim's final-step events into the new epoch (ticket #151), which
+        // would pay meter income for the clearing brick twice.
+        const snap = race.simAt(p)?.snapshot();
         if (!snap) continue;
         processFieldIncome(p, readFieldEvents(p, snap));
       }

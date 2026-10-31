@@ -62,6 +62,7 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
   return {
     tick: 0,
     round: 1,
+    epoch: 0,
     phase: "serve",
     bricks: new Array<number>(BRICK_COLS * 18).fill(0),
     capsules: [],
@@ -353,6 +354,19 @@ describe("event ring dedupe (guest interpolation replay)", () => {
     fx.consume(base);
     fx.update(1 / 60);
     fx.consume(snap({ ...base, tick: 6, events: [ev("brickBreak", { target: 2, tick: 6 })] }));
+    fx.update(1 / 60);
+    expect(fx.state.pops.filter((p) => p === "+50").length).toBe(2);
+  });
+});
+
+describe("event ring across Sim epochs (ticket #151)", () => {
+  it("a new epoch's events fire although its ticks restarted below the old watermark", () => {
+    // Regression: Round 2 (a fresh sim at tick 0) had no FX at all — every
+    // event sat at or below Round 1's final tick and was filtered out.
+    const fx = new VisualEffects(makeScene());
+    fx.consume(snap({ balls: [ball()], tick: 5001, events: [ev("brickBreak", { target: 1, tick: 5000 })] }));
+    fx.update(1 / 60);
+    fx.consume(snap({ balls: [ball()], tick: 4, epoch: 1, events: [ev("brickBreak", { target: 2, tick: 3 })] }));
     fx.update(1 / 60);
     expect(fx.state.pops.filter((p) => p === "+50").length).toBe(2);
   });

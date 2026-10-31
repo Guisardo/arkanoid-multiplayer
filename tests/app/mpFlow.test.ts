@@ -73,6 +73,9 @@ vi.mock("render/splitScreen", () => ({
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
     setTextureResolution = vi.fn();
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolutions: number[] = [];
+    destroy = vi.fn();
     /** Ticket 53/N2 probe surface: region per local player. */
     regionOf = vi.fn((player: number) =>
       player === 0 ? { x: 0, y: 0, w: 400, h: 600 } : null);
@@ -426,7 +429,7 @@ describe("mpFlow wiring (ticket 45)", () => {
     // Pinned on purpose: a bump must be a deliberate edit here, and the guest
     // must advertise the same constant (mpFlow passes PROTOCOL_VERSION, never a
     // literal — a drifted copy refuses every connection).
-    expect(PROTOCOL_VERSION).toBe(4);
+    expect(PROTOCOL_VERSION).toBe(5);
     expect(versionsCompatible(PROTOCOL_VERSION, PROTOCOL_VERSION)).toBe(true);
     expect(versionsCompatible(PROTOCOL_VERSION - 1, PROTOCOL_VERSION)).toBe(false);
   });

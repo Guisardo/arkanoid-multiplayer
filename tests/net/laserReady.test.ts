@@ -28,6 +28,7 @@ function snap(players: PlayerSnapshot[]): Snapshot {
     tick: 10,
     phase: "play",
     round: 1,
+    epoch: 0,
     players,
     balls: [],
     capsules: [],

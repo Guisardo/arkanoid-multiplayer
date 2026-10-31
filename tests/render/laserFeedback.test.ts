@@ -32,6 +32,7 @@ function snapWith(over: Partial<Snapshot> = {}): Snapshot {
   return {
     tick: 100,
     round: 1,
+    epoch: 0,
     phase: "play",
     bricks: new Array<number>(13 * 18).fill(1),
     capsules: [],

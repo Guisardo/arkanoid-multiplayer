@@ -38,6 +38,7 @@ vi.mock("render/appShell", () => ({
 vi.mock("render/splitScreen", () => ({
   SplitScreenView: class {
     readonly container = { y: 0, destroy: () => {} };
+    destroy = vi.fn();
     sync = vi.fn();
     /** ADR 0009: per-field effects advance each rendered frame. */
     tickEffects = vi.fn();

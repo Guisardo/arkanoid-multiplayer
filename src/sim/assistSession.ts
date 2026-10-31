@@ -9,6 +9,7 @@
 // range end; loses when all downed simultaneously. No ball-speed
 // scaling. Headless, deterministic (seeded LCG only).
 import { createRoundSim, type RoundSim } from "./roundSim";
+import { FieldEpoch } from "./fieldEpoch";
 import { cycleTarget, meterFill, resolveFireTarget } from "./attack";
 import { getLevelSync } from "content/levels";
 import {
@@ -104,6 +105,9 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
   let phase: AssistMatchState["phase"] = "playing";
   let tick = 0;
 
+  // Ticket #151: one Sim epoch per field; a team advance replaces the live
+  // fields' sims.
+  const epochs = Array.from({ length: playerCount }, () => new FieldEpoch());
   const sims: RoundSim[] = Array.from({ length: playerCount }, (_, i) =>
     createRoundSim(level, {
       lives: 5,
@@ -217,7 +221,7 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
 
   /** Team level advance: every live field cleared → next round for all
    * live fields. Range end cleared → team win. */
-  function processTeamAdvance(snapshots: readonly Snapshot[]): void {
+  function processTeamAdvance(snapshots: readonly Snapshot[], ticksBefore: readonly number[]): void {
     const liveIndices: number[] = [];
     for (let i = 0; i < playerCount; i++) if (!downed[i]) liveIndices.push(i);
     if (liveIndices.length === 0) return;
@@ -230,7 +234,13 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
     round++;
     level = getLevelSync(round);
     for (const i of liveIndices) {
-      const score = sims[i]?.snapshot().players[0]?.score ?? 0;
+      const outgoing = sims[i]?.snapshot();
+      const score = outgoing?.players[0]?.score ?? 0;
+      // A field that cleared earlier has sat frozen in roundClear since — its
+      // final step (and CLEAR) already played, so only a field that stepped
+      // this tick carries its events across.
+      const steppedThisTick = outgoing !== undefined && outgoing.tick !== ticksBefore[i];
+      epochs[i]?.advance(steppedThisTick ? outgoing : null);
       sims[i] = createRoundSim(level, {
         lives: 5,
         score,
@@ -256,6 +266,7 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
       // fields freeze: no step, no state change.
       const byPlayer = new Map<number, InputFrame>();
       for (const f of inputs) byPlayer.set(f.player, { ...f, player: 0 });
+      const ticksBefore = sims.map((sim) => sim.currentTick);
       for (let i = 0; i < playerCount; i++) {
         if (downed[i]) continue;
         sims[i]?.step([byPlayer.get(i) ?? idleFrame(0, tick)]);
@@ -275,12 +286,13 @@ export function createAssistSession(opts: AssistSessionOptions): AssistSession {
         const snap = snapshots[p];
         if (snap) processFieldIncome(p, snap);
       }
-      processTeamAdvance(snapshots);
+      processTeamAdvance(snapshots, ticksBefore);
     },
     snapshots() {
       const score = teamScore();
       return sims.map((sim, p) => {
-        const snap = sim.snapshot();
+        const raw = sim.snapshot();
+        const snap = epochs[p]?.stamp(raw) ?? raw;
         const player = snap.players[0];
         if (!player) return snap;
         const events = [

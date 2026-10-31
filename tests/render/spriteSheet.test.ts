@@ -261,6 +261,22 @@ describe("spriteSheet — manual frame-cutting fallback", () => {
     expect(paddle.source).toBe(spriteTexture("ball-red.png")!.source);
   });
 
+  it("honours the table's meta.scale like Pixi's Spritesheet (ticket #151 @4x atlas)", async () => {
+    // A 4x atlas packs 4 texels per field unit: frames must come out in texture
+    // units (px / scale) or every sprite and particle renders 4x too big.
+    const { Assets, Texture, TextureSource } = await import("pixi.js");
+    const image = new Texture({ source: new TextureSource({ width: 2048, height: 2048 }) });
+    vi.spyOn(Assets, "load").mockImplementationOnce((() => Promise.resolve(image)) as unknown as typeof Assets.load);
+    atlasAliasValue = { ...rawTable, meta: { image: "atlas-raw@4x.png", scale: "4" } };
+    await ensureGameplayAssets();
+    const paddle = spriteTexture("paddle-a-red.png")!;
+    expect(paddle.source.resolution).toBe(4);
+    expect(paddle.frame.x).toBe(130 / 4);
+    expect(paddle.frame.width).toBe(62 / 4);
+    expect(paddle.orig?.width).toBe(16);
+    expect(paddle.trim?.x).toBe(1 / 4);
+  });
+
   it("skips a rotated frame rather than rendering it with wrong UVs", async () => {
     atlasAliasValue = rawTable;
     const before = spriteTexture("ball-green.png");

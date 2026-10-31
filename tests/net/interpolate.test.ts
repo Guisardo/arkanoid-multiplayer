@@ -83,3 +83,39 @@ describe("guest interpolation (spec §9)", () => {
     expect(interp.delayMs).toBeLessThanOrEqual(100);
   });
 });
+
+describe("guest interpolation across Sim epochs (ticket #151)", () => {
+  function epochSnapshot(epoch: number, tick: number): Snapshot {
+    return { ...fakeSnapshot(tick), epoch };
+  }
+
+  it("follows the host into a new epoch even though its ticks restarted", () => {
+    // Regression: the buffer dropped every snapshot at or below its newest
+    // tick, so after a host round advance the guest froze on Round 1's last
+    // frame until Round 2 outlasted it.
+    const interp = createInterpolator({ snapshotHz: 60 });
+    for (let t = 1; t <= 600; t++) interp.push(epochSnapshot(0, t), t * 16.7);
+    for (let t = 0; t <= 300; t++) interp.push(epochSnapshot(1, t), (601 + t) * 16.7);
+    const out = interp.sample(902 * 16.7);
+    expect(out?.epoch).toBe(1);
+    // Within the normal buffer delay of the newest Round 2 sample.
+    expect(out?.tick).toBeGreaterThanOrEqual(295);
+  });
+
+  it("never renders the old epoch again once the new one arrived", () => {
+    const interp = createInterpolator({ snapshotHz: 60 });
+    interp.push(epochSnapshot(0, 500), 1000);
+    interp.push(epochSnapshot(0, 501), 1016);
+    interp.push(epochSnapshot(1, 0), 1033);
+    // Even a deep sample (target time before the new epoch arrived) stays in it.
+    expect(interp.sample(1040)?.epoch).toBe(1);
+  });
+
+  it("drops a late packet from an older epoch", () => {
+    const interp = createInterpolator({ snapshotHz: 60 });
+    interp.push(epochSnapshot(1, 5), 1000);
+    interp.push(epochSnapshot(0, 900), 1010);
+    expect(interp.size).toBe(1);
+    expect(interp.sample(5000)?.epoch).toBe(1);
+  });
+});

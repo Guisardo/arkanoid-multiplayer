@@ -365,6 +365,49 @@ describe("assist session: targeting", () => {
   });
 });
 
+describe("assist session: Sim epoch (ticket #151)", () => {
+  /**
+   * Clear field 1, stopping the moment the team advances — clearLevel would
+   * play on into the next round, since the rebuilt field is back in serve.
+   */
+  function clearLastFieldUntilAdvance(session: ReturnType<typeof createAssistSession>): void {
+    let tick = 50_000;
+    while (session.state().round === 1) {
+      const snap = session.snapshots()[1]!;
+      const target = snap.bricks.findIndex((c) => isDestructibleCell(c));
+      if (target < 0) throw new Error("field 1 has no brick left but the team did not advance");
+      const col = target % BRICK_COLS;
+      const row = Math.floor(target / BRICK_COLS);
+      session.debugSetBall(1, col * 16 + 8 + 2, 20 + (row + 1) * 8 + 6, 0, -200);
+      for (let s = 0; s < 20 && session.state().round === 1; s++) session.step([frame(1, tick++)]);
+    }
+  }
+
+  it("a team advance bumps live fields' epochs and carries only the advancing step's CLEAR", () => {
+    const session = mkSession(2, 1, 3);
+    clearLevel(session, 0);
+    // Field 0 now waits, frozen in roundClear, while field 1 plays on: its
+    // CLEAR already played and must not replay when the team advances.
+    clearLastFieldUntilAdvance(session);
+    const [first, last] = session.snapshots();
+    expect(first!.epoch).toBe(1);
+    expect(last!.epoch).toBe(1);
+    expect(first!.events).toEqual([]);
+    expect(last!.events.filter((e) => e.type === "roundClear")).toEqual([
+      { type: "roundClear", source: 0, target: -1, tick: 0 },
+    ]);
+  });
+
+  it("carried events never feed meter income a second time", () => {
+    const session = mkSession(2, 1, 3);
+    clearLevel(session, 0);
+    clearLastFieldUntilAdvance(session);
+    const metersAtAdvance = session.snapshots().map((s) => s.players[0]!.meter);
+    session.step([frame(0, 90_000), frame(1, 90_000)]);
+    expect(session.snapshots().map((s) => s.players[0]!.meter)).toEqual(metersAtAdvance);
+  });
+});
+
 describe("assist session: Laser (ticket #144)", () => {
   /** Launch, park the ball out of play's way, arm player 0 with a Laser. */
   function armedSession() {

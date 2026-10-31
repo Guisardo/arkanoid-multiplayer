@@ -87,19 +87,17 @@ export function withinTextureCeiling(bytes: number): boolean {
 }
 
 /**
- * RGBA8 bytes for `fieldCount` cached brick-wall textures (ADR 0005), each
- * covering one field recorded at `textureResolution`. This is the term ticket
- * 102 actually scales — the shipped sprite set next to it is ~0.1 MB and
- * static, so the cached walls are what a texture-leak or downscale shows up
- * in.
+ * RGBA8 bytes for the cached brick-wall textures (ADR 0005), one per field,
+ * each covering the field at its cached-wall resolution (texels per field
+ * unit, ticket #151). This is the term ticket 102 actually scales — the
+ * shipped sprite set next to it is ~0.1 MB and static, so the cached walls are
+ * what a texture-leak or downscale shows up in.
  */
-export function cachedWallBytes(fieldCount: number, textureResolution: number): number {
-  if (fieldCount <= 0) return 0;
-  const resolution = textureResolution > 0 ? textureResolution : 1;
+export function cachedWallBytes(cacheResolutions: readonly number[]): number {
   return estimateTextureBytes(
-    Array.from({ length: fieldCount }, () => ({
-      w: Math.round(FIELD_W * resolution),
-      h: Math.round(FIELD_H * resolution),
-    })),
+    cacheResolutions.map((r) => {
+      const resolution = r > 0 ? r : 1;
+      return { w: Math.round(FIELD_W * resolution), h: Math.round(FIELD_H * resolution) };
+    }),
   );
 }

@@ -266,3 +266,37 @@ describe("maxRound ceiling (Attack Doh exclusion, ticket 35/39)", () => {
     }
   });
 });
+
+describe("Sim epoch across field rebuilds (ticket #151)", () => {
+  const bestOf3 = {
+    structure: "bestOf",
+    bestOf: 3,
+    levelSelection: "fixedOrder",
+    timeCapTicks: null,
+  } as const;
+
+  it("a round advance bumps every field's epoch and carries the winner's CLEAR", () => {
+    const session = createMultiFieldSession({ playerCount: 2, config: bestOf3 });
+    clearOneRound(session, 0);
+    const [winner, loser] = session.snapshots();
+    expect(winner!.epoch).toBe(1);
+    expect(loser!.epoch).toBe(1);
+    expect(winner!.events.filter((e) => e.type === "roundClear")).toEqual([
+      { type: "roundClear", source: 0, target: -1, tick: 0 },
+    ]);
+    expect(loser!.events.some((e) => e.type === "roundClear")).toBe(false);
+  });
+
+  it("a field reset bumps only that field's epoch and carries its game over", () => {
+    const session = createMultiFieldSession({ playerCount: 2, config: bestOf3 });
+    for (let loss = 0; loss < 5; loss++) {
+      session.debugSetBall(0, 104, 300, 0, 60);
+      for (let s = 0; s < 12; s++) session.step([frame(0, loss * 12 + s)]);
+    }
+    const [reset, untouched] = session.snapshots();
+    expect(reset!.epoch).toBe(1);
+    expect(untouched!.epoch).toBe(0);
+    expect(reset!.events.map((e) => e.type)).toEqual(["ballLoss", "gameOver"]);
+    expect(reset!.events.every((e) => e.tick === 0)).toBe(true);
+  });
+});

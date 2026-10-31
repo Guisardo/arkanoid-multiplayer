@@ -179,6 +179,8 @@ export async function startVersusBotsSession(
     skinIds: sim.skinIds(),
     themeId: settings.appearance.themeId,
     reducedEffects: settings.display.reducedEffects,
+    textureResolution: ladder.rung.textureResolution,
+    rendererResolution: app.renderer.resolution,
   });
   app.stage.addChild(split.container);
 
@@ -441,7 +443,9 @@ export async function startVersusBotsSession(
       touchOverlay?.redraw();
       const syncStart = performance.now();
       const snaps = sim.snapshots();
-      for (const s of snaps) audio.consume(s);
+      snaps.forEach((s, field) => {
+        audio.consume(s, field);
+      });
       // Parallel: N snapshots → N fields. Single-field: 1 snapshot (all
       // players) → 1 field — SplitScreenView.sync index-aligns.
       split.sync(snaps);
@@ -461,7 +465,7 @@ export async function startVersusBotsSession(
       // ladder actually scales.
       const memory = sampleMemoryStats(
         memoryProbe,
-        cachedWallBytes(split.fieldCount, ladder.rung.textureResolution),
+        cachedWallBytes(split.wallCacheResolutions),
       );
       perfOverlay?.update({
         stats: frameStats.view,
@@ -480,6 +484,8 @@ export async function startVersusBotsSession(
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
     // Ticket 102: the degraded rung also halves the cached wall texture.
     split.setTextureResolution(rung.textureResolution);
+    // Ticket #151: the DPR rung changes the walls' on-screen density.
+    split.setRendererResolution(app.renderer.resolution);
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }
@@ -597,6 +603,8 @@ export async function startVersusBotsSession(
     perfOverlay?.close();
     degradedBanner?.remove();
     contextBanner?.remove();
+    // Effects pools live outside the stage tree: release them explicitly.
+    split.destroy();
     shell.dispose();
   }
 

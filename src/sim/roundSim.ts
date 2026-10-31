@@ -761,6 +761,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         tick,
         phase,
         round: level.round,
+        // A composer that replaces this sim restamps the epoch (sim/fieldEpoch).
+        epoch: 0,
         players: [
           {
             player: 0,

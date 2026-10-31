@@ -714,6 +714,8 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         tick,
         phase,
         round: level.round,
+        // Built once per match and never replaced: one epoch for its lifetime.
+        epoch: 0,
         players: paddles.map((p, i) => ({
           player: i,
           name: names[i] ?? `Player ${String(i + 1)}`,

@@ -790,6 +790,7 @@ export class MpFlow {
         tick: 0,
         phase: "serve",
         round: 1,
+        epoch: 0,
         players: [],
         balls: [],
         capsules: [],
@@ -839,11 +840,13 @@ export class MpFlow {
         for (let i = 0; i < snaps.length; i++) {
           if (this.localFieldFilter.includes(i)) {
             const s = snaps[i];
-            if (s !== undefined) local.push(s);
+            if (s !== undefined) {
+              local.push(s);
+              // Ticket 30: SFX/music from this device's own field snapshots.
+              this.audio.consume(s, i);
+            }
           }
         }
-        // Ticket 30: SFX/music from this device's own field snapshots.
-        for (const s of local) this.audio.consume(s);
         this.split?.sync(local);
         // ADR 0009: effects are local + cosmetic, so only this device's fields
         // run them — same filter as the audio above.
@@ -881,7 +884,7 @@ export class MpFlow {
     // ladder actually scales, so the overlay and the ladder read the same rung.
     const memory = sampleMemoryStats(
       this.memoryProbe,
-      cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+      cachedWallBytes(this.split?.wallCacheResolutions ?? []),
     );
     this.perfOverlay.update({
       stats: this.frameStats.view,
@@ -1049,6 +1052,8 @@ export class MpFlow {
     // Ticket 102: the degraded rung also halves every field's cached wall
     // texture — a quarter of the bytes, for identical visual content.
     this.split?.setTextureResolution(rung.textureResolution);
+    // Ticket #151: the DPR rung changes the walls' on-screen density.
+    if (this.shell !== null) this.split?.setRendererResolution(this.shell.app.renderer.resolution);
     this.loop?.setRenderEvery(rung.renderEvery);
     this.updateDegradedBanner(rung.degraded);
   }
@@ -1148,6 +1153,8 @@ export class MpFlow {
       skinIds: fields.map((p) => skinByIndex(skinIndices[p] ?? 0).id),
       themeId: themeId || DEFAULT_THEME_ID,
       reducedEffects: reduced,
+      textureResolution: this.ladder.rung.textureResolution,
+      rendererResolution: app.renderer.resolution,
     });
     app.stage.addChild(this.split.container);
     if (hasStrip) {
@@ -1335,7 +1342,9 @@ export class MpFlow {
         const now = performance.now();
         const snaps = guestGame.renderSnapshots(now);
         // Ticket 30: SFX/music from the guest's interpolated view.
-        for (const s of snaps) this.audio.consume(s);
+        snaps.forEach((s, field) => {
+          this.audio.consume(s, field);
+        });
         this.split?.sync(snaps);
         // ADR 0009: the interpolated guest ring replays the same event across
         // frames — VisualEffects dedupes by tick, same as sessionAudio.
@@ -1576,7 +1585,7 @@ export class MpFlow {
   private teardownRender(): void {
     this.detachResize?.();
     this.detachResize = null;
-    this.split?.container.destroy({ children: true });
+    this.split?.destroy();
     this.split = null;
     this.strip?.close();
     this.strip = null;

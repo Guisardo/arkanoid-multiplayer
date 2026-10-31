@@ -71,6 +71,9 @@ vi.mock("render/splitScreen", () => ({
     setTextureResolution = vi.fn((r: number) => {
       textureResolutions.push(r);
     });
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolutions: number[] = [];
+    destroy = vi.fn();
   },
 }));
 

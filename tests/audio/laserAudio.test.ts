@@ -107,7 +107,7 @@ describe("laser SFX through the session glue", () => {
   }
 
   function snap(events: SimEvent[]): Snapshot {
-    return { tick: 10, phase: "play", round: 1, players: [], balls: [], capsules: [], bricks: [], events, inputAcks: [] };
+    return { tick: 10, phase: "play", round: 1, epoch: 0, players: [], balls: [], capsules: [], bricks: [], events, inputAcks: [] };
   }
 
   it("a Bolt break fires one sound (the blip); a ball break fires the brick sound", () => {

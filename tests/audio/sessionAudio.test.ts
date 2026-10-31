@@ -64,6 +64,7 @@ function snap(events: Snapshot["events"], phase: Snapshot["phase"], boss = false
     tick: 0,
     phase,
     round: 1,
+    epoch: 0,
     players: [],
     balls: [],
     capsules: [],
@@ -105,6 +106,31 @@ describe("createSessionAudio", () => {
     const after = ctx.sources.length;
     audio.consume(snap(events, "play")); // same ring again
     expect(ctx.sources.length).toBe(after);
+  });
+
+  it("a new Sim epoch fires its events even though ticks restarted (ticket #151)", () => {
+    // Regression: the watermark never reset, so Round 2 (a fresh sim at tick 0)
+    // stayed silent until it outlasted Round 1.
+    const { audio, ctx } = makeAudio();
+    audio.unlock();
+    audio.consume({ ...snap([{ type: "brickBreak", source: 0, target: 0, tick: 4000 }], "play"), tick: 4001 });
+    const after = ctx.sources.length;
+    audio.consume({ ...snap([{ type: "brickBreak", source: 0, target: 0, tick: 3 }], "play"), tick: 4, epoch: 1 });
+    expect(ctx.sources.length).toBe(after + 1);
+  });
+
+  it("each field keeps its own watermark (multi-field sessions, ticket #151)", () => {
+    // Two lockstep fields share ticks: a single watermark would drop field 1's
+    // brickBreak because field 0's event at the same tick already raised it.
+    const { audio, ctx } = makeAudio();
+    audio.unlock();
+    const events: Snapshot["events"] = [{ type: "brickBreak", source: 0, target: 0, tick: 5 }];
+    audio.consume(snap(events, "play"), 0);
+    const after = ctx.sources.length;
+    audio.consume(snap(events, "play"), 1);
+    expect(ctx.sources.length).toBe(after + 1);
+    audio.consume(snap(events, "play"), 1);
+    expect(ctx.sources.length).toBe(after + 1);
   });
 
   it("chain escalation fires at 4/7/10 consecutive brickBreaks", () => {
