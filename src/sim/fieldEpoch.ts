@@ -10,7 +10,7 @@
 // The carry is an overlay, not seeded into the sim's own ring, so composer
 // bookkeeping that reads the raw sim ring (assist meter income) never counts a
 // carried event twice.
-import { EVENT_RING_SIZE, nextEpoch, type SimEvent, type Snapshot } from "shared/protocol";
+import { SIM_EVENT_RING_SIZE, nextEpoch, type SimEvent, type Snapshot } from "shared/protocol";
 
 /** Tick the carried events are restamped to: the new epoch's first tick. */
 const CARRY_TICK = 0;
@@ -45,7 +45,7 @@ export class FieldEpoch {
     return {
       ...snap,
       epoch: this.current,
-      events: [...this.carried, ...snap.events].slice(-EVENT_RING_SIZE),
+      events: [...this.carried, ...snap.events].slice(-SIM_EVENT_RING_SIZE),
     };
   }
 }

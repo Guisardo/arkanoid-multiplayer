@@ -204,6 +204,20 @@ export class MpFlow {
     return this.phase;
   }
 
+  /**
+   * Ticket #143: local gameplay input is not reaching a running match (outside
+   * `inGame`, paused, quit-confirm or end screen up). Held input is released
+   * when this turns true so nothing stays held across the overlay.
+   */
+  get localInputBlocked(): boolean {
+    return (
+      this.phase !== "inGame" ||
+      this.pauseState.paused ||
+      this.quitConfirm !== null ||
+      this.endScreen !== null
+    );
+  }
+
   get lobbySnapshot(): LobbyState | null {
     return this.lobbyState;
   }

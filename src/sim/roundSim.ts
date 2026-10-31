@@ -27,10 +27,11 @@ import {
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
-  EVENT_RING_SIZE,
+  brickBreakScore,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
+  SIM_EVENT_RING_SIZE,
   type CapsuleTypeId,
   type InputFrame,
   type PaddleEdge,
@@ -54,6 +55,8 @@ import {
 } from "./simState";
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
+
+const EVENT_RING_SIZE = SIM_EVENT_RING_SIZE;
 
 /**
  * Ticket 102: cap on the destroyed-brick history behind Attack's brick rain.
@@ -374,11 +377,11 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
       }
       bricks[index] = BRICK_EMPTY;
       pushEvent("brickBreak", player, index);
-      score += 50; // silver pays per hit (final break here)
+      score += brickBreakScore(cellV); // silver: final break
     } else {
       bricks[index] = BRICK_EMPTY;
       pushEvent("brickBreak", player, index);
-      score += 50 + (cellV - 1) * 10; // colored tier scoring (placeholder table)
+      score += brickBreakScore(cellV);
     }
     pushDestroyed(index);
     // Deterministic capsule script trigger (spec §4): zero RNG.

@@ -115,6 +115,10 @@ class VisualEffects {
 2. **Session** passes events to `VisualEffects.onSimEvent()` (in `loop.ts` after sim step)
 3. **FieldView.sync()** calls `visualEffects.update(dt)` + `visualEffects.applyToScene()`
 4. **Reduced-effects mode** → `VisualEffects` skips particles/flash/shake (keeps hit-stop, squash)
+   - *Amendment (#148, Laser):* "flash" means the full-field flash. The Bolt
+     Brick flash (`render/brickFlash.ts`, one 16×8 cell, white, 0.12 s) and
+     its score pop are readability channels like squash: they mark which
+     Brick a Bolt hit, so reduced effects keeps them (spec #140).
 
 ## Consequences
 

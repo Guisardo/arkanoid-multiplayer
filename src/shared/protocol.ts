@@ -11,9 +11,11 @@
 // snapshots gain a per-player Armed flag and a Bolt tail. A v3 decoder throws
 // on a v2 snapshot (no tail) and a v2 host ignores held fire, so the handshake
 // refuses the mixed pair.
-// v4: snapshots carry a u16 Sim epoch after `round` (ticket #151). A v3
+// v4: Laser feedback events (ticket #148) — `laserFire`, `boltHit` and
+// `boltGoldHit`. A v3 decoder rejects the unknown event types.
+// v5: snapshots carry a u16 Sim epoch after `round` (ticket #151). A v4
 // decoder would read it as the player count, so the handshake refuses the pair.
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // ---- Input frame (the input→sim seam) ----
 
@@ -70,6 +72,16 @@ export function isEmptyCell(cell: number): boolean {
 export function isDestructibleCell(cell: number): boolean {
   return cell !== BRICK_EMPTY && cell !== BRICK_GOLD;
 }
+/**
+ * Points a Brick pays when it breaks (spec §4 placeholder table): colored
+ * tier t pays 50 + (t - 1) × 10, silver pays 50 on its final break, gold and
+ * empty pay nothing. One table for the sims and the score pops.
+ */
+export function brickBreakScore(cell: number): number {
+  if (cell === BRICK_EMPTY || cell === BRICK_GOLD) return 0;
+  if (cell > BRICK_SILVER_BASE) return 50;
+  return 50 + (cell - 1) * 10;
+}
 export function cellColoredTier(cell: number): number | null {
   return cell >= 1 && cell <= 6 ? cell : null;
 }
@@ -117,6 +129,12 @@ export interface PlayerSnapshot {
    * Armed with the Laser.
    */
   effects: Record<string, number>;
+  /**
+   * Laser (ticket #148): the Armed Paddle is off cooldown and would fire now.
+   * Host-authoritative (sims set it from the Bolt cooldown), so ready-ticks
+   * follow the Paddle, not the shooter. Absent when not Armed.
+   */
+  laserReady?: boolean;
 }
 
 export interface BallSnapshot {
@@ -159,18 +177,42 @@ export type SimEventType =
   | "resume"
   | "paddleBounce"
   | "bossHit"
-  | "bossDead";
+  | "bossDead"
+  /** Laser (ticket #148): an Armed Paddle fired a shot; source = shooter. */
+  | "laserFire"
+  /**
+   * A Bolt hit a normal or silver Brick; source = shooter, target = cell.
+   * Sims push it immediately before the `brickBreak` / `brickSilverHit` that
+   * the same hit produces, so feedback can tell a Bolt hit from a ball hit
+   * (see `isBoltBrickEvent`).
+   */
+  | "boltHit"
+  /** A Bolt was spent on a gold Brick (no damage); source = shooter, target = cell. */
+  | "boltGoldHit";
 
-/** Ring buffer event (last 8): type, source, target, tick (spec §9). */
+/**
+ * Sim event ring size (ticket #148; spec §9 had 8). Laser bursts need room:
+ * every Bolt hit pushes 2 events and every volley 1, so 4 Armed Paddles can
+ * push well past 8 in one tick. Sessions read the whole ring on the host;
+ * the wire carries a bounded slice (see `serializeSnapshot`).
+ */
+export const SIM_EVENT_RING_SIZE = 32;
+/** Events every snapshot carries regardless of age (the spec §9 ring). */
+export const SNAPSHOT_EVENTS_BASE = 8;
+/**
+ * Extra events from the last this-many ticks ride along on top of the base
+ * 8, so a burst survives a 30 Hz broadcast and a few lost snapshots without
+ * paying 32 events on every quiet one.
+ */
+export const SNAPSHOT_EVENT_BURST_TICKS = 8;
+
+/** Ring buffer event: type, source, target, tick (spec §9). */
 export interface SimEvent {
   type: SimEventType;
   source: number;
   target: number;
   tick: number;
 }
-
-/** Snapshot event ring capacity (spec §9): the last 8 events. */
-export const EVENT_RING_SIZE = 8;
 
 /**
  * Sim epochs (ticket #151) live on a u16 wire field, so they wrap. Ordering
@@ -221,19 +263,76 @@ export interface Snapshot {
   /** Boss projectiles (round 33 only; absent otherwise). */
   bossProjectiles?: BossProjectileSnapshot[];
   /** Laser Bolts in flight (absent when the sim has no Laser state). */
-  bolts?: BoltSnapshot[];
+  bolts?: readonly BoltSnapshot[];
 }
 
 /** Laser Bolt in a snapshot (ticket #141): tip position + shooting player. */
 export interface BoltSnapshot {
   x: number;
   y: number;
-  /** Shooting player index (the Paddle that fired it). */
+  /**
+   * Player index of the Paddle that fired it (always a snapshot player). Not
+   * the credited shooter: in Shared Field mode C any player fires players[0].
+   */
   owner: number;
+}
+
+/**
+ * True when `event` is the Brick result of a Bolt hit: a `brickBreak` or
+ * `brickSilverHit` directly preceded by the `boltHit` for the same cell and
+ * tick (the order sims push them in). Feedback uses it to play the Bolt's
+ * quiet hit instead of the ball's.
+ */
+export function isBoltBrickEvent(
+  event: SimEvent,
+  prev: SimEvent | undefined,
+): event is SimEvent & { type: "brickBreak" | "brickSilverHit" } {
+  return (
+    prev !== undefined &&
+    prev.type === "boltHit" &&
+    (event.type === "brickBreak" || event.type === "brickSilverHit") &&
+    prev.target === event.target &&
+    prev.tick === event.tick
+  );
+}
+
+/**
+ * Visit the ring events newer than `afterTick` in order, each with the ring
+ * event just before it (`prev`, for `isBoltBrickEvent` pairing), and return
+ * the new watermark. The ring repeats across snapshots, so every consumer
+ * (audio, visual effects) keeps a watermark and walks only the fresh suffix.
+ */
+export function forEachFreshEvent(
+  events: readonly SimEvent[],
+  afterTick: number,
+  visit: (event: SimEvent, prev: SimEvent | undefined) => void,
+): number {
+  let first = events.length;
+  while (first > 0 && (events[first - 1]?.tick ?? -Infinity) > afterTick) first--;
+  for (let i = first; i < events.length; i++) {
+    const event = events[i];
+    if (event !== undefined) visit(event, events[i - 1]);
+  }
+  // Nothing fresh: the watermark stays where it was.
+  return first < events.length ? (events[events.length - 1]?.tick ?? afterTick) : afterTick;
+}
+
+/** Bolts spawn this far in from each Paddle end (classic 1986 placement). */
+export const LASER_BOLT_INSET = 2;
+
+/** The two Bolt columns for a Paddle centred at `x` with live width `w` (left, right). */
+export function laserBoltXs(x: number, w: number): readonly [number, number] {
+  const reach = w / 2 - LASER_BOLT_INSET;
+  return [x - reach, x + reach];
 }
 
 /** Effect id of the Laser's Armed presence flag in `PlayerSnapshot.effects`. */
 export const ARMED_EFFECT: CapsuleTypeId = "L";
+
+/** Armed = Laser key present and non-zero (sims may encode "until ball loss" as -1). */
+export function isArmedPlayer(p: PlayerSnapshot): boolean {
+  return (p.effects[ARMED_EFFECT] ?? 0) !== 0;
+}
 /** Bolts in flight per shooting Paddle (2 per shot × 4 shots, spec #140). */
 export const LASER_BOLTS_PER_PADDLE = 8;
 /** Max players per snapshot (serializer bound). */

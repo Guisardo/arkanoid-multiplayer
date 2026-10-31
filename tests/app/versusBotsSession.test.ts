@@ -113,6 +113,7 @@ vi.mock("render/touchOverlay", () => ({
     readonly container = {};
     redraw = vi.fn();
     setRegion = vi.fn();
+    setLaunchGlyph = vi.fn();
   },
 }));
 
@@ -225,6 +226,31 @@ describe("versus bots session wiring (ticket 56)", () => {
     );
     lobby?.click();
     expect(backToConfig).toBe(1);
+  });
+
+  it("ticket #143: window blur releases a held arrow (human paddle stops)", async () => {
+    const s = await makeSession("race", 1);
+    sessions.push(s);
+    s.loop.advance(0);
+    const humanX = (): number => s.snapshots()[0]?.players.find((p) => p.player === 0)?.paddle.x ?? 0;
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight" }));
+    for (let i = 0; i < 5; i++) s.loop.advance(1000 / 60);
+    window.dispatchEvent(new Event("blur"));
+    s.loop.advance(1000 / 60);
+    const x1 = humanX();
+    for (let i = 0; i < 20; i++) s.loop.advance(1000 / 60);
+    expect(humanX()).toBe(x1);
+  });
+
+  it("ticket #143: dispose unbinds the input-safety listeners", async () => {
+    const removed = vi.spyOn(window, "removeEventListener");
+    const s = await makeSession("race", 1);
+    s.loop.advance(0);
+    s.dispose();
+    const types = removed.mock.calls.map((c) => c[0]);
+    expect(types).toContain("blur");
+    expect(types).toContain("contextmenu");
+    removed.mockRestore();
   });
 
   it("dispose cleans up (no crash, listeners removed)", async () => {

@@ -5,7 +5,7 @@
 import { AudioEngine, type AudioBufferLike, type MusicTrackId, type SfxEventId } from "./engine";
 import { chainEscalation, sfxForEvent } from "./eventMap";
 import { synthMusic, synthSfx, type SynthData } from "./synth";
-import type { Snapshot } from "shared/protocol";
+import { isBoltBrickEvent, type Snapshot } from "shared/protocol";
 import { EventWatermark } from "shared/eventWatermark";
 
 export type { AudioVolumes } from "./engine";
@@ -85,23 +85,24 @@ export function createSessionAudio(factory: AudioContextFactory): SessionAudio {
     },
     consume(snap: Snapshot, field = 0): void {
       if (!ctxReady) return;
-      // New ring entries only: the ring keeps the last 8 events; anything
-      // the field's watermark already took has fired.
+      // New ring entries only: anything the field's watermark already took
+      // has fired.
       let watermark = watermarks.get(field);
       if (watermark === undefined) {
         watermark = new EventWatermark();
         watermarks.set(field, watermark);
       }
-      for (const event of watermark.take(snap)) {
-        const sfx = sfxForEvent(event);
+      watermark.visit(snap, (event, prev) => {
+        const sfx = sfxForEvent(event, prev);
         if (sfx !== null) fireSfx(sfx.id, sfx.pitch, sfx.gain);
         if (event.type === "brickBreak") {
           chain++;
-          if (chainEscalation(chain)) fireSfx("chainEscalate");
+          // Bolt breaks extend the Chain silently (spec #140: quiet laser).
+          if (chainEscalation(chain) && !isBoltBrickEvent(event, prev)) fireSfx("chainEscalate");
         } else if (event.type === "ballLaunch" || event.type === "ballLoss") {
           chain = 0;
         }
-      }
+      });
       const track = musicFor(snap);
       if (track !== null && track !== currentMusic) {
         engine.playMusic(track);

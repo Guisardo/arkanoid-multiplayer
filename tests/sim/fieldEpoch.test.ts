@@ -1,7 +1,7 @@
 // FieldEpoch overlay (ticket #151): epoch stamping + final-step event carry.
 import { describe, expect, it } from "vitest";
 import { FieldEpoch, finalStepEvents } from "sim/fieldEpoch";
-import { EVENT_RING_SIZE, type SimEvent, type Snapshot } from "shared/protocol";
+import { SIM_EVENT_RING_SIZE, type SimEvent, type Snapshot } from "shared/protocol";
 
 function ev(tick: number, type: SimEvent["type"] = "brickBreak"): SimEvent {
   return { type, source: 0, target: -1, tick };
@@ -63,7 +63,7 @@ describe("FieldEpoch", () => {
   it("lets new events push carried ones out of the ring", () => {
     const fe = new FieldEpoch();
     fe.advance(snap(300, [ev(299, "roundClear")]));
-    const fresh = Array.from({ length: EVENT_RING_SIZE }, (_, i) => ev(i + 1));
+    const fresh = Array.from({ length: SIM_EVENT_RING_SIZE }, (_, i) => ev(i + 1));
     expect(fe.stamp(snap(20, fresh)).events).toEqual(fresh);
   });
 

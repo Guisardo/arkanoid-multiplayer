@@ -429,7 +429,7 @@ describe("mpFlow wiring (ticket 45)", () => {
     // Pinned on purpose: a bump must be a deliberate edit here, and the guest
     // must advertise the same constant (mpFlow passes PROTOCOL_VERSION, never a
     // literal — a drifted copy refuses every connection).
-    expect(PROTOCOL_VERSION).toBe(4);
+    expect(PROTOCOL_VERSION).toBe(5);
     expect(versionsCompatible(PROTOCOL_VERSION, PROTOCOL_VERSION)).toBe(true);
     expect(versionsCompatible(PROTOCOL_VERSION - 1, PROTOCOL_VERSION)).toBe(false);
   });

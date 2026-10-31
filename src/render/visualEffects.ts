@@ -12,9 +12,10 @@
 // anchors resolve against the snapshot the event arrived with. Reading the
 // snapshot keeps this seam intact: render/ never imports sim/.
 
-import type { SimEvent, Snapshot } from "shared/protocol";
+import { brickBreakScore, isBoltBrickEvent, type SimEvent, type Snapshot } from "shared/protocol";
 import { EventWatermark } from "shared/eventWatermark";
-import { BRICK_COLS, BRICK_H, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
+import { BRICK_COLS, BRICK_H, BRICK_ROWS, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
+import { BRICK_FLASH_COLOR, BrickFlashes } from "./brickFlash";
 import { FlashLayer } from "./flash";
 import { HitStop } from "./hitStop";
 import { ParticleSystem } from "./particles";
@@ -22,6 +23,7 @@ import { ScorePopManager } from "./scorePops";
 import { SquashStretch } from "./squashStretch";
 import { TraumaShake, type ShakeOffset } from "./traumaShake";
 import {
+  BOLT_RECIPES,
   CHAIN_RECIPES,
   EFFECT_RECIPES,
   FIELD_CENTER,
@@ -51,6 +53,14 @@ export interface VisualEffectsScene {
   /** Optional sprite squash targets — null in procedural-geometry mode. */
   readonly ballSprite?: { scale: { set(x: number, y: number): void } } | null;
   readonly paddleSprite?: { scale: { set(x: number, y: number): void } } | null;
+  /** Bolt Brick flash painter (FieldView's Graphics, field units); null = headless. */
+  readonly brickFlashLayer?: BrickFlashPainter | null;
+}
+
+/** The slice of Pixi `Graphics` the Brick flash paints with. */
+export interface BrickFlashPainter {
+  clear(): unknown;
+  rect(x: number, y: number, w: number, h: number): { fill(style: { color: number; alpha: number }): unknown };
 }
 
 /** Live effect state, exposed for tests and for the reduced-effects gate. */
@@ -74,6 +84,8 @@ export interface EffectsState {
   pops: readonly string[];
   /** Consecutive brickBreak streak feeding chain escalation. */
   chain: number;
+  /** Cells flashing white from a Bolt hit (ticket #148), oldest first. */
+  brickFlashes: readonly number[];
   reducedEffects: boolean;
 }
 
@@ -84,6 +96,7 @@ export class VisualEffects {
   private readonly flash = new FlashLayer();
   private readonly squash = new SquashStretch();
   private readonly pops = new ScorePopManager();
+  private readonly brickFlashes = new BrickFlashes();
 
   /**
    * Ring events already processed. The snapshot event ring repeats across
@@ -91,6 +104,8 @@ export class VisualEffects {
    * restart with every Sim epoch — the shared watermark handles both.
    */
   private readonly watermark = new EventWatermark();
+  /** Grid of the previous consumed snapshot: a break's Brick (for its pop value). */
+  private prevBricks: readonly number[] | null = null;
   private chain = 0;
   private scale: ReducedEffectsScale = FULL_EFFECTS;
   private reduced = false;
@@ -119,6 +134,7 @@ export class VisualEffects {
       particlePool: this.particles.pooledCount,
       pops: this.pops.activePops.map((p) => p.text),
       chain: this.chain,
+      brickFlashes: this.brickFlashes.indices,
       reducedEffects: this.reduced,
     };
   }
@@ -145,14 +161,19 @@ export class VisualEffects {
    * snapshot that frame will draw — the anchor positions come from it.
    */
   consume(snap: Snapshot): void {
-    for (const event of this.watermark.take(snap)) this.onSimEvent(event, snap);
+    this.watermark.visit(snap, (event, prev) => {
+      this.onSimEvent(event, snap, prev);
+    });
+    this.prevBricks = snap.bricks;
   }
+
 
   /**
    * Fire one event's recipe. Exposed directly so tests (and any future emitter)
-   * can drive effects without a snapshot ring.
+   * can drive effects without a snapshot ring. `prev` is the ring event just
+   * before it (Bolt hit pairing).
    */
-  onSimEvent(event: SimEvent, snap: Snapshot): void {
+  onSimEvent(event: SimEvent, snap: Snapshot, prev?: SimEvent): void {
     // Chain (CONTEXT.md): consecutive brick breaks *without the ball touching
     // the paddle* — a paddle bounce breaks it, as does a launch or a loss.
     if (event.type === "brickBreak") this.chain++;
@@ -164,11 +185,19 @@ export class VisualEffects {
       this.chain = 0;
     }
 
-    const recipe = EFFECT_RECIPES[event.type];
-    if (recipe !== undefined) this.applyRecipe(recipe, this.anchorPoint(recipe.anchor, event, snap));
+    // Laser (ticket #148): Bolt hits stay quiet. The `boltHit` flashes its
+    // Brick; the break it precedes pops the score instead of the ball juice.
+    // Gold hits and volleys are audio-only.
+    if (event.type === "boltHit") this.brickFlashes.flash(event.target);
+    const boltDriven = isBoltBrickEvent(event, prev);
+    const recipe = boltDriven ? BOLT_RECIPES[event.type] : EFFECT_RECIPES[event.type];
+    if (recipe !== undefined) {
+      this.applyRecipe(recipe, this.anchorPoint(recipe.anchor, event, snap), this.popTextFor(event));
+    }
 
     // Chain escalation is derived, not emitted — same thresholds as the SFX.
-    if (event.type === "brickBreak") {
+    // Bolt breaks extend the Chain without its juice (spec #140: no shake).
+    if (event.type === "brickBreak" && !boltDriven) {
       const level = chainLevel(this.chain);
       if (level !== null) {
         this.applyRecipe(CHAIN_RECIPES[level], this.anchorPoint("ball", event, snap));
@@ -176,8 +205,21 @@ export class VisualEffects {
     }
   }
 
+  /**
+   * A break pops the points its Brick paid, read from the grid drawn before
+   * the break (this snapshot already shows the cell empty). Without that grid
+   * (first frame, rejoin, a direct `onSimEvent`) the recipe's text stands.
+   */
+  private popTextFor(event: SimEvent): string | undefined {
+    if (event.type !== "brickBreak" || this.prevBricks === null) return undefined;
+    const cell = this.prevBricks[event.target];
+    if (cell === undefined) return undefined;
+    const points = brickBreakScore(cell);
+    return points > 0 ? `+${String(points)}` : undefined;
+  }
+
   /** Run a recipe: one burst of trauma, hit-stop, particles, flash, squash, pop. */
-  private applyRecipe(recipe: EffectRecipe, at: FieldPoint): void {
+  private applyRecipe(recipe: EffectRecipe, at: FieldPoint, popText?: string): void {
     if (this.scale.allowShake && recipe.trauma > 0) this.shake.addTrauma(recipe.trauma);
 
     const frames = Math.round(recipe.hitStopFrames * this.scale.hitStopFactor);
@@ -201,7 +243,9 @@ export class VisualEffects {
         recipe.paddleSquash.duration,
       );
     }
-    if (recipe.pop !== undefined) this.pops.spawn(at, recipe.pop);
+    if (recipe.pop !== undefined) {
+      this.pops.spawn(at, popText === undefined ? recipe.pop : { ...recipe.pop, text: popText });
+    }
   }
 
   /**
@@ -236,6 +280,7 @@ export class VisualEffects {
     this.flash.update(clamped, frozen);
     this.squash.update(clamped, frozen);
     this.pops.update(clamped, frozen);
+    this.brickFlashes.update(clamped, frozen);
   }
 
   /** Write the live effect state onto the scene. */
@@ -258,6 +303,15 @@ export class VisualEffects {
     if (scene.paddleSprite != null) {
       scene.paddleSprite.scale.set(this.squash.scaleX("paddle"), this.squash.scaleY("paddle"));
     }
+
+    const painter = scene.brickFlashLayer;
+    if (painter != null) {
+      painter.clear();
+      this.brickFlashes.forEach((index, alpha) => {
+        const c = brickCenter(index, BRICK_COLS * BRICK_ROWS);
+        painter.rect(c.x - BRICK_W / 2, c.y - BRICK_H / 2, BRICK_W, BRICK_H).fill({ color: BRICK_FLASH_COLOR, alpha });
+      });
+    }
   }
 
   /** Mount the effect layers into the scene (idempotent). */
@@ -279,6 +333,8 @@ export class VisualEffects {
     this.flash.reset();
     this.squash.reset();
     this.pops.reset();
+    this.brickFlashes.reset();
+    this.prevBricks = null;
     this.chain = 0;
   }
 

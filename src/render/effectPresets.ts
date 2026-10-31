@@ -111,6 +111,27 @@ export function particleSizeLimit(event: SimEventType | null): number {
   return event !== null && CELEBRATION_EVENTS.has(event) ? CELEBRATION_PARTICLE_MAX : IMPACT_PARTICLE_MAX;
 }
 
+/**
+ * Bolt Brick hits (ticket #148, spec #140 Variant C: quiet and readable): a
+ * score pop on the break and nothing else — no shake, hit-stop, particles or
+ * field flash. The white Brick flash is its own channel (`brickFlash.ts`),
+ * fired by the `boltHit` that precedes these events. A non-final silver hit
+ * scores nothing, so it gets no pop.
+ */
+export const BOLT_RECIPES: Readonly<Record<"brickBreak" | "brickSilverHit", EffectRecipe>> = {
+  brickBreak: {
+    trauma: 0,
+    hitStopFrames: 0,
+    anchor: "brick",
+    pop: { text: "+50", color: 0xffee88, size: 1 },
+  },
+  brickSilverHit: {
+    trauma: 0,
+    hitStopFrames: 0,
+    anchor: "brick",
+  },
+};
+
 /** Chain escalation thresholds (audit §5): hit counts that escalate juice. */
 export const CHAIN_LEVELS = [4, 7, 10] as const;
 

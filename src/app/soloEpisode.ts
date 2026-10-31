@@ -12,7 +12,7 @@
 import type { RoundSim } from "sim/roundSim";
 import { FieldEpoch } from "sim/fieldEpoch";
 import { availableRounds, getLevelSync, preloadLevels } from "content/levels";
-import type { InputFrame, Snapshot } from "shared/protocol";
+import type { CapsuleTypeId, InputFrame, Snapshot } from "shared/protocol";
 import type { Storage } from "persistence/storage";
 import type { EpisodeState } from "persistence/saveDocument";
 
@@ -53,6 +53,8 @@ export interface SoloEpisode {
   abandon(): void;
   /** Test hook: place the ball. */
   debugSetBall(x: number, y: number, vx: number, vy: number): void;
+  /** Test hook: drop a Capsule at (x, y) (e2e arms the Laser this way). */
+  debugDropCapsule(x: number, y: number, type: CapsuleTypeId): void;
 }
 
 export interface SoloEpisodeOptions {
@@ -213,6 +215,9 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
     },
     debugSetBall(x, y, vx, vy) {
       sim.debugSetBall(x, y, vx, vy);
+    },
+    debugDropCapsule(x, y, type) {
+      sim.debugDropCapsule(x, y, type);
     },
   };
 }

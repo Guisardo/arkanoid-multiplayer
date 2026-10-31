@@ -1,6 +1,7 @@
 // Capsule system (spec §4, §5): deterministic script-driven drops, zero RNG,
 // classic-accurate effect behaviors. Data-only tuning values.
 import type { CapsuleTypeId } from "shared/protocol";
+import { LASER_COOLDOWN_MS } from "shared/simRates";
 import type { CapsuleScriptEntry } from "content/levelFormat";
 
 /**
@@ -59,8 +60,8 @@ export const CAPSULE_EFFECTS = {
   expandFactor: 1.5,
   /** Reduce: paddle ×0.65 width (negative capsule). */
   reduceFactor: 0.65,
-  /** Laser fire cooldown (ms). */
-  laserCooldownMs: 350,
+  /** Laser fire cooldown (ms); the shared constant render reads too. */
+  laserCooldownMs: LASER_COOLDOWN_MS,
   /** Catch hold max (ms) — classic ~ until next paddle hit or 10 s. */
   catchMaxMs: 10_000,
   /** Multiball split count. */

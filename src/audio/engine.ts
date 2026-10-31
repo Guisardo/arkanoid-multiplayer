@@ -19,7 +19,11 @@ export type SfxEventId =
   | "roundClear"
   | "attack"
   | "assist"
-  | "launch";
+  | "launch"
+  /** Laser (ticket #148): fire tick, Bolt Brick blip, gold clank. */
+  | "laserFire"
+  | "boltHit"
+  | "boltGold";
 
 export type MusicTrackId = "level" | "boss" | "roundIntro" | "gameOver";
 

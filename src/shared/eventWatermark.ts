@@ -17,34 +17,52 @@ export class EventWatermark {
   /** Events at `lastTick` already taken. */
   private takenAtLastTick = 0;
 
-  /** Ring events not taken before, in ring order. Advances the watermark. */
-  take(snap: Snapshot): SimEvent[] {
+  /**
+   * Visit the ring events not taken before, in ring order, each with the ring
+   * event just before it (`prev`, for `isBoltBrickEvent` pairing — it may be
+   * an already-taken event). Advances the watermark.
+   */
+  visit(snap: Snapshot, visitor: (event: SimEvent, prev: SimEvent | undefined) => void): void {
     if (this.epoch === null || compareEpoch(snap.epoch, this.epoch) > 0) {
       this.epoch = snap.epoch;
       this.lastTick = -1;
       this.takenAtLastTick = 0;
     } else if (compareEpoch(snap.epoch, this.epoch) < 0) {
-      return [];
+      return;
     }
 
-    const fresh: SimEvent[] = [];
+    const events = snap.events;
+    const fresh: number[] = [];
     let ordinal = 0;
     let prevTick: number | null = null;
-    for (const event of snap.events) {
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      if (event === undefined) continue;
       ordinal = event.tick === prevTick ? ordinal + 1 : 0;
       prevTick = event.tick;
       const isNewTick = event.tick > this.lastTick;
       const isUntakenAtTick = event.tick === this.lastTick && ordinal >= this.takenAtLastTick;
-      if (isNewTick || isUntakenAtTick) fresh.push(event);
+      if (isNewTick || isUntakenAtTick) fresh.push(i);
     }
 
-    const newest = snap.events[snap.events.length - 1];
+    // Advance before visiting, so a visitor that throws cannot replay events.
+    const newest = events[events.length - 1];
     if (newest !== undefined && newest.tick >= this.lastTick) {
-      const atNewest = snap.events.filter((e) => e.tick === newest.tick).length;
+      const atNewest = events.filter((e) => e.tick === newest.tick).length;
       this.takenAtLastTick =
         newest.tick > this.lastTick ? atNewest : Math.max(this.takenAtLastTick, atNewest);
       this.lastTick = newest.tick;
     }
+    for (const i of fresh) {
+      const event = events[i];
+      if (event !== undefined) visitor(event, events[i - 1]);
+    }
+  }
+
+  /** Ring events not taken before, in ring order. Advances the watermark. */
+  take(snap: Snapshot): SimEvent[] {
+    const fresh: SimEvent[] = [];
+    this.visit(snap, (event) => fresh.push(event));
     return fresh;
   }
 

@@ -88,6 +88,15 @@ export class GamepadAdapter {
     this.menuEdge = false;
   }
 
+  /**
+   * Forget held buttons and the stick (ticket #143: blur, tab hidden, pause).
+   * The next poll re-feeds the live pad, so a still-held button returns as
+   * held but also as a fresh edge.
+   */
+  releaseHeld(): void {
+    this.reset();
+  }
+
   /** Start-button pause/menu edge — consumed once. */
   consumeMenuEvent(): "pause" | null {
     if (this.menuEdge) {
@@ -122,6 +131,8 @@ export class GamepadAdapter {
       ],
     };
     const launch = this.takeEdgeAny(this.bindings.launch);
+    let primaryHeld = false;
+    if (s) for (const b of this.bindings.launch) if (s.buttons[b] === true) primaryHeld = true;
     for (const b of this.bindings.menu) {
       if (this.pressedEdges.has(b)) {
         this.pressedEdges.delete(b);
@@ -129,7 +140,7 @@ export class GamepadAdapter {
       }
     }
 
-    return { player: this.player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions };
+    return { player: this.player, tick, axisX, axisY: 0, launch, primaryHeld, actions };
   }
 
   private takeEdge(b: GamepadButton): boolean {

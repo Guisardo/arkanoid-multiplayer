@@ -4,7 +4,7 @@
 //
 // Layout:
 //   u32 tick | u8 phase | u16 round | u16 epoch | u8 playerCount | u8 ballCount |
-//   u8 capsuleCount | u8 eventCount (≤8) | u8 ackCount | u16 brickCount
+//   u8 capsuleCount | u8 eventCount (≤SIM_EVENT_RING_SIZE) | u8 ackCount | u16 brickCount
 //   per player: u8 player, u8 skinIndex, u8 state, u8 target, u8 lives,
 //               u32 score, u8 meter, u8 chain, f32 x, f32 y, f32 w, f32 h,
 //               u8 edge, u16 nameLen
@@ -15,13 +15,17 @@
 //   per ack: u32
 //   bricks: u8[brickCount]
 //   boss tail: u8 present (+ boss fields + projectiles when 1)
-//   laser tail (ticket #141): u8 armedMask (bit i = players[i] Armed) |
+//   laser tail (ticket #141): u8 armedMask (bit i = players[i] Armed; bit
+//     4+i = players[i] laserReady, ticket #148, only on Armed players) |
 //     u8 boltsPresent (+ u8 boltCount, per bolt f32 x, f32 y, u8 owner when 1)
 import {
   ARMED_EFFECT,
-  EVENT_RING_SIZE,
   LASER_BOLTS_PER_PADDLE,
+  SIM_EVENT_RING_SIZE,
+  SNAPSHOT_EVENTS_BASE,
+  SNAPSHOT_EVENT_BURST_TICKS,
   SNAPSHOT_PLAYERS_MAX,
+  isArmedPlayer,
   type BallSnapshot,
   type BoltSnapshot,
   type CapsuleSnapshot,
@@ -42,18 +46,17 @@ const EVENT_TYPES: readonly SimEventType[] = [
   "multiballBoost",
   "roundClear", "gameOver", "attack", "assist", "pause", "resume", "paddleBounce",
   "bossHit", "bossDead",
+  // v4 (ticket #148): append-only, so existing indices never move.
+  "laserFire", "boltHit", "boltGoldHit",
 ];
 const EDGES: readonly PaddleEdge[] = ["bottom", "left", "right", "top"];
 const STATES: readonly PlayerSlotState[] = ["playing", "downed", "removed"];
 const CAPSULES: readonly CapsuleTypeId[] = ["B", "C", "D", "E", "L", "M", "P", "S", "R", "?"];
 const BOLTS_MAX = SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE;
+/** Ready bits sit above the Armed bits (≤ SNAPSHOT_PLAYERS_MAX = 4 players). */
+const LASER_READY_SHIFT = SNAPSHOT_PLAYERS_MAX;
 /** Per-bolt wire bytes: f32 x + f32 y + u8 owner. */
 const BOLT_BYTES = 9;
-
-/** Armed = key present and non-zero (sims encode "until ball loss" as -1). */
-function isArmed(p: PlayerSnapshot): boolean {
-  return (p.effects[ARMED_EFFECT] ?? 0) !== 0;
-}
 
 function hasPlayer(players: readonly PlayerSnapshot[], player: number): boolean {
   return players.some((p) => p.player === player);
@@ -152,11 +155,24 @@ function indexOfOrThrow<T>(list: readonly T[], v: T, what: string): number {
   return i;
 }
 
+/**
+ * The ring slice a snapshot carries (ticket #148): always the newest
+ * `SNAPSHOT_EVENTS_BASE` (spec §9's 8, so quiet-period events still outlive
+ * a few lost snapshots), plus anything newer from the last
+ * `SNAPSHOT_EVENT_BURST_TICKS` (a Laser burst), never more than the ring.
+ */
+function wireEvents(events: readonly SimEvent[], tick: number): SimEvent[] {
+  const ring = events.slice(-SIM_EVENT_RING_SIZE);
+  let start = Math.max(0, ring.length - SNAPSHOT_EVENTS_BASE);
+  while (start > 0 && (ring[start - 1]?.tick ?? -Infinity) > tick - SNAPSHOT_EVENT_BURST_TICKS) start--;
+  return ring.slice(start);
+}
+
 export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   const players = snap.players;
   const balls = snap.balls;
   const capsules = snap.capsules;
-  const events = snap.events.slice(-EVENT_RING_SIZE);
+  const events = wireEvents(snap.events, snap.tick);
   const bricks = snap.bricks.slice(0, BRICK_COLS * BRICK_ROWS);
 
   const nameBytes = players.reduce((n, p) => n + p.name.length, 0);
@@ -268,10 +284,13 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
     w.u8(0);
   }
 
-  // Laser tail (ticket #141): Armed mask, then bolts (absent = u8(0)).
+  // Laser tail (ticket #141): Armed mask (+ ready in the high nibble,
+  // ticket #148), then bolts (absent = u8(0)).
   let armedMask = 0;
   players.forEach((p, i) => {
-    if (isArmed(p)) armedMask |= 1 << i;
+    if (!isArmedPlayer(p)) return;
+    armedMask |= 1 << i;
+    if (p.laserReady === true) armedMask |= 1 << (i + LASER_READY_SHIFT);
   });
   w.u8(armedMask);
   if (bolts !== undefined) {
@@ -305,7 +324,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   const brickCount = r.u16();
   if (
     playerCount > SNAPSHOT_PLAYERS_MAX || ballCount > 64 || capsuleCount > 64 ||
-    eventCount > EVENT_RING_SIZE || brickCount > BRICK_COLS * BRICK_ROWS
+    eventCount > SIM_EVENT_RING_SIZE || brickCount > BRICK_COLS * BRICK_ROWS
   ) {
     throw new Error("malformed snapshot: counts out of bounds");
   }
@@ -418,10 +437,15 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   }
 
   // Laser tail (ticket #141): Armed mask, then u8 boltsPresent; 0 = absent.
-  const armedMask = r.u8();
+  const mask = r.u8();
+  const armedMask = mask & ((1 << LASER_READY_SHIFT) - 1);
+  const readyMask = mask >> LASER_READY_SHIFT;
   if (armedMask >> players.length !== 0) throw new Error("malformed snapshot: armed mask beyond player count");
+  if ((readyMask & ~armedMask) !== 0) throw new Error("malformed snapshot: laser ready without Armed");
   players.forEach((p, i) => {
-    if ((armedMask & (1 << i)) !== 0) p.effects[ARMED_EFFECT] = 1;
+    if ((armedMask & (1 << i)) === 0) return;
+    p.effects[ARMED_EFFECT] = 1;
+    p.laserReady = (readyMask & (1 << i)) !== 0;
   });
   const boltsPresent = r.u8();
   if (boltsPresent > 1) throw new Error("malformed snapshot: bolts flag");

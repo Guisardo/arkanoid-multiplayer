@@ -1,7 +1,7 @@
 // Event → audio mapping (spec §13): brick hit pitched by row, escalating
 // chains, per-event SFX. Pure mapping — unit-testable without WebAudio.
 import type { SfxEventId } from "./engine";
-import type { SimEvent } from "shared/protocol";
+import { isBoltBrickEvent, type SimEvent } from "shared/protocol";
 import { BRICK_ROWS } from "shared/gridConstants";
 
 /** Pitch by brick row: top rows higher, bottom rows lower. */
@@ -21,10 +21,16 @@ export function chainLevel(events: readonly SimEvent[], upToTick: number): numbe
   return chain;
 }
 
-/** Map a sim event to an SFX trigger (id + pitch/gain), or null. */
+/**
+ * Map a sim event to an SFX trigger (id + pitch/gain), or null. `prev` is the
+ * ring event just before it: a Brick result of a Bolt hit is silent here,
+ * because its `boltHit` already played the Bolt's blip.
+ */
 export function sfxForEvent(
   event: SimEvent,
+  prev?: SimEvent,
 ): { id: SfxEventId; pitch?: number; gain?: number } | null {
+  if (isBoltBrickEvent(event, prev)) return null;
   switch (event.type) {
     case "brickBreak":
       return { id: "brickHit", pitch: brickPitch(Math.floor(event.target / 13)) };
@@ -47,6 +53,12 @@ export function sfxForEvent(
       return { id: "brickHit", pitch: 0.6, gain: 1 };
     case "bossDead":
       return { id: "roundClear" };
+    case "laserFire":
+      return { id: "laserFire" };
+    case "boltHit":
+      return { id: "boltHit" };
+    case "boltGoldHit":
+      return { id: "boltGold" };
     default:
       return null;
   }
