@@ -4,9 +4,9 @@
 // resolution, and node has no GPU, so the recorded options are observed on the
 // RenderGroup rather than on a GPU texture.
 import { describe, expect, it, beforeEach } from "vitest";
-import { BrickLayer, resetBrickContexts } from "render/brickLayer";
+import { BrickLayer, MAX_WALL_TEXTURE_EDGE, resetBrickContexts, wallCacheResolution } from "render/brickLayer";
 import { DEFAULT_THEME } from "content/themes";
-import { BRICK_COLS, BRICK_ROWS } from "shared/gridConstants";
+import { BRICK_COLS, BRICK_ROWS, FIELD_H } from "shared/gridConstants";
 
 beforeEach(() => {
   resetBrickContexts();
@@ -74,6 +74,51 @@ describe("brick layer texture resolution (ticket 102)", () => {
     expect(cacheOptionsOf(layer).resolution).toBe(1);
     layer.setTextureResolution(-1);
     expect(cacheOptionsOf(layer).resolution).toBe(1);
+    layer.destroy();
+  });
+});
+
+// Ticket #151: Pixi records a cached render group at its *local* bounds ×
+// resolution, and the wall's local space is field units — so resolution 1
+// meant one texel per field unit, stretched ~7.5× (× DPR) on screen. The
+// cache now matches the screen density the wall is drawn at.
+describe("brick layer cache matches screen density (ticket #151)", () => {
+  it("wallCacheResolution = layout scale × renderer resolution × rung factor", () => {
+    expect(wallCacheResolution(3, 2, 1)).toBe(6);
+    expect(wallCacheResolution(3, 2, 0.5)).toBe(3);
+    expect(wallCacheResolution(1.5, 1, 1)).toBe(1.5);
+  });
+
+  it("caps the texture so its tallest edge stays within MAX_WALL_TEXTURE_EDGE", () => {
+    expect(wallCacheResolution(20, 2, 1)).toBe(MAX_WALL_TEXTURE_EDGE / FIELD_H);
+  });
+
+  it("ignores unusable factors instead of asking for a zero-size texture", () => {
+    expect(wallCacheResolution(0, 2, 1)).toBe(2);
+    expect(wallCacheResolution(3, Number.NaN, 1)).toBe(3);
+    expect(wallCacheResolution(3, 2, -1)).toBe(6);
+  });
+
+  it("records the cache at the field's on-screen density", () => {
+    const layer = new BrickLayer({ theme: DEFAULT_THEME, layoutScale: 3.2, rendererResolution: 2 });
+    expect(cacheOptionsOf(layer).resolution).toBeCloseTo(6.4);
+    expect(layer.cacheResolution).toBeCloseTo(6.4);
+    layer.destroy();
+  });
+
+  it("the degraded rung halves the on-screen density, not an absolute 0.5", () => {
+    const layer = new BrickLayer({ theme: DEFAULT_THEME, layoutScale: 3, rendererResolution: 2 });
+    layer.setTextureResolution(0.5);
+    expect(cacheOptionsOf(layer).resolution).toBe(3);
+    layer.destroy();
+  });
+
+  it("a renderer resolution change (DPR rung) re-records at the new density", () => {
+    const layer = new BrickLayer({ theme: DEFAULT_THEME, layoutScale: 3, rendererResolution: 2 });
+    layer.sync(new Array<number>(BRICK_COLS * BRICK_ROWS).fill(1));
+    layer.setRendererResolution(1.5);
+    expect(cacheOptionsOf(layer).resolution).toBe(4.5);
+    expect(layer.gridDropped).toBe(true);
     layer.destroy();
   });
 });

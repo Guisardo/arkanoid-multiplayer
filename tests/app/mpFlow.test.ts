@@ -73,6 +73,8 @@ vi.mock("render/splitScreen", () => ({
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
     setTextureResolution = vi.fn();
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolutions: number[] = [];
     /** Ticket 53/N2 probe surface: region per local player. */
     regionOf = vi.fn((player: number) =>
       player === 0 ? { x: 0, y: 0, w: 400, h: 600 } : null);

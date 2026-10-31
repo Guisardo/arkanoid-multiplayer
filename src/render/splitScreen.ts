@@ -26,6 +26,8 @@ export interface SplitScreenOptions {
    * which construct fresh FieldViews.
    */
   textureResolution?: number;
+  /** Ticket #151: initial renderer resolution, handed to every field. */
+  rendererResolution?: number;
   /**
    * Ticket 100: px reserved above every field region (the remote progress
    * strip band). Regions and `regionOf` both honour it, so the fields shrink
@@ -40,12 +42,15 @@ export class SplitScreenView {
   private readonly opts: SplitScreenOptions;
   /** Ticket 102: live cached-wall texture resolution, reapplied on rebuild. */
   private wallResolution: number;
+  /** Ticket #151: live renderer resolution, reapplied on rebuild. */
+  private rendererResolution: number;
   /** Ticket 100: last snapshots, replayed after a rebuild so the HUD never blanks. */
   private lastSnapshots: readonly Snapshot[] = [];
 
   constructor(opts: SplitScreenOptions) {
     this.opts = opts;
     this.wallResolution = opts.textureResolution ?? 1;
+    this.rendererResolution = opts.rendererResolution ?? 1;
     this.rebuild();
   }
 
@@ -75,6 +80,7 @@ export class SplitScreenView {
         themeId: this.opts.themeId,
         reducedEffects: this.opts.reducedEffects ?? false,
         textureResolution: this.wallResolution,
+        rendererResolution: this.rendererResolution,
       });
       this.fields.push(view);
       this.container.addChild(view.container);
@@ -161,6 +167,17 @@ export class SplitScreenView {
   setTextureResolution(resolution: number): void {
     this.wallResolution = resolution;
     for (const v of this.fields) v.setTextureResolution(resolution);
+  }
+
+  /** Ticket #151: renderer resolution changed — every field re-records its wall. */
+  setRendererResolution(resolution: number): void {
+    this.rendererResolution = resolution;
+    for (const v of this.fields) v.setRendererResolution(resolution);
+  }
+
+  /** Ticket #151: each field's cached-wall resolution (memory telemetry). */
+  get wallCacheResolutions(): number[] {
+    return this.fields.map((v) => v.wallCacheResolution);
   }
 
   /** The live fields — read by tests and session diagnostics. */

@@ -14,12 +14,12 @@
           ],
           "src": [
             {
-              "src": "boot/boot-atlas-MF4_Tg.webp.json",
-              "progressSize": 27.92
+              "src": "boot/boot-atlas-q2nDlg.png.json",
+              "progressSize": 9.85
             },
             {
-              "src": "boot/boot-atlas-4KLasw.png.json",
-              "progressSize": 9.85
+              "src": "boot/boot-atlas-MF4_Tg.webp.json",
+              "progressSize": 27.92
             }
           ],
           "data": {
@@ -41,12 +41,12 @@
           ],
           "src": [
             {
-              "src": "gameplay/gameplay-atlas-zRmQ_w.png.json",
-              "progressSize": 4.04
+              "src": "gameplay/gameplay-atlas-aqOgag@4x.png.json",
+              "progressSize": 11.84
             },
             {
-              "src": "gameplay/gameplay-atlas-E7omng.webp.json",
-              "progressSize": 2.82
+              "src": "gameplay/gameplay-atlas-_HmZwA@4x.webp.json",
+              "progressSize": 9.01
             }
           ],
           "data": {

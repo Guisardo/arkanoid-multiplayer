@@ -870,7 +870,7 @@ export class MpFlow {
     // ladder actually scales, so the overlay and the ladder read the same rung.
     const memory = sampleMemoryStats(
       this.memoryProbe,
-      cachedWallBytes(this.split?.fieldCount ?? 0, this.ladder.rung.textureResolution),
+      cachedWallBytes(this.split?.wallCacheResolutions ?? []),
     );
     this.perfOverlay.update({
       stats: this.frameStats.view,
@@ -1038,6 +1038,8 @@ export class MpFlow {
     // Ticket 102: the degraded rung also halves every field's cached wall
     // texture — a quarter of the bytes, for identical visual content.
     this.split?.setTextureResolution(rung.textureResolution);
+    // Ticket #151: the DPR rung changes the walls' on-screen density.
+    if (this.shell !== null) this.split?.setRendererResolution(this.shell.app.renderer.resolution);
     this.loop?.setRenderEvery(rung.renderEvery);
     this.updateDegradedBanner(rung.degraded);
   }
@@ -1137,6 +1139,8 @@ export class MpFlow {
       skinIds: fields.map((p) => skinByIndex(skinIndices[p] ?? 0).id),
       themeId: themeId || DEFAULT_THEME_ID,
       reducedEffects: reduced,
+      textureResolution: this.ladder.rung.textureResolution,
+      rendererResolution: app.renderer.resolution,
     });
     app.stage.addChild(this.split.container);
     if (hasStrip) {

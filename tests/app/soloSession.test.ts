@@ -86,6 +86,8 @@ vi.mock("render/fieldView", () => ({
     invalidate = vi.fn();
     setReducedEffects = vi.fn();
     setTextureResolution = vi.fn();
+    setRendererResolution = vi.fn();
+    readonly wallCacheResolution = 1;
     // ADR 0009: the session render callback advances the effects each frame.
     tickEffects = vi.fn();
     tickEffectsAuto = vi.fn();

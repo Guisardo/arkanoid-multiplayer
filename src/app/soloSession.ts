@@ -207,6 +207,9 @@ export async function startSoloSession(
       skinId: settings.appearance.skinId,
       themeId: settings.appearance.themeId,
       reducedEffects: settings.display.reducedEffects,
+      // A resize rebuild must keep the live rung's wall density.
+      textureResolution: ladder.rung.textureResolution,
+      rendererResolution: app.renderer.resolution,
     });
 
   const firstView = makeView();
@@ -495,7 +498,7 @@ export async function startSoloSession(
         // actually scales.
         memory: sampleMemoryStats(
           memoryProbe,
-          textureMbBytes + cachedWallBytes(views.length, ladder.rung.textureResolution),
+          textureMbBytes + cachedWallBytes(views.map((v) => v.wallCacheResolution)),
         ),
       });
     },
@@ -508,7 +511,11 @@ export async function startSoloSession(
     const deviceDpr = globalThis.devicePixelRatio || 1;
     shell.setResolution(Math.min(rung.dpr, effectiveDpr("auto", deviceDpr)));
     // Ticket 102: the degraded rung also halves the cached wall texture.
-    for (const v of views) v.setTextureResolution(rung.textureResolution);
+    for (const v of views) {
+      v.setTextureResolution(rung.textureResolution);
+      // Ticket #151: the DPR rung changes the wall's on-screen density.
+      v.setRendererResolution(app.renderer.resolution);
+    }
     loop.setRenderEvery(rung.renderEvery);
     updateDegradedBanner(rung.degraded);
   }

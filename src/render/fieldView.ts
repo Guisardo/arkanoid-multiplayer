@@ -44,11 +44,16 @@ export interface FieldViewOptions {
    */
   reducedEffects?: boolean;
   /**
-   * Ticket 102: resolution the cached brick wall is recorded at. The perf
+   * Ticket 102: perf-ladder factor on the cached brick wall's density. The
    * ladder passes 0.5 on the explicit degraded rung (a quarter of the texture
-   * bytes); absent → 1, the renderer resolution.
+   * bytes); absent → 1, full on-screen density.
    */
   textureResolution?: number;
+  /**
+   * Ticket #151: the renderer resolution (device pixel ratio). With the
+   * layout scale it sets the wall cache's on-screen density; absent → 1.
+   */
+  rendererResolution?: number;
 }
 
 export class FieldView {
@@ -151,6 +156,8 @@ export class FieldView {
       theme: this.theme,
       reducedEffects: this.reducedEffects,
       textureResolution: this.wallResolution,
+      layoutScale: s,
+      rendererResolution: opts.rendererResolution ?? 1,
     });
     this.shakeLayer.addChild(
       this.brickLayer.view,
@@ -444,6 +451,16 @@ export class FieldView {
     if (this.wallResolution === resolution) return;
     this.wallResolution = resolution;
     this.brickLayer.setTextureResolution(resolution);
+  }
+
+  /** Ticket #151: renderer resolution changed — re-record the wall to match. */
+  setRendererResolution(resolution: number): void {
+    this.brickLayer.setRendererResolution(resolution);
+  }
+
+  /** Ticket #151: texels per field unit the wall cache is recorded at. */
+  get wallCacheResolution(): number {
+    return this.brickLayer.cacheResolution;
   }
 }
 

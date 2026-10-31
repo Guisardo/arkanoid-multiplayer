@@ -15,7 +15,7 @@ import {
   SILVER_MAX_HITS,
   silverCell,
 } from "shared/protocol";
-import { BRICK_COLS, BRICK_H, BRICK_ROWS, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
+import { BRICK_COLS, BRICK_H, BRICK_ROWS, BRICK_TOP_OFFSET, BRICK_W, FIELD_H } from "shared/gridConstants";
 import type { BrickSet, FieldTheme } from "content/skinTypes";
 import { crackSegments } from "./brickCracks";
 import { diffBricks } from "./sceneSync";
@@ -173,11 +173,37 @@ export interface BrickLayerOptions {
   /** Ticket 54: skip the silver crack overlays entirely. */
   reducedEffects?: boolean;
   /**
-   * Ticket 102: resolution the cached wall texture is recorded at. 1 keeps
-   * the renderer resolution; the perf ladder's degraded rung passes 0.5 for a
-   * quarter of the texture bytes. Ignored when ≤ 0 (never a zero-size cache).
+   * Ticket 102: perf-ladder factor on the cache density. 1 records the wall
+   * at full on-screen density; the degraded rung passes 0.5 for a quarter of
+   * the texture bytes. Ignored when ≤ 0 (never a zero-size cache).
    */
   textureResolution?: number;
+  /** Ticket #151: field units → CSS px (FieldLayout.scale). Default 1. */
+  layoutScale?: number;
+  /** Ticket #151: renderer resolution (device pixel ratio). Default 1. */
+  rendererResolution?: number;
+}
+
+/**
+ * Ticket #151: tallest cached-wall texture edge, in texels. 4096 is the
+ * baseline max texture size WebGL guarantees on the devices we target.
+ */
+export const MAX_WALL_TEXTURE_EDGE = 4096;
+
+/**
+ * Cached-wall resolution (CONTEXT.md). Pixi records a cached render group at
+ * its *local* bounds × resolution, and the wall's local space is field units,
+ * so a sharp wall needs one texel per device pixel: the field's layout scale
+ * × the renderer resolution, times the perf-ladder factor. Capped so the
+ * texture never exceeds MAX_WALL_TEXTURE_EDGE.
+ */
+export function wallCacheResolution(
+  layoutScale: number,
+  rendererResolution: number,
+  rungFactor: number,
+): number {
+  const density = sanitizeResolution(layoutScale) * sanitizeResolution(rendererResolution);
+  return Math.min(density * sanitizeResolution(rungFactor), MAX_WALL_TEXTURE_EDGE / FIELD_H);
 }
 
 /**
@@ -190,8 +216,12 @@ export class BrickLayer {
   readonly view: Container;
   private readonly theme: FieldTheme;
   private reducedEffects: boolean;
-  /** Ticket 102: resolution the cached wall texture is recorded at. */
+  /** Ticket 102: perf-ladder factor on the cache density. */
   private textureResolution: number;
+  /** Ticket #151: field units → CSS px. */
+  private readonly layoutScale: number;
+  /** Ticket #151: renderer resolution (device pixel ratio). */
+  private rendererResolution: number;
   /** Recycled brick Graphics, grown on demand and reused across re-records. */
   private readonly pool: Graphics[] = [];
   private used = 0;
@@ -202,10 +232,12 @@ export class BrickLayer {
     this.theme = opts.theme;
     this.reducedEffects = opts.reducedEffects ?? false;
     this.textureResolution = sanitizeResolution(opts.textureResolution);
+    this.layoutScale = sanitizeResolution(opts.layoutScale);
+    this.rendererResolution = sanitizeResolution(opts.rendererResolution);
     this.view = new Container({ isRenderGroup: true });
     // ADR 0005: the wall is static between brick changes, so it renders once
     // into its own texture and is blitted as one draw call.
-    this.view.cacheAsTexture({ resolution: this.textureResolution });
+    this.view.cacheAsTexture({ resolution: this.cacheResolution });
   }
 
   /** Bricks currently mounted in the layer. */
@@ -246,13 +278,32 @@ export class BrickLayer {
     const next = sanitizeResolution(resolution);
     if (this.textureResolution === next) return;
     this.textureResolution = next;
-    this.view.cacheAsTexture({ resolution: next });
-    this.grid = null;
+    this.recache();
+  }
+
+  /**
+   * Ticket #151: the renderer resolution changed (perf-ladder DPR rung), so
+   * the on-screen density did too — re-record at the new density.
+   */
+  setRendererResolution(resolution: number): void {
+    const next = sanitizeResolution(resolution);
+    if (this.rendererResolution === next) return;
+    this.rendererResolution = next;
+    this.recache();
   }
 
   /** Resolution the cached wall texture is currently recorded at. */
   get cacheResolution(): number {
-    return this.textureResolution;
+    return wallCacheResolution(this.layoutScale, this.rendererResolution, this.textureResolution);
+  }
+
+  /**
+   * Pixi has no way to resize an existing cache: re-arm it at the current
+   * resolution and drop the grid so the next sync() re-records.
+   */
+  private recache(): void {
+    this.view.cacheAsTexture({ resolution: this.cacheResolution });
+    this.grid = null;
   }
 
   /**
