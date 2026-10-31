@@ -13,6 +13,7 @@
 // snapshot keeps this seam intact: render/ never imports sim/.
 
 import type { SimEvent, Snapshot } from "shared/protocol";
+import { EventWatermark } from "shared/eventWatermark";
 import { BRICK_COLS, BRICK_H, BRICK_TOP_OFFSET, BRICK_W } from "shared/gridConstants";
 import { FlashLayer } from "./flash";
 import { HitStop } from "./hitStop";
@@ -85,11 +86,11 @@ export class VisualEffects {
   private readonly pops = new ScorePopManager();
 
   /**
-   * Newest event tick already processed. The snapshot event ring repeats across
-   * consecutive rendered frames (guest interpolation replays it), so the same
-   * watermark trick `sessionAudio` uses is mandatory here too.
+   * Ring events already processed. The snapshot event ring repeats across
+   * consecutive rendered frames (guest interpolation replays it), and ticks
+   * restart with every Sim epoch — the shared watermark handles both.
    */
-  private lastEventTick = -1;
+  private readonly watermark = new EventWatermark();
   private chain = 0;
   private scale: ReducedEffectsScale = FULL_EFFECTS;
   private reduced = false;
@@ -144,10 +145,7 @@ export class VisualEffects {
    * snapshot that frame will draw — the anchor positions come from it.
    */
   consume(snap: Snapshot): void {
-    const fresh = snap.events.filter((e) => e.tick > this.lastEventTick);
-    const newest = fresh[fresh.length - 1];
-    if (newest !== undefined) this.lastEventTick = newest.tick;
-    for (const event of fresh) this.onSimEvent(event, snap);
+    for (const event of this.watermark.take(snap)) this.onSimEvent(event, snap);
   }
 
   /**

@@ -27,6 +27,7 @@ import {
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  EVENT_RING_SIZE,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
@@ -53,8 +54,6 @@ import {
 } from "./simState";
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
-
-const EVENT_RING_SIZE = 8;
 
 /**
  * Ticket 102: cap on the destroyed-brick history behind Attack's brick rain.
@@ -685,6 +684,8 @@ export function createRoundSim(level: LevelData, opts: RoundSimOptions): RoundSi
         tick,
         phase,
         round: level.round,
+        // A composer that replaces this sim restamps the epoch (sim/fieldEpoch).
+        epoch: 0,
         players: [
           {
             player: 0,

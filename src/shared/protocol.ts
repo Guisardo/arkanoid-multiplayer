@@ -11,7 +11,9 @@
 // snapshots gain a per-player Armed flag and a Bolt tail. A v3 decoder throws
 // on a v2 snapshot (no tail) and a v2 host ignores held fire, so the handshake
 // refuses the mixed pair.
-export const PROTOCOL_VERSION = 3;
+// v4: snapshots carry a u16 Sim epoch after `round` (ticket #151). A v3
+// decoder would read it as the player count, so the handshake refuses the pair.
+export const PROTOCOL_VERSION = 4;
 
 // ---- Input frame (the input→sim seam) ----
 
@@ -167,6 +169,28 @@ export interface SimEvent {
   tick: number;
 }
 
+/** Snapshot event ring capacity (spec §9): the last 8 events. */
+export const EVENT_RING_SIZE = 8;
+
+/**
+ * Sim epochs (ticket #151) live on a u16 wire field, so they wrap. Ordering
+ * uses serial-number arithmetic (RFC 1982): an epoch is newer when it sits in
+ * the half-range ahead of the other.
+ */
+export const EPOCH_MODULUS = 0x10000;
+
+/** The epoch a replacement sim takes over from `epoch`. */
+export function nextEpoch(epoch: number): number {
+  return (epoch + 1) % EPOCH_MODULUS;
+}
+
+/** Wrap-aware epoch order: negative when `a` is older, 0 equal, positive newer. */
+export function compareEpoch(a: number, b: number): number {
+  const delta = (a - b + EPOCH_MODULUS) % EPOCH_MODULUS;
+  if (delta === 0) return 0;
+  return delta < EPOCH_MODULUS / 2 ? 1 : -1;
+}
+
 export type SimPhase =
   | "serve"
   | "play"
@@ -174,9 +198,16 @@ export type SimPhase =
   | "gameOver";
 
 export interface Snapshot {
+  /** Ticks since this field's sim was built — restarts at 0 on every rebuild. */
   tick: number;
   phase: SimPhase;
   round: number;
+  /**
+   * Sim epoch (ticket #151, CONTEXT.md): bumped each time the field's sim is
+   * replaced (round advance, field reset, Continue, Restart). Ticks and event
+   * ticks only order within one epoch.
+   */
+  epoch: number;
   players: PlayerSnapshot[];
   balls: BallSnapshot[];
   capsules: CapsuleSnapshot[];

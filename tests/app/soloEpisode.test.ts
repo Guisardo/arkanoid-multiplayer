@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createSoloEpisode, SOLO_MAX_ROUND, CONTINUE_SCORE_FACTOR } from "app/soloEpisode";
 import { Storage, type StorageBackend } from "persistence/storage";
-import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
+import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame, type SimEvent } from "shared/protocol";
+import { EventWatermark } from "shared/eventWatermark";
 import { BRICK_COLS } from "sim/constants";
 
 function fakeBackend(): StorageBackend {
@@ -157,5 +158,60 @@ describe("solo episode flow (ticket 36)", () => {
     clearRound(epFinal);
     expect(epFinal.phase()).toBe("episodeComplete");
     expect(SOLO_MAX_ROUND).toBe(33);
+  });
+});
+
+/** Force a game over: drop the ball until the lives run out. */
+function loseAllLives(ep: Awaited<ReturnType<typeof createSoloEpisode>>): void {
+  const dbg = ep as unknown as { debugSetBall: (x: number, y: number, vx: number, vy: number) => void };
+  for (let loss = 0; loss < 3; loss++) {
+    dbg.debugSetBall(104, 300, 0, 60);
+    for (let s = 0; s < 12; s++) ep.step([frame(loss * 12 + s)]);
+  }
+}
+
+describe("Sim epoch across sim rebuilds (ticket #151)", () => {
+  it("a round clear bumps the epoch and carries the CLEAR into Round 2's ring", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()) });
+    expect(ep.snapshot().epoch).toBe(0);
+    clearRound(ep);
+    const snap = ep.snapshot();
+    expect(ep.round()).toBe(2);
+    expect(snap.epoch).toBe(1);
+    expect(snap.events.filter((e) => e.type === "roundClear")).toEqual([
+      { type: "roundClear", source: 0, target: -1, tick: 0 },
+    ]);
+  });
+
+  it("a per-step consumer takes Round 2 events and the Round 1 CLEAR exactly once", async () => {
+    // Regression: a consumer watermark that never reset dropped every Round 2
+    // event — the new sim restarts at tick 0, below the Round 1 watermark.
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()) });
+    const watermark = new EventWatermark();
+    const taken: Array<{ round: number; event: SimEvent }> = [];
+    const step = ep.step.bind(ep);
+    ep.step = (inputs) => {
+      step(inputs);
+      for (const event of watermark.take(ep.snapshot())) taken.push({ round: ep.round(), event });
+    };
+    clearRound(ep);
+    clearRound(ep);
+    expect(ep.round()).toBe(3);
+    const clears = taken.filter((t) => t.event.type === "roundClear");
+    expect(clears.map((t) => t.round)).toEqual([2, 3]);
+    const round2Breaks = taken.filter((t) => t.round === 2 && t.event.type === "brickBreak");
+    expect(round2Breaks.length).toBeGreaterThan(0);
+  });
+
+  it("Continue and Restart each start a new epoch without carrying the game over", async () => {
+    const ep = await createSoloEpisode({ storage: new Storage(fakeBackend()), startRound: 2 });
+    loseAllLives(ep);
+    ep.continueRun();
+    expect(ep.snapshot().epoch).toBe(1);
+    expect(ep.snapshot().events).toEqual([]);
+    loseAllLives(ep);
+    ep.restartRun();
+    expect(ep.snapshot().epoch).toBe(2);
+    expect(ep.snapshot().events).toEqual([]);
   });
 });

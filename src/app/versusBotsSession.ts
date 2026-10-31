@@ -455,7 +455,9 @@ export async function startVersusBotsSession(
       touchOverlay?.redraw();
       const syncStart = performance.now();
       const snaps = sim.snapshots();
-      for (const s of snaps) audio.consume(s);
+      snaps.forEach((s, field) => {
+        audio.consume(s, field);
+      });
       // Parallel: N snapshots → N fields. Single-field: 1 snapshot (all
       // players) → 1 field — SplitScreenView.sync index-aligns.
       split.sync(snaps);

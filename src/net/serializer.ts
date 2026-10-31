@@ -3,7 +3,7 @@
 // DataView; little-endian fixed layout.
 //
 // Layout:
-//   u32 tick | u8 phase | u16 round | u8 playerCount | u8 ballCount |
+//   u32 tick | u8 phase | u16 round | u16 epoch | u8 playerCount | u8 ballCount |
 //   u8 capsuleCount | u8 eventCount (≤8) | u8 ackCount | u16 brickCount
 //   per player: u8 player, u8 skinIndex, u8 state, u8 target, u8 lives,
 //               u32 score, u8 meter, u8 chain, f32 x, f32 y, f32 w, f32 h,
@@ -19,6 +19,7 @@
 //     u8 boltsPresent (+ u8 boltCount, per bolt f32 x, f32 y, u8 owner when 1)
 import {
   ARMED_EFFECT,
+  EVENT_RING_SIZE,
   LASER_BOLTS_PER_PADDLE,
   SNAPSHOT_PLAYERS_MAX,
   type BallSnapshot,
@@ -155,7 +156,7 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   const players = snap.players;
   const balls = snap.balls;
   const capsules = snap.capsules;
-  const events = snap.events.slice(-8);
+  const events = snap.events.slice(-EVENT_RING_SIZE);
   const bricks = snap.bricks.slice(0, BRICK_COLS * BRICK_ROWS);
 
   const nameBytes = players.reduce((n, p) => n + p.name.length, 0);
@@ -184,7 +185,7 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   // Laser tail (ticket #141): u8 armedMask + u8 boltsPresent (+ count + bolts).
   const laserTail = 2 + (bolts !== undefined ? 1 + bolts.length * BOLT_BYTES : 0);
   const size =
-    14 +
+    16 +
     players.length * 30 +
     nameBytes +
     balls.length * 20 +
@@ -199,6 +200,7 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   w.u32(snap.tick);
   w.u8(indexOfOrThrow(PHASES, snap.phase, "phase"));
   w.u16(snap.round);
+  w.u16(snap.epoch);
   w.u8(players.length);
   w.u8(balls.length);
   w.u8(capsules.length);
@@ -294,6 +296,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   const phase = PHASES[phaseIdx];
   if (phase === undefined) throw new Error("malformed snapshot: unknown phase");
   const round = r.u16();
+  const epoch = r.u16();
   const playerCount = r.u8();
   const ballCount = r.u8();
   const capsuleCount = r.u8();
@@ -302,7 +305,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   const brickCount = r.u16();
   if (
     playerCount > SNAPSHOT_PLAYERS_MAX || ballCount > 64 || capsuleCount > 64 ||
-    eventCount > 8 || brickCount > BRICK_COLS * BRICK_ROWS
+    eventCount > EVENT_RING_SIZE || brickCount > BRICK_COLS * BRICK_ROWS
   ) {
     throw new Error("malformed snapshot: counts out of bounds");
   }
@@ -437,7 +440,7 @@ export function deserializeSnapshot(buffer: ArrayBuffer): Snapshot {
   }
 
   const result: Snapshot = {
-    tick, phase, round, players, balls, capsules, events, inputAcks, bricks,
+    tick, phase, round, epoch, players, balls, capsules, events, inputAcks, bricks,
   };
   if (boss !== undefined && bossProjectiles !== undefined) {
     result.boss = boss;

@@ -776,6 +776,7 @@ export class MpFlow {
         tick: 0,
         phase: "serve",
         round: 1,
+        epoch: 0,
         players: [],
         balls: [],
         capsules: [],
@@ -825,11 +826,13 @@ export class MpFlow {
         for (let i = 0; i < snaps.length; i++) {
           if (this.localFieldFilter.includes(i)) {
             const s = snaps[i];
-            if (s !== undefined) local.push(s);
+            if (s !== undefined) {
+              local.push(s);
+              // Ticket 30: SFX/music from this device's own field snapshots.
+              this.audio.consume(s, i);
+            }
           }
         }
-        // Ticket 30: SFX/music from this device's own field snapshots.
-        for (const s of local) this.audio.consume(s);
         this.split?.sync(local);
         // ADR 0009: effects are local + cosmetic, so only this device's fields
         // run them — same filter as the audio above.
@@ -1321,7 +1324,9 @@ export class MpFlow {
         const now = performance.now();
         const snaps = guestGame.renderSnapshots(now);
         // Ticket 30: SFX/music from the guest's interpolated view.
-        for (const s of snaps) this.audio.consume(s);
+        snaps.forEach((s, field) => {
+          this.audio.consume(s, field);
+        });
         this.split?.sync(snaps);
         // ADR 0009: the interpolated guest ring replays the same event across
         // frames — VisualEffects dedupes by tick, same as sessionAudio.

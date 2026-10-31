@@ -32,6 +32,7 @@ function snapWith(events: Snapshot["events"], over: Partial<Snapshot> = {}): Sna
   return {
     tick: 5,
     round: 1,
+    epoch: 0,
     phase: "play",
     bricks: new Array<number>(13 * 18).fill(0),
     capsules: [],

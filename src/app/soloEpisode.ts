@@ -10,6 +10,7 @@
 // reload, so a player can never dodge the score penalty by reloading.
 // App-level composition — the sim stays a pure round engine.
 import type { RoundSim } from "sim/roundSim";
+import { FieldEpoch } from "sim/fieldEpoch";
 import { availableRounds, getLevelSync, preloadLevels } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import type { Storage } from "persistence/storage";
@@ -95,6 +96,9 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
   await preloadLevels(availableRounds());
 
   let sim: RoundSim = makeSim();
+  // Ticket #151: every sim replacement starts a new Sim epoch, so render and
+  // audio consumers know the tick count restarted.
+  const fieldEpoch = new FieldEpoch();
 
   function makeSim(): RoundSim {
     return createRoundSim(getLevelSync(round), {
@@ -140,6 +144,9 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
           return;
         }
         round++;
+        // The CLEAR fired in this very step: carry it into the next round's
+        // ring, or no consumer ever sees it.
+        fieldEpoch.advance(snap);
         sim = makeSim();
         // Round clear is a natural write: the next round is exactly what a
         // Continue restores.
@@ -157,7 +164,7 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
       }
     },
     snapshot() {
-      return sim.snapshot();
+      return fieldEpoch.stamp(sim.snapshot());
     },
     phase() {
       return phase;
@@ -172,6 +179,8 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
       if (phase !== "gameOver") return;
       score = Math.floor(score * CONTINUE_SCORE_FACTOR);
       phase = "playing";
+      // The game over already played out on the end screen; nothing carries.
+      fieldEpoch.advance(null);
       sim = makeSim();
       write();
     },
@@ -179,6 +188,7 @@ export async function createSoloEpisode(opts: SoloEpisodeOptions): Promise<SoloE
       round = 1;
       score = 0;
       phase = "playing";
+      fieldEpoch.advance(null);
       sim = makeSim();
       // A restart abandons the old record: a later reload must not Continue a
       // run the player already walked away from.

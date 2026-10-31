@@ -25,6 +25,7 @@ import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, ty
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  EVENT_RING_SIZE,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
@@ -51,7 +52,6 @@ import {
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
-const EVENT_RING_SIZE = 8;
 /** Duel draws rounds 1–32 only — round 33 (Doh) never selected (spec §4). */
 export const DUEL_MAX_ROUND = 32;
 
@@ -517,6 +517,8 @@ export function createRoundDuel(level: LevelData, opts: DuelOptions): DuelSim {
         tick,
         phase,
         round: level.round,
+        // Built once per match and never replaced: one epoch for its lifetime.
+        epoch: 0,
         players: paddles.map((p, i) => ({
           player: i,
           name: names[i] ?? `Player ${String(i + 1)}`,

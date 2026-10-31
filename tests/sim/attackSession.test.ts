@@ -465,6 +465,27 @@ describe("attack session: level-clear trigger (continuous only)", () => {
   });
 });
 
+describe("attack session: Sim epoch carry (ticket #151)", () => {
+  it("carried events in the rebuilt field's ring never pay meter income", () => {
+    // The race carries the clearing brickBreak into the new epoch's ring for
+    // the renderer; attack income reads the raw sim ring, so the carry must
+    // not move the meter on the advancing step or any later one.
+    const session = mkSession(2, ALL_TRIGGERS_ON, "bestOf");
+    const ref = { t: 0 };
+    let guard = 0;
+    while (guard < 3000 && session.race().state().roundPoints[0] === 0) {
+      if (destructibleCount(session.snapshots()[0]!.bricks) === 1) session.debugSetMeter(0, 0);
+      breakOneBrick(session, 0, ref);
+      guard++;
+    }
+    expect(session.race().state().roundPoints[0]).toBe(1);
+    expect(session.snapshots()[0]!.events.some((e) => e.type === "brickBreak" && e.tick === 0)).toBe(true);
+    expect(session.snapshots()[0]!.players[0]!.meter).toBe(0);
+    session.step([frame(0, ref.t++), frame(1, ref.t++)]);
+    expect(session.snapshots()[0]!.players[0]!.meter).toBe(0);
+  });
+});
+
 describe("attack session: determinism", () => {
   it("identical input sequences → identical snapshots", () => {
     const run = () => {

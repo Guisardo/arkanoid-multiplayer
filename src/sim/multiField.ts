@@ -4,6 +4,7 @@
 // the session coordinates match structure, level selection, time cap, and
 // timeout resolution.
 import { createRoundSim, type RoundSim } from "./roundSim";
+import { FieldEpoch } from "./fieldEpoch";
 import type { LevelData } from "content/levelFormat";
 import { getLevelSync, MAX_ROUND } from "content/levels";
 import type { InputFrame, Snapshot } from "shared/protocol";
@@ -119,6 +120,9 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
 
   let level: LevelData = getLevelSync(round);
   let sims: RoundSim[] = makeSims();
+  // Ticket #151: one Sim epoch per field — a field reset replaces only that
+  // field's sim, a round advance replaces them all.
+  const epochs = Array.from({ length: playerCount }, () => new FieldEpoch());
 
   function makeSims(): RoundSim[] {
     return Array.from({ length: playerCount }, (_, i) =>
@@ -210,7 +214,7 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
       }
     },
     snapshots() {
-      return sims.map((s) => s.snapshot());
+      return sims.map((s, i) => epochs[i]?.stamp(s.snapshot()) ?? s.snapshot());
     },
     state(): MatchState {
       return {
@@ -254,12 +258,16 @@ export function createMultiFieldSession(opts: MultiFieldOptions): MultiFieldSess
     const nextIndex = round + 1;
     round = pickRound(config, nextIndex, nextRng());
     level = getLevelSync(round);
+    // Carry each field's final-step events (the winner's CLEAR) across.
+    sims.forEach((sim, i) => epochs[i]?.advance(sim.snapshot()));
     sims = makeSims();
   }
 
   function resetField(i: number): void {
     // 0 lives → current level resets with fresh layout and restored lives.
-    const score = sims[i]?.snapshot().players[0]?.score ?? 0;
+    const outgoing = sims[i]?.snapshot();
+    const score = outgoing?.players[0]?.score ?? 0;
+    epochs[i]?.advance(outgoing ?? null);
     sims[i] = createRoundSim(level, {
       lives: 5,
       score,

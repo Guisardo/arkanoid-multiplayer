@@ -24,6 +24,7 @@ import { aabbOverlap, clampEdgeAngle, offsetDeflect, resolveCircleBoxOverlap, ty
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  EVENT_RING_SIZE,
   coloredCell,
   isDestructibleCell,
   isGoldCell,
@@ -51,7 +52,6 @@ import {
 import { MULTIBALL_BOOST, ballSpeedFor, decayBoost, registerCeilingHit } from "./ballSpeed";
 import { probeBricks } from "./brickProbe";
 
-const EVENT_RING_SIZE = 8;
 /** Ball speed scaling per player beyond 2 (spec: +5–8%; 6.5% mid). */
 export const SPEED_SCALE_PER_EXTRA_PLAYER = 1.065;
 /** Round 33 = Doh boss finale (ticket 49). */
@@ -616,6 +616,8 @@ export function createSharedFieldSim(level: LevelData, opts: SharedFieldOptions)
         tick,
         phase,
         round: level.round,
+        // Built once per match and never replaced: one epoch for its lifetime.
+        epoch: 0,
         players: paddles.map((p, i) => ({
           player: i,
           name: names[i] ?? `Player ${String(i + 1)}`,
