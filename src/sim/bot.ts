@@ -102,13 +102,13 @@ export function createBot(player: number, difficulty: BotDifficulty, seed: numbe
   return {
     sampleFrame(tick, snap) {
       const me = snap.players.find((p) => p.player === player);
-      if (!me) return { player, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+      if (!me) return { player, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 
       const attachedBall = snap.balls.find((b) => b.attachedTo === player);
       if (attachedBall) {
         const launch = tick >= launchAtTick;
         if (launch) launchAtTick = Number.MAX_SAFE_INTEGER;
-        return { player, tick, axisX: 0, axisY: 0, launch, actions: EMPTY_ACTIONS };
+        return { player, tick, axisX: 0, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
       }
 
       // Most threatening descending ball past the engagement line.
@@ -187,7 +187,7 @@ export function createBot(player: number, difficulty: BotDifficulty, seed: numbe
         actions.fire = fire;
       }
 
-      return { player, tick, axisX, axisY: 0, launch: false, actions };
+      return { player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions };
     },
   };
 }

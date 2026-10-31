@@ -7,7 +7,11 @@
 // v2: added the `multiballBoost` SimEvent type (ticket #97). An older build
 // cannot decode it — `indexOfOrThrow` rejects unknown event types — so the
 // handshake refuses the mixed pair rather than desyncing mid-match.
-export const PROTOCOL_VERSION = 2;
+// v3: Laser plumbing (ticket #141) — input flags bit 7 carries `primaryHeld`;
+// snapshots gain a per-player Armed flag and a Bolt tail. A v3 decoder throws
+// on a v2 snapshot (no tail) and a v2 host ignores held fire, so the handshake
+// refuses the mixed pair.
+export const PROTOCOL_VERSION = 3;
 
 // ---- Input frame (the input→sim seam) ----
 
@@ -27,6 +31,12 @@ export interface InputFrame {
   axisY: number;
   /** Launch edge event (serve). */
   launch: boolean;
+  /**
+   * Held state of the primary action (Space / gamepad A / touch button /
+   * click) — level, not edge. Drives the Laser auto-repeat. Distinct from the
+   * `actions.fire` attack/assist meter slots.
+   */
+  primaryHeld: boolean;
   actions: InputFrameActions;
 }
 
@@ -99,7 +109,11 @@ export interface PlayerSnapshot {
   /** Current consecutive-brick chain without paddle touch (attack mode). */
   chain: number;
   state: PlayerSlotState;
-  /** Per-player effect timers (ms remaining), by effect id. */
+  /**
+   * Per-player effect timers (ms remaining), by effect id. `effects.L`
+   * (ARMED_EFFECT) is a presence flag, not a timer: 1 while the Paddle is
+   * Armed with the Laser.
+   */
   effects: Record<string, number>;
 }
 
@@ -175,7 +189,24 @@ export interface Snapshot {
   boss?: BossSnapshot;
   /** Boss projectiles (round 33 only; absent otherwise). */
   bossProjectiles?: BossProjectileSnapshot[];
+  /** Laser Bolts in flight (absent when the sim has no Laser state). */
+  bolts?: BoltSnapshot[];
 }
+
+/** Laser Bolt in a snapshot (ticket #141): tip position + shooting player. */
+export interface BoltSnapshot {
+  x: number;
+  y: number;
+  /** Shooting player index (the Paddle that fired it). */
+  owner: number;
+}
+
+/** Effect id of the Laser's Armed presence flag in `PlayerSnapshot.effects`. */
+export const ARMED_EFFECT: CapsuleTypeId = "L";
+/** Bolts in flight per shooting Paddle (2 per shot × 4 shots, spec #140). */
+export const LASER_BOLTS_PER_PADDLE = 8;
+/** Max players per snapshot (serializer bound). */
+export const SNAPSHOT_PLAYERS_MAX = 4;
 
 /** Doh boss state in a snapshot (ticket 49). */
 export interface BossSnapshot {

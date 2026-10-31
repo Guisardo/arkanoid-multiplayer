@@ -152,7 +152,7 @@ describe("bot frame shape", () => {
     const bot = createBot(0, "normal", 5);
     const frame = bot.sampleFrame(0, sim.snapshot());
     const keys = Object.keys(frame).sort();
-    expect(keys).toEqual(["actions", "axisX", "axisY", "launch", "player", "tick"]);
+    expect(keys).toEqual(["actions", "axisX", "axisY", "launch", "player", "primaryHeld", "tick"]);
     expect(frame.player).toBe(0);
     expect(frame.tick).toBe(0);
     expect(Math.abs(frame.axisX)).toBeLessThanOrEqual(1);

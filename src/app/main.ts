@@ -449,7 +449,7 @@ function makeLocalInput(flow: MpFlow) {
       const kb = keyboards[player] ?? keyboards[0];
       const kf = kb === undefined ? null : kb.sampleFrame(tick);
       const frame: InputFrame = kf === null || kf.player === player
-        ? (kf ?? { player, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS })
+        ? (kf ?? { player, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS })
         : { ...kf, player };
       const pad = poll(player);
       const gf = pad.sampleFrame(tick);

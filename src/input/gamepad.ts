@@ -129,7 +129,7 @@ export class GamepadAdapter {
       }
     }
 
-    return { player: this.player, tick, axisX, axisY: 0, launch, actions };
+    return { player: this.player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions };
   }
 
   private takeEdge(b: GamepadButton): boolean {

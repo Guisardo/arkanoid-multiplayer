@@ -62,7 +62,7 @@ describe("selectableRounds — the picker/preload contract", () => {
 });
 
 function input(tick: number, axisX = 0): InputFrame {
-  return { player: 0, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("level JSON validation (spec §4)", () => {

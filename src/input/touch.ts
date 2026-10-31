@@ -188,6 +188,7 @@ export class TouchAdapter {
       axisX: this.axisX,
       axisY: this.axisY,
       launch: this.queuedLaunch,
+      primaryHeld: false,
       actions: this.queued,
     };
     // Edge actions clear after one tick (buffered max 1 per action, spec §11).

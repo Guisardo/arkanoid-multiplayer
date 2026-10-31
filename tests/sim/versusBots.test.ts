@@ -13,7 +13,7 @@ import { VersusBotsConfigScreen } from "ui/versusBotsScreen";
 import { EMPTY_ACTIONS, type InputFrame } from "shared/protocol";
 
 function frame(tick: number, axisX = 0, launch = false): InputFrame {
-  return { player: 0, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("setup validation", () => {

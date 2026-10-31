@@ -17,7 +17,7 @@ const D = 4;
 const MOVE_PER_TICK = PADDLE_VMAX * (TICK_MS / 1000);
 
 function frame(player: number, tick: number, axisX: number): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function snapWith(
@@ -121,6 +121,36 @@ describe("predictor: advance + reconcile", () => {
     p.push(frame(0, 0, 1));
     p.tick();
     expect(p.predictedX).toBeCloseTo(104 + MOVE_PER_TICK);
+  });
+
+  it("held fire and Laser arming leave paddle prediction untouched (ticket #141)", () => {
+    const opts = { framePlayer: 0, snapPlayer: 0, bounds: "walls" as const, playerCount: 1, delayTicks: D };
+    const plain = createPredictor(opts);
+    const armed = createPredictor(opts);
+    const armedSnap = (x: number, tick: number): Snapshot => {
+      const s = snapWith(0, x, tick);
+      return {
+        ...s,
+        players: s.players.map((p) => ({ ...p, effects: { L: 1 } })),
+        bolts: [{ x: x - 10, y: 200, owner: 0 }, { x: x + 10, y: 200, owner: 0 }],
+      };
+    };
+    plain.reconcile(snapWith(0, 104, 0));
+    armed.reconcile(armedSnap(104, 0));
+    const axes = [1, 1, 0, -1, -1, -1, 0, 1, 0.5, 0.5];
+    axes.forEach((axis, t) => {
+      plain.push(frame(0, t, axis));
+      armed.push({ ...frame(0, t, axis), primaryHeld: t % 3 !== 0, launch: t === 2 });
+      plain.tick();
+      armed.tick();
+      if (t % 2 === 1) {
+        plain.reconcile(snapWith(0, 104 + t, t + D));
+        armed.reconcile(armedSnap(104 + t, t + D));
+      }
+      expect(armed.predictedX).toBe(plain.predictedX);
+      expect(armed.offset).toBe(plain.offset);
+      expect(armed.displayX()).toBe(plain.displayX());
+    });
   });
 
   it("frames of other players never move my shadow", () => {

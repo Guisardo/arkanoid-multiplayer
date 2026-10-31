@@ -15,7 +15,7 @@ const BASE_SPEED = 110;
 const LANE_X = 200;
 
 function input(player: number, tick: number, axisX = 0): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function launch(player: number, tick: number): InputFrame {

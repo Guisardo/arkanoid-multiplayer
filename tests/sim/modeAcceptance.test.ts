@@ -11,7 +11,7 @@ import { BRICK_COLS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame, type Snapshot } from "shared/protocol";
 
 function frame(player: number, tick: number, launch = false): InputFrame {
-  return { player, tick, axisX: 0, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX: 0, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function firstDestructible(snap: Snapshot): number {

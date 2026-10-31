@@ -18,7 +18,7 @@ function fakeBackend(): StorageBackend {
 }
 
 function frame(tick: number, axisX = 0, launch = false): InputFrame {
-  return { player: 0, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 /** Clear exactly one round, stopping when the episode advances. */

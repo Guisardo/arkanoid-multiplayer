@@ -15,6 +15,7 @@ function frame(
     axisX,
     axisY: 0,
     launch: over.launch ?? false,
+    primaryHeld: false,
     actions: over.actions ?? EMPTY_ACTIONS,
   };
 }

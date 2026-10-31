@@ -8,7 +8,8 @@
 //   per frame:
 //     u8 deviceLocal (0 or 1 — which of the guest device's local players)
 //     u32 tick | i8 axisX (-127..127 = -1..1) | i8 axisY | u8 flags
-//     (bit0 launch, bit1 cycleForward, bit2 cycleBack, bits3..6 fire slots)
+//     (bit0 launch, bit1 cycleForward, bit2 cycleBack, bits3..6 fire slots,
+//      bit7 primaryHeld)
 // The host maps deviceLocal → sim player via the guest's player list.
 import type { InputFrame } from "shared/protocol";
 
@@ -34,10 +35,11 @@ function actionsToFlags(frame: InputFrame): number {
   for (let i = 0; i < 4; i++) {
     if (frame.actions.fire[i] === true) flags |= 1 << (3 + i);
   }
+  if (frame.primaryHeld) flags |= 0x80;
   return flags & 0xff;
 }
 
-function flagsToFrame(flags: number): Pick<InputFrame, "launch" | "actions"> {
+function flagsToFrame(flags: number): Pick<InputFrame, "launch" | "primaryHeld" | "actions"> {
   const fire: [boolean, boolean, boolean, boolean] = [
     (flags & 0x08) !== 0,
     (flags & 0x10) !== 0,
@@ -46,6 +48,7 @@ function flagsToFrame(flags: number): Pick<InputFrame, "launch" | "actions"> {
   ];
   return {
     launch: (flags & 0x01) !== 0,
+    primaryHeld: (flags & 0x80) !== 0,
     actions: {
       cycleForward: (flags & 0x02) !== 0,
       cycleBack: (flags & 0x04) !== 0,
@@ -108,8 +111,8 @@ export function decodeInputBatch(buffer: ArrayBuffer): InputFrame[] {
     const tick = view.getUint32(o + 1, true);
     const axisX = axisFromI8(view.getInt8(o + 5));
     const axisY = axisFromI8(view.getInt8(o + 6));
-    const { launch, actions } = flagsToFrame(view.getUint8(o + 7));
-    frames.push({ player, tick, axisX, axisY, launch, actions });
+    const { launch, primaryHeld, actions } = flagsToFrame(view.getUint8(o + 7));
+    frames.push({ player, tick, axisX, axisY, launch, primaryHeld, actions });
     o += 8;
   }
   return frames;

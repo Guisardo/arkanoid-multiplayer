@@ -260,7 +260,7 @@ describe("mpFlow wiring (ticket 45)", () => {
     await new Promise((r) => globalThis.setTimeout(r, 100));
 
     const frame = (player: number, tick: number, axisX: number): InputFrame => ({
-      player, tick, axisX, axisY: 0, launch: false, actions: EMPTY_ACTIONS,
+      player, tick, axisX, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS,
     });
     for (let t = 0; t < 60; t++) {
       hostFlow.localFrame(frame(0, t, 0));
@@ -334,7 +334,7 @@ describe("mpFlow wiring (ticket 45)", () => {
       sampleLocal: (player, tick) => {
         sampled++;
         return {
-          player, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS,
+          player, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS,
         };
       },
     });
@@ -426,7 +426,7 @@ describe("mpFlow wiring (ticket 45)", () => {
     // Pinned on purpose: a bump must be a deliberate edit here, and the guest
     // must advertise the same constant (mpFlow passes PROTOCOL_VERSION, never a
     // literal — a drifted copy refuses every connection).
-    expect(PROTOCOL_VERSION).toBe(2);
+    expect(PROTOCOL_VERSION).toBe(3);
     expect(versionsCompatible(PROTOCOL_VERSION, PROTOCOL_VERSION)).toBe(true);
     expect(versionsCompatible(PROTOCOL_VERSION - 1, PROTOCOL_VERSION)).toBe(false);
   });

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { serializeSnapshot, deserializeSnapshot } from "net/serializer";
 import { createDelayQueue } from "net/delayQueue";
 import type { InputFrame, Snapshot } from "shared/protocol";
-import { EMPTY_ACTIONS } from "shared/protocol";
+import { ARMED_EFFECT, EMPTY_ACTIONS, LASER_BOLTS_PER_PADDLE, SNAPSHOT_PLAYERS_MAX } from "shared/protocol";
 import { createRoundSim } from "sim/roundSim";
 import { getLevelSync } from "content/levels";
 
 function frame(player: number, tick: number, axisX: number, launch = false): InputFrame {
-  return { player, tick, axisX, axisY: 0, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY: 0, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function fourPlayerSnapshot(): Snapshot {
@@ -95,11 +95,11 @@ describe("snapshot serializer (spec §9)", () => {
 
   it("round-trips a boss snapshot (ticket 49) with projectiles", () => {
     const sim = createRoundSim(getLevelSync(33), { lives: 3, score: 0 });
-    sim.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: true, actions: EMPTY_ACTIONS }]);
+    sim.step([{ player: 0, tick: 0, axisX: 0, axisY: 0, launch: true, primaryHeld: false, actions: EMPTY_ACTIONS }]);
     // Advance until the boss has fired at least one projectile.
     let snap = sim.snapshot();
     for (let t = 1; t <= 200; t++) {
-      sim.step([{ player: 0, tick: t, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS }]);
+      sim.step([{ player: 0, tick: t, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS }]);
       snap = sim.snapshot();
       if ((snap.bossProjectiles ?? []).length > 0) break;
     }
@@ -117,6 +117,126 @@ describe("snapshot serializer (spec §9)", () => {
     const back = deserializeSnapshot(serializeSnapshot(snap));
     expect(back.boss).toBeUndefined();
     expect(back.bossProjectiles).toBeUndefined();
+  });
+
+  // ---- Laser plumbing (ticket #141) ----
+
+  it("round-trips the per-player Armed flag as effects.L", () => {
+    const snap = fourPlayerSnapshot();
+    snap.players[1] = { ...snap.players[1]!, effects: { [ARMED_EFFECT]: 1 } };
+    snap.players[3] = { ...snap.players[3]!, effects: { [ARMED_EFFECT]: 1 } };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.players.map((p) => p.effects)).toEqual([{}, { L: 1 }, {}, { L: 1 }]);
+  });
+
+  it("any non-zero effects.L (timer or -1 'until ball loss') reads back as the presence flag 1", () => {
+    const snap = fourPlayerSnapshot();
+    snap.players[0] = { ...snap.players[0]!, effects: { [ARMED_EFFECT]: 5000 } };
+    snap.players[1] = { ...snap.players[1]!, effects: { [ARMED_EFFECT]: -1 } };
+    snap.players[2] = { ...snap.players[2]!, effects: { [ARMED_EFFECT]: 0, E: -1 } };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.players.slice(0, 3).map((p) => p.effects)).toEqual([{ L: 1 }, { L: 1 }, {}]);
+  });
+
+  it("round-trips bolts with owner", () => {
+    const snap: Snapshot = {
+      ...fourPlayerSnapshot(),
+      bolts: [
+        { x: 90.5, y: 230.25, owner: 0 },
+        { x: 117.5, y: 12, owner: 3 },
+      ],
+    };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.bolts).toEqual(snap.bolts);
+  });
+
+  it("an empty bolts array stays an empty array", () => {
+    const snap: Snapshot = { ...fourPlayerSnapshot(), bolts: [] };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.bolts).toEqual([]);
+  });
+
+  it("absent bolts stays absent (valid snapshot, no key)", () => {
+    const snap = fourPlayerSnapshot();
+    expect(snap.bolts).toBeUndefined();
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.bolts).toBeUndefined();
+    expect("bolts" in back).toBe(false);
+  });
+
+  it("bolts and boss tails coexist", () => {
+    const snap: Snapshot = {
+      ...fourPlayerSnapshot(),
+      boss: { x: 104, y: 60, hp: 12, phase: 1, dead: false },
+      bossProjectiles: [{ x: 1, y: 2, vx: 3, vy: 4 }],
+      bolts: [{ x: 50, y: 100, owner: 1 }],
+    };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    expect(back.boss).toEqual(snap.boss);
+    expect(back.bossProjectiles).toEqual(snap.bossProjectiles);
+    expect(back.bolts).toEqual(snap.bolts);
+  });
+
+  it("a full bolt load (4 paddles x 8) fits and round-trips", () => {
+    const bolts = Array.from({ length: SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE }, (_, i) => ({
+      x: i * 6 + 0.1,
+      y: 240 - i * 7,
+      owner: i % SNAPSHOT_PLAYERS_MAX,
+    }));
+    const snap: Snapshot = { ...fourPlayerSnapshot(), bolts };
+    const back = deserializeSnapshot(serializeSnapshot(snap));
+    // f32 on the wire, like balls and capsules.
+    back.bolts!.forEach((b, i) => {
+      expect(b.x).toBeCloseTo(bolts[i]!.x, 4);
+      expect(b.y).toBe(bolts[i]!.y);
+      expect(b.owner).toBe(bolts[i]!.owner);
+    });
+  });
+
+  it("serializer refuses more bolts than 4 paddles x 8 (host bug, never a wrapped count)", () => {
+    const bolts = Array.from({ length: SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE + 1 }, () => ({ x: 1, y: 1, owner: 0 }));
+    expect(() => serializeSnapshot({ ...fourPlayerSnapshot(), bolts })).toThrow(/bolt count 33 exceeds 32/);
+  });
+
+  it("serializer refuses a bolt owner outside the snapshot's players", () => {
+    const snap: Snapshot = { ...fourPlayerSnapshot(), bolts: [{ x: 1, y: 1, owner: 4 }] };
+    expect(() => serializeSnapshot(snap)).toThrow(/bolt owner 4 out of range/);
+  });
+
+  // Laser tail starts after the (absent) boss byte: [armedMask, boltsPresent, count, bolts...].
+  function laserTailOffset(buf: ArrayBuffer, bolts: number): number {
+    return buf.byteLength - (bolts > 0 ? 3 + bolts * 9 : 2);
+  }
+
+  it("decoder rejects a bolt count beyond 4 paddles x 8 (malformed)", () => {
+    const buf = serializeSnapshot({ ...fourPlayerSnapshot(), bolts: [{ x: 1, y: 1, owner: 0 }] });
+    new DataView(buf).setUint8(laserTailOffset(buf, 1) + 2, 33);
+    expect(() => deserializeSnapshot(buf)).toThrow(/malformed snapshot: bolt count/);
+  });
+
+  it("decoder rejects an unknown bolts-present byte (malformed)", () => {
+    const buf = serializeSnapshot(fourPlayerSnapshot());
+    new DataView(buf).setUint8(laserTailOffset(buf, 0) + 1, 2);
+    expect(() => deserializeSnapshot(buf)).toThrow(/malformed snapshot: bolts flag/);
+  });
+
+  it("decoder rejects a bolt owner outside the snapshot's players (malformed)", () => {
+    const buf = serializeSnapshot({ ...fourPlayerSnapshot(), bolts: [{ x: 1, y: 1, owner: 0 }] });
+    new DataView(buf).setUint8(buf.byteLength - 1, 9);
+    expect(() => deserializeSnapshot(buf)).toThrow(/malformed snapshot: bolt owner/);
+  });
+
+  it("decoder rejects Armed bits beyond the player count (malformed)", () => {
+    const snap = { ...fourPlayerSnapshot() };
+    snap.players = snap.players.slice(0, 2);
+    const buf = serializeSnapshot(snap);
+    new DataView(buf).setUint8(laserTailOffset(buf, 0), 0b100);
+    expect(() => deserializeSnapshot(buf)).toThrow(/malformed snapshot: armed mask/);
+  });
+
+  it("truncated bolt tail fails clean", () => {
+    const buf = serializeSnapshot({ ...fourPlayerSnapshot(), bolts: [{ x: 1, y: 2, owner: 0 }] });
+    expect(() => deserializeSnapshot(buf.slice(0, buf.byteLength - 3))).toThrow(/malformed/);
   });
 });
 

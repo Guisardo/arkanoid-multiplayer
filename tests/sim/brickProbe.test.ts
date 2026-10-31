@@ -21,7 +21,7 @@ function cellBox(index: number): { x: number; y: number; w: number; h: number } 
 }
 
 function input(tick: number): InputFrame {
-  return { player: 0, tick, axisX: 0, axisY: 0, launch: false, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX: 0, axisY: 0, launch: false, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 describe("pointBoxDistanceSq", () => {

@@ -104,6 +104,7 @@ export function guardGuestFrames(
       axisX: clampAxis(raw.axisX),
       axisY: clampAxis(raw.axisY),
       launch: asBool(raw.launch),
+      primaryHeld: asBool(raw.primaryHeld),
       actions: sanitizeActions(raw.actions),
     });
   }

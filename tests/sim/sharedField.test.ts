@@ -5,7 +5,7 @@ import { FIELD_W, PADDLE_Y, BRICK_COLS } from "sim/constants";
 import { EMPTY_ACTIONS, isDestructibleCell, type InputFrame } from "shared/protocol";
 
 function frame(player: number, tick: number, axisX = 0, axisY = 0, launch = false): InputFrame {
-  return { player, tick, axisX, axisY, launch, actions: EMPTY_ACTIONS };
+  return { player, tick, axisX, axisY, launch, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function sim(over: Partial<Parameters<typeof createSharedFieldSim>[1]> = {}) {

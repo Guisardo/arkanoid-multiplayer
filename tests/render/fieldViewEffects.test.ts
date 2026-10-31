@@ -14,7 +14,7 @@ import { getLevelSync } from "content/levels";
 
 /** One human input frame — the sim only needs axis + launch. */
 function frame(tick: number, axisX: number): InputFrame {
-  return { player: 0, tick, axisX, axisY: 0, launch: tick % 40 === 0, actions: EMPTY_ACTIONS };
+  return { player: 0, tick, axisX, axisY: 0, launch: tick % 40 === 0, primaryHeld: false, actions: EMPTY_ACTIONS };
 }
 
 function makeView(over: { reducedEffects?: boolean } = {}): FieldView {
