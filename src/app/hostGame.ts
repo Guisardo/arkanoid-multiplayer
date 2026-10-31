@@ -17,6 +17,7 @@ import type { AssistSession } from "sim/assistSession";
 import type { SharedFieldSim } from "sim/sharedField";
 import type { InputFrame, Snapshot } from "shared/protocol";
 import { createDelayQueue } from "net/delayQueue";
+import { createInputAckTracker } from "net/inputAcks";
 import { decodeInputBatch } from "net/inputCodec";
 import { createHostInputGuard, guardGuestFrames } from "net/hostGuard";
 import { serializeSnapshot } from "net/serializer";
@@ -287,6 +288,8 @@ export async function createHostGameSession(
   await warmMode(opts.mode);
   const sim = await buildModeSim(opts);
   const queue = createDelayQueue({ delay: delayTicks });
+  // Ticket #155: per-player Match tick acks, stamped onto every wire snapshot.
+  const acks = createInputAckTracker();
   const guard = createHostInputGuard();
 
   // Per-player routing: guestIndex → players of that device.
@@ -344,13 +347,13 @@ export async function createHostGameSession(
         const bufs: ArrayBuffer[] = [];
         for (const p of players) {
           const snap = snapshots[p];
-          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
+          if (snap !== undefined) bufs.push(wireSnapshot(snap, p));
         }
         sendGame(guestIndex, packMulti(bufs));
       } else {
         // Single-field modes (duel/sharedField): everyone gets the field.
         const snap = snapshots[0];
-        if (snap !== undefined) sendGame(guestIndex, serializeSnapshot(overlayRemoved(snap)));
+        if (snap !== undefined) sendGame(guestIndex, wireSnapshot(snap));
       }
     }
   }
@@ -373,6 +376,16 @@ export async function createHostGameSession(
       removedPlayers.has(p.player) ? { ...p, state: "removed" as const } : p,
     );
     return { ...snap, players };
+  }
+
+  /**
+   * The wire form of a field snapshot: removed-player overlay plus the real
+   * input acks. A field's slots all belong to `fieldIndex` in parallel modes;
+   * single-field modes carry global ids.
+   */
+  function wireSnapshot(snap: Snapshot, fieldIndex?: number): ArrayBuffer {
+    const overlaid = overlayRemoved(snap, fieldIndex);
+    return serializeSnapshot(acks.stamp(overlaid, (slot) => fieldIndex ?? slot.player));
   }
 
   function broadcastProgress(snapshots: readonly Snapshot[]): void {
@@ -406,13 +419,13 @@ export async function createHostGameSession(
       // Host-local frames enter the same queue (network hop skipped).
       for (const f of localFrames) queue.push(f);
       const due = queue.due(simTick);
+      acks.delivered(due);
       // Guest stall decay: held/decayed axes for silent players, injected
       // beside the due frames (never through the queue — see net/stallDecay).
       const withStall = [...due, ...stall.frames(due, simTick)];
       sim.step(withStall);
       simTick++;
-      // Input acks: snapshot inputAcks already carry per-player acked ticks
-      // via the delay queue's delivery; the serializer ships them.
+      // Input acks ride every wire snapshot via wireSnapshot (ticket #155).
       if (simTick % (60 / snapshotHz) === 0 && simTick !== lastBroadcastTick) {
         lastBroadcastTick = simTick;
         broadcast(sim.snapshots());
@@ -475,12 +488,12 @@ export async function createHostGameSession(
         const bufs: ArrayBuffer[] = [];
         for (const p of simPlayers) {
           const snap = snaps[p];
-          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
+          if (snap !== undefined) bufs.push(wireSnapshot(snap, p));
         }
         sendGame(newGuestIndex, packMulti(bufs));
       } else {
         const snap = snaps[0];
-        if (snap !== undefined) sendGame(newGuestIndex, serializeSnapshot(overlayRemoved(snap)));
+        if (snap !== undefined) sendGame(newGuestIndex, wireSnapshot(snap));
       }
     },
     removePlayers(players) {
@@ -499,12 +512,12 @@ export async function createHostGameSession(
         const bufs: ArrayBuffer[] = [];
         for (const p of players) {
           const snap = snaps[p];
-          if (snap !== undefined) bufs.push(serializeSnapshot(overlayRemoved(snap, p)));
+          if (snap !== undefined) bufs.push(wireSnapshot(snap, p));
         }
         if (bufs.length > 0) sendGame(guestIndex, packMulti(bufs));
       } else {
         const snap = snaps[0];
-        if (snap !== undefined) sendGame(guestIndex, serializeSnapshot(overlayRemoved(snap)));
+        if (snap !== undefined) sendGame(guestIndex, wireSnapshot(snap));
       }
     },
     snapshots: () => sim.snapshots(),

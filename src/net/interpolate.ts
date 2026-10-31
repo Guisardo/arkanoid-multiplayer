@@ -38,6 +38,11 @@ export function createInterpolator(opts: InterpolationOptions): Interpolator {
   let targetDelay = nominal;
   let size = 0;
   let buffer: TimedSnapshot[] = [];
+  /**
+   * A new epoch's buffer is still filling (ticket #155): until a sample
+   * reaches back into it, holding the newest is expected, not starvation.
+   */
+  let filling = false;
 
   return {
     get delayMs() {
@@ -55,7 +60,11 @@ export function createInterpolator(opts: InterpolationOptions): Interpolator {
         // freezes on the last old frame nor renders back into it.
         const epochOrder = compareEpoch(snap.epoch, last.snap.epoch);
         if (epochOrder < 0) return;
-        if (epochOrder > 0) buffer = [];
+        if (epochOrder > 0) {
+          buffer = [];
+          targetDelay = nominal;
+          filling = true;
+        }
       }
       const newest = buffer[buffer.length - 1];
       if (newest !== undefined && snap.tick <= newest.snap.tick) {
@@ -81,11 +90,13 @@ export function createInterpolator(opts: InterpolationOptions): Interpolator {
       }
       if (chosen === null) {
         // Starved: every sample is younger than the target time — hold the
-        // newest (never extrapolate the ball) and grow the delay.
-        targetDelay = Math.min(targetDelay + intervalMs * 0.5, maxDelayMs);
+        // newest (never extrapolate the ball) and grow the delay. A filling
+        // epoch holds without growing: the gap is the flush, not the network.
+        if (!filling) targetDelay = Math.min(targetDelay + intervalMs * 0.5, maxDelayMs);
         const newest = buffer[buffer.length - 1];
         return newest === undefined ? null : newest.snap;
       }
+      filling = false;
       if (chosen === buffer[buffer.length - 1]) {
         // Just-in-time: nudge the delay up so jitter headroom grows.
         targetDelay = Math.min(targetDelay + intervalMs * 0.25, maxDelayMs);
