@@ -11,7 +11,9 @@
 // snapshots gain a per-player Armed flag and a Bolt tail. A v3 decoder throws
 // on a v2 snapshot (no tail) and a v2 host ignores held fire, so the handshake
 // refuses the mixed pair.
-export const PROTOCOL_VERSION = 3;
+// v4: Laser feedback events (ticket #148) — `laserFire`, `boltHit` and
+// `boltGoldHit`. A v3 decoder rejects the unknown event types.
+export const PROTOCOL_VERSION = 4;
 
 // ---- Input frame (the input→sim seam) ----
 
@@ -157,7 +159,18 @@ export type SimEventType =
   | "resume"
   | "paddleBounce"
   | "bossHit"
-  | "bossDead";
+  | "bossDead"
+  /** Laser (ticket #148): an Armed Paddle fired a shot; source = shooter. */
+  | "laserFire"
+  /**
+   * A Bolt hit a normal or silver Brick; source = shooter, target = cell.
+   * Sims push it immediately before the `brickBreak` / `brickSilverHit` that
+   * the same hit produces, so feedback can tell a Bolt hit from a ball hit
+   * (see `isBoltBrickEvent`).
+   */
+  | "boltHit"
+  /** A Bolt was spent on a gold Brick (no damage); source = shooter, target = cell. */
+  | "boltGoldHit";
 
 /** Ring buffer event (last 8): type, source, target, tick (spec §9). */
 export interface SimEvent {
@@ -201,8 +214,39 @@ export interface BoltSnapshot {
   owner: number;
 }
 
+/**
+ * True when `event` is the Brick result of a Bolt hit: a `brickBreak` or
+ * `brickSilverHit` directly preceded by the `boltHit` for the same cell and
+ * tick (the order sims push them in). Feedback uses it to play the Bolt's
+ * quiet hit instead of the ball's.
+ */
+export function isBoltBrickEvent(
+  event: SimEvent,
+  prev: SimEvent | undefined,
+): event is SimEvent & { type: "brickBreak" | "brickSilverHit" } {
+  return (
+    prev !== undefined &&
+    prev.type === "boltHit" &&
+    (event.type === "brickBreak" || event.type === "brickSilverHit") &&
+    prev.target === event.target &&
+    prev.tick === event.tick
+  );
+}
+
+/** Fire cooldown (spec #140): 350 ms, auto-repeat while held. */
+export const LASER_COOLDOWN_MS = 350;
+/** The cooldown in whole 60 Hz ticks, rounded up (21). */
+export const LASER_COOLDOWN_TICKS = Math.ceil((LASER_COOLDOWN_MS * 60) / 1000);
+/** Bolts spawn this far in from each Paddle end (classic 1986 placement). */
+export const LASER_BOLT_INSET = 2;
+
 /** Effect id of the Laser's Armed presence flag in `PlayerSnapshot.effects`. */
 export const ARMED_EFFECT: CapsuleTypeId = "L";
+
+/** Armed = Laser key present and non-zero (sims may encode "until ball loss" as -1). */
+export function isArmedPlayer(p: PlayerSnapshot): boolean {
+  return (p.effects[ARMED_EFFECT] ?? 0) !== 0;
+}
 /** Bolts in flight per shooting Paddle (2 per shot × 4 shots, spec #140). */
 export const LASER_BOLTS_PER_PADDLE = 8;
 /** Max players per snapshot (serializer bound). */

@@ -92,11 +92,16 @@ vi.mock("render/fieldView", () => ({
   },
 }));
 
+/** Ticket #148: launch glyphs the session fed the (mocked) overlay. */
+const launchGlyphs: string[] = [];
 vi.mock("render/touchOverlay", () => ({
   TouchOverlay: class {
     readonly container = {};
     redraw = vi.fn();
     setRegion = vi.fn();
+    setLaunchGlyph = (glyph: string): void => {
+      launchGlyphs.push(glyph);
+    };
   },
 }));
 
@@ -617,6 +622,24 @@ describe("solo session wiring", () => {
         for (let i = 0; i < 3; i++) s.loop.advance(1000 / 60);
         // No crash; overlay re-anchored (mocked TouchOverlay.setRegion called).
         expect(s.latestSnapshot().tick).toBeGreaterThan(0);
+      } finally {
+        matchMedia.mockRestore();
+      }
+    });
+
+    it("touch device: the launch glyph follows the snapshot each frame (ticket #148)", async () => {
+      const matchMedia = vi
+        .spyOn(window, "matchMedia")
+        .mockReturnValue({ matches: true } as MediaQueryList);
+      try {
+        launchGlyphs.length = 0;
+        const s = await makeSession();
+        sessions.push(s);
+        s.loop.advance(0);
+        s.loop.advance(1000 / 60);
+        // Serve: the ball is stuck to the Paddle → launch triangle.
+        expect(launchGlyphs.length).toBeGreaterThan(0);
+        expect(new Set(launchGlyphs)).toEqual(new Set(["launch"]));
       } finally {
         matchMedia.mockRestore();
       }

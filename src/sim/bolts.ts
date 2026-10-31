@@ -16,28 +16,24 @@ import {
   BRICK_ROWS,
   BRICK_TOP_OFFSET,
   BRICK_W,
-  SIM_HZ,
   TICK_DT,
 } from "./constants";
-import { CAPSULE_EFFECTS } from "./capsules";
 import type { Box } from "./collision";
 import { Pool } from "./pool";
 import {
   BRICK_EMPTY,
   BRICK_GOLD,
+  LASER_BOLT_INSET,
   LASER_BOLTS_PER_PADDLE,
+  LASER_COOLDOWN_TICKS,
   SNAPSHOT_PLAYERS_MAX,
   type BoltSnapshot,
 } from "shared/protocol";
 
 /** Units a Bolt climbs per tick (4 at 240 u/s, 60 Hz). */
 export const BOLT_STEP = BOLT_SPEED * TICK_DT;
-/** Fire cooldown in ticks: 350 ms rounded up to whole ticks (21). */
-export const LASER_COOLDOWN_TICKS = Math.ceil((CAPSULE_EFFECTS.laserCooldownMs * SIM_HZ) / 1000);
 /** Largest Bolt pool any sim needs: every snapshot player firing at the cap. */
 export const BOLT_POOL_MAX = SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE;
-/** Bolts spawn this far in from each Paddle end (classic 1986 placement). */
-export const BOLT_END_INSET = 2;
 
 /**
  * A Bolt in flight. `x` is the centre column, `y` the tip (top edge); the box
@@ -134,7 +130,7 @@ export class Bolts {
     if ((this.cooldowns[paddle] ?? 0) > 0) return false;
     if (flight.length + 2 > LASER_BOLTS_PER_PADDLE) return false;
     const tip = py - ph / 2;
-    const reach = pw / 2 - BOLT_END_INSET;
+    const reach = pw / 2 - LASER_BOLT_INSET;
     this.spawn(flight, px - reach, tip, paddle, owner);
     this.spawn(flight, px + reach, tip, paddle, owner);
     this.cooldowns[paddle] = LASER_COOLDOWN_TICKS;

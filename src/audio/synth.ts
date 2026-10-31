@@ -46,6 +46,10 @@ function saw(phase: number): number {
   return 2 * (phase % 1) - 1;
 }
 
+function sine(phase: number): number {
+  return Math.sin(2 * Math.PI * phase);
+}
+
 function tri(phase: number): number {
   const p = phase % 1;
   return p < 0.25 ? 4 * p : p < 0.75 ? 2 - 4 * p : 4 * p - 4;
@@ -66,6 +70,16 @@ function attackDecay(t: number, attack: number, seconds: number): number {
 function sweep(t: number, seconds: number, fromHz: number, toHz: number): number {
   const k = Math.pow(toHz / fromHz, 1 / seconds);
   return fromHz * Math.pow(k, t);
+}
+
+/**
+ * Oscillator phase (cycles) of an exponential sweep at time t: the integral
+ * of `sweep`, so the pitch glides instead of chirping past the target.
+ */
+function sweepPhase(t: number, seconds: number, fromHz: number, toHz: number): number {
+  if (fromHz === toHz) return fromHz * t;
+  const lnK = Math.log(toHz / fromHz) / seconds;
+  return (fromHz * (Math.exp(lnK * t) - 1)) / lnK;
 }
 
 // ---- SFX recipes (one buffer per SfxEventId) ----
@@ -103,6 +117,14 @@ export function synthSfx(): Record<string, SynthData> {
     "sfx:attack": render(0.18, (t) => (square(110 * t) * 0.5 + (rng(7)() * 2 - 1) * 0.3) * decay(t, 0.18) * 0.8),
     "sfx:assist": blips([[0, 392, 0.12], [0.02, 494, 0.12], [0.04, 587, 0.16]], tri, 0.5),
     "sfx:launch": render(0.12, (t) => square(sweep(t, 0.12, 200, 640) * t) * decay(t, 0.12) * 0.5),
+    // Laser (spec #140 Variant C: quiet and readable). Fire = soft triangle
+    // tick gliding 700 → 500 Hz over 50 ms; it repeats every 350 ms while
+    // held, so it stays well under the ball sounds.
+    "sfx:laserFire": render(0.05, (t) => tri(sweepPhase(t, 0.05, 700, 500)) * decay(t, 0.05) * 0.3),
+    // Bolt Brick hit: short sine blip (replaces the ball's square brickHit).
+    "sfx:boltHit": render(0.04, (t) => sine(1320 * t) * attackDecay(t, 0.003, 0.04) * 0.35),
+    // Gold: dull low square clank, no damage.
+    "sfx:boltGold": render(0.08, (t) => square(sweepPhase(t, 0.08, 130, 95)) * decay(t, 0.08) * 0.3),
   };
 }
 

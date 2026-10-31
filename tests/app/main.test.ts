@@ -116,6 +116,7 @@ function applyMocks(): void {
       readonly container = { destroy: (): void => undefined };
       redraw = vi.fn();
       setRegion = vi.fn();
+      setLaunchGlyph = vi.fn();
     },
   }));
   vi.doMock("ui/versusBotsScreen", () => ({

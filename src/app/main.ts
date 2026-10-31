@@ -34,6 +34,7 @@ import { TouchAdapter } from "input/touch";
 import { bindInputSafety, bindMouseHeld, type MouseHeldTarget } from "input/inputSafety";
 import { mergeDeviceFrames } from "input/mergeFrames";
 import { TouchOverlay } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { layoutField } from "render/layout";
 
@@ -476,6 +477,9 @@ function makeLocalInput(flow: MpFlow) {
         // adapter's hit areas) anchored to it.
         const region = flow.localRegion(player);
         if (region !== null && overlay.regionDiffers(region)) overlay.setRegion(region);
+        // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+        const snap = flow.localSnapshots().find((s) => s.players.some((p) => p.player === player));
+        if (snap !== undefined) overlay.setLaunchGlyph(launchGlyphFor(snap, player));
         overlay.redraw();
       }
     },

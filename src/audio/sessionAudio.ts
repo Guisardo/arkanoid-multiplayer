@@ -84,8 +84,13 @@ export function createSessionAudio(factory: AudioContextFactory): SessionAudio {
       const fresh = snap.events.filter((e) => e.tick > lastEventTick);
       const newest = fresh[fresh.length - 1];
       if (newest !== undefined) lastEventTick = newest.tick;
-      for (const event of fresh) {
-        const sfx = sfxForEvent(event);
+      // `fresh` is a suffix of the ring; `prev` is the event just before
+      // each one (a Bolt's brick result pairs with its `boltHit`).
+      const offset = snap.events.length - fresh.length;
+      for (let i = 0; i < fresh.length; i++) {
+        const event = fresh[i];
+        if (event === undefined) continue;
+        const sfx = sfxForEvent(event, snap.events[offset + i - 1]);
         if (sfx !== null) fireSfx(sfx.id, sfx.pitch, sfx.gain);
         if (event.type === "brickBreak") {
           chain++;

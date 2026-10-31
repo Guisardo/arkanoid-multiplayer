@@ -21,6 +21,7 @@ import {
   ARMED_EFFECT,
   LASER_BOLTS_PER_PADDLE,
   SNAPSHOT_PLAYERS_MAX,
+  isArmedPlayer,
   type BallSnapshot,
   type BoltSnapshot,
   type CapsuleSnapshot,
@@ -41,6 +42,8 @@ const EVENT_TYPES: readonly SimEventType[] = [
   "multiballBoost",
   "roundClear", "gameOver", "attack", "assist", "pause", "resume", "paddleBounce",
   "bossHit", "bossDead",
+  // v4 (ticket #148): append-only, so existing indices never move.
+  "laserFire", "boltHit", "boltGoldHit",
 ];
 const EDGES: readonly PaddleEdge[] = ["bottom", "left", "right", "top"];
 const STATES: readonly PlayerSlotState[] = ["playing", "downed", "removed"];
@@ -48,11 +51,6 @@ const CAPSULES: readonly CapsuleTypeId[] = ["B", "C", "D", "E", "L", "M", "P", "
 const BOLTS_MAX = SNAPSHOT_PLAYERS_MAX * LASER_BOLTS_PER_PADDLE;
 /** Per-bolt wire bytes: f32 x + f32 y + u8 owner. */
 const BOLT_BYTES = 9;
-
-/** Armed = key present and non-zero (sims encode "until ball loss" as -1). */
-function isArmed(p: PlayerSnapshot): boolean {
-  return (p.effects[ARMED_EFFECT] ?? 0) !== 0;
-}
 
 function hasPlayer(players: readonly PlayerSnapshot[], player: number): boolean {
   return players.some((p) => p.player === player);
@@ -269,7 +267,7 @@ export function serializeSnapshot(snap: Snapshot): ArrayBuffer {
   // Laser tail (ticket #141): Armed mask, then bolts (absent = u8(0)).
   let armedMask = 0;
   players.forEach((p, i) => {
-    if (isArmed(p)) armedMask |= 1 << i;
+    if (isArmedPlayer(p)) armedMask |= 1 << i;
   });
   w.u8(armedMask);
   if (bolts !== undefined) {

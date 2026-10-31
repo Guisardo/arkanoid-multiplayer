@@ -9,6 +9,7 @@ import { TouchAdapter } from "input/touch";
 import { bindInputSafety, bindMouseHeld } from "input/inputSafety";
 import { mergeDeviceFrames } from "input/mergeFrames";
 import { TouchOverlay } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass } from "app/mobileLayout";
 import { createBot, type BotDifficulty } from "sim/bot";
 import { FieldView } from "render/fieldView";
@@ -89,6 +90,7 @@ const IDLE_EFFECTS: EffectsState = {
   particlePool: 0,
   pops: [],
   chain: 0,
+  brickFlashes: [],
   reducedEffects: false,
 };
 
@@ -450,6 +452,8 @@ export async function startSoloSession(
       } else if ((menuRequested() || touchPause) && !settingsScreen) {
         openPauseMenu();
       }
+      // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+      touchOverlay?.setLaunchGlyph(launchGlyphFor(latest, 0));
       touchOverlay?.redraw();
       const syncStart = performance.now();
       for (const v of views) v.sync(latest);

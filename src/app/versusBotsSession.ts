@@ -13,6 +13,7 @@ import { TouchAdapter } from "input/touch";
 import { bindInputSafety, bindMouseHeld } from "input/inputSafety";
 import { mergeDeviceFrames } from "input/mergeFrames";
 import { TouchOverlay } from "render/touchOverlay";
+import { launchGlyphFor } from "render/launchGlyph";
 import { detectDeviceClass, touchClusterFor } from "app/mobileLayout";
 import { SplitScreenView } from "render/splitScreen";
 import {
@@ -434,6 +435,9 @@ export async function startVersusBotsSession(
       } else if ((menuRequested() || touchPause) && !settingsScreen && !over) {
         openPauseMenu();
       }
+      // Ticket #148: launch triangle while stuck, laser glyph while Armed.
+      const humanSnap = sim.snapshots()[0];
+      if (humanSnap !== undefined) touchOverlay?.setLaunchGlyph(launchGlyphFor(humanSnap, 0));
       touchOverlay?.redraw();
       const syncStart = performance.now();
       const snaps = sim.snapshots();

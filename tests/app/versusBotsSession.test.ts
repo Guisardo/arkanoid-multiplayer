@@ -107,6 +107,7 @@ vi.mock("render/touchOverlay", () => ({
     readonly container = {};
     redraw = vi.fn();
     setRegion = vi.fn();
+    setLaunchGlyph = vi.fn();
   },
 }));
 

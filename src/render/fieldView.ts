@@ -11,6 +11,7 @@ import { capDpr, fieldCullRect, type FieldLayout } from "./layout";
 import { GAME_FONT_NAME, installGameFont } from "./gameFont";
 import { spriteTexture } from "./spriteSheet";
 import { VisualEffects, type EffectsState, type VisualEffectsScene } from "./visualEffects";
+import { LASER_COLOR, laserShapes, type LaserShapes } from "./laserView";
 import { format, t, type Locale } from "ui/strings";
 import { DEFAULT_SKIN, getSkin, type PlayerSkin } from "content/skins";
 import { DEFAULT_THEME, getTheme, type FieldTheme } from "content/themes";
@@ -61,6 +62,10 @@ export class FieldView {
   /** ADR 0005: the static brick wall — one cached render group. */
   private readonly brickLayer: BrickLayer;
   private readonly bossGfx = new Graphics();
+  /** Laser (ticket #148): Bolts + ready-ticks, and the Bolt Brick flashes. */
+  private readonly laserGfx = new Graphics();
+  private readonly brickFlashGfx = new Graphics();
+  private lastLaserShapes: LaserShapes = { bolts: [], readyTicks: [] };
   private readonly paddleSprite: Sprite | null;
   private readonly ballSprite: Sprite | null;
   private readonly bgSprite: TilingSprite | null;
@@ -154,6 +159,7 @@ export class FieldView {
     });
     this.shakeLayer.addChild(
       this.brickLayer.view,
+      this.brickFlashGfx,
       this.capsuleGfx,
       this.paddleGfx,
       this.ballGfx,
@@ -161,6 +167,7 @@ export class FieldView {
     );
     if (this.paddleSprite !== null) this.shakeLayer.addChild(this.paddleSprite);
     if (this.ballSprite !== null) this.shakeLayer.addChild(this.ballSprite);
+    this.shakeLayer.addChild(this.laserGfx);
 
     // Effect layers sit inside the shake layer, so they inherit both the field
     // scale and the shake — and their coordinates are field units.
@@ -226,6 +233,7 @@ export class FieldView {
       flashLayer: this.flashGfx,
       ballSprite: this.ballSprite,
       paddleSprite: this.paddleSprite,
+      brickFlashLayer: this.brickFlashGfx,
     };
   }
 
@@ -351,6 +359,22 @@ export class FieldView {
     // ADR 0009: events fire after the state draw so anchors read this frame's
     // geometry. The effects advance themselves in tickEffects().
     if (replayEvents) this.syncEffects(snap);
+    // Laser after the events: this frame's `laserFire` gates the ready-ticks.
+    this.drawLaser(snap);
+  }
+
+  /** Bolts + ready-ticks (ticket #148): thin yellow bars, no trail, no glow. */
+  private drawLaser(snap: Snapshot): void {
+    const shapes = laserShapes(snap, (p) => this.effects.lastLaserFire(p));
+    this.lastLaserShapes = shapes;
+    this.laserGfx.clear();
+    for (const r of shapes.bolts) this.laserGfx.rect(r.x, r.y, r.w, r.h).fill(LASER_COLOR);
+    for (const r of shapes.readyTicks) this.laserGfx.rect(r.x, r.y, r.w, r.h).fill(LASER_COLOR);
+  }
+
+  /** Test probe (ticket #148): the laser rectangles drawn on the last sync. */
+  get laserShapes(): LaserShapes {
+    return this.lastLaserShapes;
   }
 
   // ---- visual effects (ADR 0009) -------------------------------------------
